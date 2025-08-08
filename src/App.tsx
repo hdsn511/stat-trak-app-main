@@ -1,9 +1,10 @@
+// src/App.tsx
 import { Route, Routes } from "react-router-dom";
 import Header from "./components/Header/Header";
 import SearchbarHeader from "./components/Searchbar/Searchbar";
 import SideBar from "./components/Sidebar/Sidebar";
 import Home from "./pages/Home/home";
-import "./Styles/App.scss";
+import "./styles/App.scss";
 
 const App = () => {
   const navLinks = [
@@ -48,6 +49,9 @@ const App = () => {
             {/* <Route path="/player/:id" element={<PlayerStats />} /> */}
             {/* <Route path="/picks" element={<PopularPicks />} /> */}
             {/* <Route path="/recommendations" element={<BettingRecommendations />} /> */}
+            {/* <Route path="/trends" element={<TrendsPage />} /> */}
+            {/* <Route path="/analytics" element={<Analytics />} /> */}
+            {/* <Route path="/live" element={<LiveScores />} /> */}
           </Routes>
         </main>
       </div>

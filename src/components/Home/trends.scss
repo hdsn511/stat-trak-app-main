@@ -1,0 +1,614 @@
+// src/components/Trends/trends.scss
+@use "../../styles/global/variables" as vars;
+
+.trends-container {
+  padding-left: 224px;
+  background-color: vars.$background-color;
+  color: vars.$secondary-color;
+  font-family: vars.$secondary-font;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+
+  .trends-header {
+    margin-bottom: 1.5rem;
+    text-align: left;
+
+    .trends-title {
+      font-family: vars.$primary-font;
+      font-size: 1.8rem;
+      color: vars.$primary-color;
+      margin-bottom: 0.5rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+
+      .header-icon {
+        width: 24px;
+        height: 24px;
+      }
+    }
+
+    .trends-subtitle {
+      font-size: 0.9rem;
+      color: rgba(vars.$secondary-color, 0.8);
+      margin: 0;
+    }
+  }
+
+  .loading-container {
+    .loading-columns {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 2rem;
+
+      .loading-column {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+
+        .loading-item {
+          height: 180px;
+          background-color: vars.$secondary-background-color;
+          border-radius: 8px;
+          position: relative;
+          overflow: hidden;
+
+          &::after {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(
+              90deg,
+              transparent,
+              rgba(vars.$primary-color, 0.2),
+              transparent
+            );
+            animation: shimmer 2s infinite;
+          }
+        }
+      }
+    }
+  }
+
+  @keyframes shimmer {
+    0% {
+      left: -100%;
+    }
+    100% {
+      left: 100%;
+    }
+  }
+
+  .trends-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    padding: 1rem;
+    background-color: vars.$secondary-background-color;
+    border-radius: 6px;
+    border: 1px solid rgba(vars.$primary-color, 0.2);
+
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+
+      .control-label {
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: vars.$primary-color;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+    }
+
+    .sport-tabs {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      justify-content: center;
+
+      .sport-tab {
+        padding: 0.5rem 1rem;
+        background-color: vars.$background-color;
+        border: 1px solid rgba(vars.$primary-color, 0.3);
+        border-radius: 4px;
+        color: vars.$secondary-color;
+        font-family: vars.$secondary-font;
+        font-size: 0.85rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        flex: 1;
+        text-align: center;
+        min-width: 0;
+
+        &:hover {
+          background-color: rgba(vars.$primary-color, 0.1);
+          border-color: vars.$primary-color;
+        }
+
+        &.active {
+          background-color: vars.$primary-color;
+          color: vars.$background-color;
+          border-color: vars.$primary-color;
+        }
+      }
+    }
+  }
+
+  // Three Column Layout
+  .trends-columns {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+    height: calc(100vh - 280px);
+
+    .trend-column {
+      background-color: vars.$secondary-background-color;
+      border-radius: 6px;
+      border: 1px solid rgba(vars.$primary-color, 0.2);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+
+      .column-header {
+        padding: 1rem;
+        border-bottom: 1px solid rgba(vars.$primary-color, 0.2);
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        flex-shrink: 0;
+
+        .column-icon {
+          width: 18px;
+          height: 18px;
+        }
+
+        .column-title {
+          font-family: vars.$primary-font;
+          font-size: 1rem;
+          font-weight: 700;
+          margin: 0;
+          flex: 1;
+        }
+
+        .column-count {
+          background-color: vars.$primary-color;
+          color: vars.$background-color;
+          padding: 0.2rem 0.5rem;
+          border-radius: 10px;
+          font-size: 0.75rem;
+          font-weight: 600;
+        }
+      }
+
+      .column-content {
+        flex: 1;
+        padding: 0.75rem;
+        overflow-y: auto;
+        min-height: 0;
+
+        // Custom scrollbar
+        &::-webkit-scrollbar {
+          width: 4px;
+        }
+
+        &::-webkit-scrollbar-track {
+          background: vars.$background-color;
+          border-radius: 2px;
+        }
+
+        &::-webkit-scrollbar-thumb {
+          background: vars.$primary-color;
+          border-radius: 2px;
+
+          &:hover {
+            background: lighten(vars.$primary-color, 10%);
+          }
+        }
+
+        .player-card {
+          background-color: vars.$background-color;
+          border-radius: 4px;
+          padding: 1rem;
+          margin-bottom: 0.75rem;
+          border: 1px solid transparent;
+          transition: all 0.2s ease;
+          cursor: pointer;
+
+          &:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+          }
+
+          &:last-child {
+            margin-bottom: 0;
+          }
+
+          .player-info {
+            margin-bottom: 0.75rem;
+
+            .player-name {
+              font-size: 0.95rem;
+              font-weight: 700;
+              color: vars.$secondary-color;
+              margin-bottom: 0.2rem;
+            }
+
+            .player-meta {
+              font-size: 0.75rem;
+              color: rgba(vars.$secondary-color, 0.7);
+              font-weight: 500;
+            }
+          }
+
+          .trend-details {
+            margin-bottom: 0.75rem;
+
+            .trend-stat {
+              display: flex;
+              align-items: baseline;
+              gap: 0.4rem;
+              margin-bottom: 0.4rem;
+
+              .stat-value {
+                font-size: 1.2rem;
+                font-weight: 700;
+                color: vars.$primary-color;
+
+                .rank {
+                  font-size: 0.8rem;
+                  opacity: 0.8;
+                  margin-left: 0.2rem;
+                }
+              }
+
+              .stat-label {
+                font-size: 0.7rem;
+                color: rgba(vars.$secondary-color, 0.7);
+                text-transform: uppercase;
+                letter-spacing: 0.3px;
+              }
+            }
+
+            .trend-description {
+              font-size: 0.8rem;
+              color: rgba(vars.$secondary-color, 0.85);
+              line-height: 1.3;
+            }
+          }
+
+          .betting-section {
+            background-color: rgba(vars.$primary-color, 0.05);
+            border: 1px solid rgba(vars.$primary-color, 0.2);
+            border-radius: 3px;
+            padding: 0.6rem;
+            margin-bottom: 0.6rem;
+
+            .betting-line {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              margin-bottom: 0.2rem;
+
+              .line-label {
+                font-size: 0.75rem;
+                color: rgba(vars.$secondary-color, 0.8);
+              }
+
+              .recommendation {
+                font-size: 0.7rem;
+                font-weight: 600;
+                padding: 0.15rem 0.4rem;
+                border-radius: 2px;
+
+                &.over {
+                  background-color: rgba(34, 197, 94, 0.2);
+                  color: #22c55e;
+                }
+
+                &.under {
+                  background-color: rgba(239, 68, 68, 0.2);
+                  color: #ef4444;
+                }
+
+                &.avoid {
+                  background-color: rgba(107, 114, 128, 0.2);
+                  color: #6b7280;
+                }
+              }
+            }
+
+            .confidence {
+              font-size: 0.7rem;
+              font-weight: 500;
+              text-align: center;
+
+              &.confidence-high {
+                color: #22c55e;
+              }
+              &.confidence-medium {
+                color: vars.$primary-color;
+              }
+              &.confidence-low {
+                color: #ef4444;
+              }
+            }
+          }
+
+          .next-game {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.7rem;
+            color: rgba(vars.$secondary-color, 0.7);
+
+            .venue {
+              font-size: 0.85rem;
+            }
+          }
+
+          .legacy-status {
+            background-color: rgba(vars.$primary-color, 0.1);
+            border: 1px solid rgba(vars.$primary-color, 0.3);
+            border-radius: 3px;
+            padding: 0.4rem;
+            text-align: center;
+
+            .legacy-label {
+              font-size: 0.7rem;
+              color: vars.$primary-color;
+              font-weight: 600;
+              text-transform: uppercase;
+              letter-spacing: 0.3px;
+            }
+          }
+        }
+
+        .no-data {
+          text-align: center;
+          padding: 1.5rem;
+          color: rgba(vars.$secondary-color, 0.6);
+          font-style: italic;
+          font-size: 0.85rem;
+        }
+      }
+
+      // Column-specific styling
+      &.hot-streaks {
+        .column-header {
+          background-color: rgba(34, 197, 94, 0.1);
+
+          .column-icon,
+          .column-title {
+            color: #22c55e;
+          }
+        }
+
+        .player-card {
+          border-left: 3px solid #22c55e;
+
+          &:hover {
+            border-color: #22c55e;
+            box-shadow: 0 4px 12px rgba(34, 197, 94, 0.2);
+          }
+        }
+      }
+
+      &.slumps {
+        .column-header {
+          background-color: rgba(239, 68, 68, 0.1);
+
+          .column-icon,
+          .column-title {
+            color: #ef4444;
+          }
+        }
+
+        .player-card {
+          border-left: 3px solid #ef4444;
+
+          &:hover {
+            border-color: #ef4444;
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2);
+          }
+        }
+      }
+
+      &.career-highs {
+        .column-header {
+          background-color: rgba(vars.$primary-color, 0.1);
+
+          .column-icon,
+          .column-title {
+            color: vars.$primary-color;
+          }
+        }
+
+        .player-card {
+          border-left: 3px solid vars.$primary-color;
+
+          &:hover {
+            border-color: vars.$primary-color;
+            box-shadow: 0 4px 12px rgba(vars.$primary-color, 0.2);
+          }
+        }
+      }
+    }
+  }
+}
+
+// Responsive Design
+@media (max-width: 1200px) {
+  .trends-container {
+    .trends-columns {
+      grid-template-columns: 1fr;
+      gap: 1rem;
+      height: auto;
+
+      .trend-column {
+        .column-content {
+          max-height: 300px;
+        }
+      }
+    }
+  }
+}
+
+@media (max-width: 768px) {
+  .trends-container {
+    padding: 0.75rem;
+
+    .trends-header {
+      .trends-title {
+        font-size: 1.4rem;
+        flex-direction: column;
+        gap: 0.25rem;
+
+        .header-icon {
+          width: 20px;
+          height: 20px;
+        }
+      }
+
+      .trends-subtitle {
+        font-size: 0.8rem;
+      }
+    }
+
+    .trends-controls {
+      padding: 0.75rem;
+      margin-bottom: 1rem;
+
+      .sport-tabs {
+        .sport-tab {
+          padding: 0.4rem 0.8rem;
+          font-size: 0.8rem;
+        }
+      }
+    }
+
+    .trends-columns {
+      .trend-column {
+        .column-header {
+          padding: 0.75rem;
+
+          .column-title {
+            font-size: 0.9rem;
+          }
+
+          .column-icon {
+            width: 16px;
+            height: 16px;
+          }
+        }
+
+        .column-content {
+          padding: 0.5rem;
+          max-height: 250px;
+
+          .player-card {
+            padding: 0.75rem;
+
+            .player-info {
+              margin-bottom: 0.5rem;
+
+              .player-name {
+                font-size: 0.85rem;
+              }
+
+              .player-meta {
+                font-size: 0.7rem;
+              }
+            }
+
+            .trend-details {
+              margin-bottom: 0.5rem;
+
+              .trend-stat {
+                .stat-value {
+                  font-size: 1rem;
+                }
+
+                .stat-label {
+                  font-size: 0.65rem;
+                }
+              }
+
+              .trend-description {
+                font-size: 0.75rem;
+              }
+            }
+
+            .betting-section {
+              padding: 0.5rem;
+              margin-bottom: 0.5rem;
+
+              .betting-line {
+                .line-label {
+                  font-size: 0.7rem;
+                }
+
+                .recommendation {
+                  font-size: 0.65rem;
+                  padding: 0.1rem 0.3rem;
+                }
+              }
+
+              .confidence {
+                font-size: 0.65rem;
+              }
+            }
+
+            .next-game {
+              font-size: 0.65rem;
+
+              .venue {
+                font-size: 0.75rem;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+@media (max-width: 480px) {
+  .trends-container {
+    .trends-header {
+      .trends-title {
+        font-size: 1.2rem;
+      }
+
+      .trends-subtitle {
+        font-size: 0.8rem;
+      }
+    }
+
+    .trends-columns {
+      .trend-column {
+        .column-content {
+          .player-card {
+            .betting-section {
+              .betting-line {
+                flex-direction: column;
+                gap: 0.25rem;
+                align-items: flex-start;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

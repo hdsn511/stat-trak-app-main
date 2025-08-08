@@ -1,0 +1,16 @@
+@use "variables" as vars;
+@use "mixins" as mix;
+
+body {
+  background-color: vars.$background-color;
+}
+
+.main {
+  display: flex;
+  justify-content: center; /* Horizontally center the search bar */
+  align-items: center; /* Vertically center the search bar */
+  overflow-y: auto;
+  padding: 1rem; /* Optional: Add some padding */
+  margin-left: 250px;
+  
+}

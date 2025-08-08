@@ -1,0 +1,16 @@
+@use "./global/variables" as vars;
+
+.app {
+  height: 100vh;
+  overflow: hidden;
+  background-color: vars.$background-color;
+}
+
+.layout {
+  height: calc(100vh - 80px); // Adjust based on your header height
+}
+
+.main {
+  overflow-y: auto;
+  padding: 1rem; // Using standard spacing since $spacing-md isn't defined yet
+}

@@ -1,0 +1,62 @@
+@use "../../styles/global/variables" as vars;
+
+.sidebar {
+  background-color: vars.$secondary-background-color;
+  font-family: vars.$secondary-font;
+  width: 225px;
+  position: fixed; // Changed from relative to fixed
+  top: 0; // Changed from margin-top to top
+  left: 0;
+  height: calc(100vh - 84px); // Use height instead of min-height
+  overflow-y: auto;
+  z-index: 50; // Lower than search bar (z-index: 100)
+  
+  // Custom scrollbar
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+  
+  &::-webkit-scrollbar-track {
+    background: vars.$secondary-background-color;
+  }
+  
+  &::-webkit-scrollbar-thumb {
+    background: vars.$primary-color;
+    border-radius: 3px;
+    
+    &:hover {
+      background: lighten(vars.$primary-color, 10%);
+    }
+  }
+
+  .sidebar-title {
+    font-size: 1.25rem;
+    color: vars.$secondary-color;
+    text-decoration: underline dotted vars.$primary-color;
+    margin-bottom: 0;
+    font-weight: 600;
+  }
+
+  .list-group {
+    .list-group-item {
+      background-color: vars.$background-color;
+      color: vars.$secondary-color;
+      border-radius: 6px;
+      margin-bottom: 0.5rem;
+      padding: 0.75rem;
+      transition: all 0.2s ease;
+      cursor: pointer;
+      
+      &:hover {
+        background-color: lighten(vars.$background-color, 5%);
+        border-left: 3px solid vars.$primary-color;
+        padding-left: calc(0.75rem - 3px); // Maintain alignment
+        transform: translateX(2px);
+      }
+      
+      &:last-child {
+        margin-bottom: 0;
+      }
+    }
+  }
+}

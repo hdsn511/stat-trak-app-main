@@ -10,19 +10,19 @@ const Home: React.FC = () => {
       <div className="hero-section">
         <div className="hero-content">
           <h1 className="hero-title">
-            Track <span className="highlight">Hot Streaks</span> & 
+            Track <span className="highlight">Hot Streaks</span> &
             <span className="highlight"> Betting Opportunities</span>
           </h1>
           <p className="hero-subtitle">
-            Real-time player trends, statistical analysis, and data-driven betting insights 
-            across NFL, NBA, NHL, and MLB
+            Real-time player trends, statistical analysis, and data-driven
+            betting insights across NFL, NBA, NHL, and MLB
           </p>
         </div>
       </div>
 
       {/* Main Trends Component with Betting Insights */}
       <Trends />
-      
+
       {/* Quick Stats Grid */}
       <div className="quick-stats-section">
         <h2 className="section-title">Today's Highlights</h2>
@@ -49,7 +49,7 @@ const Home: React.FC = () => {
           </div>
         </div>
       </div>
-      
+
       {/* Future sections can be added here */}
       {/* <LiveOdds /> */}
       {/* <PopularPicks /> */}

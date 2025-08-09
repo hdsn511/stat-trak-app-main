@@ -1,14 +1,14 @@
-// src/App.tsx
 import { Route, Routes } from "react-router-dom";
 import Header from "./components/Header/Header";
 import SearchbarHeader from "./components/Searchbar/Searchbar";
 import SideBar from "./components/Sidebar/Sidebar";
-import Home from "./pages/Home/home";
-import "./styles/App.scss";
+import Home from "./pages/Home/Home";
+import NBA from "./pages/NBA/NBA";
+import "./Styles/App.scss";
 
 const App = () => {
   const navLinks = [
-    { label: "NBA", href: "#" },
+    { label: "NBA", href: "/nba" },
     { label: "NFL", href: "#" },
     { label: "NHL", href: "#" },
     { label: "MLB", href: "#" },
@@ -45,13 +45,11 @@ const App = () => {
         <main className="main flex-grow-1 ms-auto p-3">
           <Routes>
             <Route path="/" element={<Home />} />
+            <Route path="/nba" element={<NBA />} />
             {/* Future routes for your sports betting features */}
             {/* <Route path="/player/:id" element={<PlayerStats />} /> */}
             {/* <Route path="/picks" element={<PopularPicks />} /> */}
             {/* <Route path="/recommendations" element={<BettingRecommendations />} /> */}
-            {/* <Route path="/trends" element={<TrendsPage />} /> */}
-            {/* <Route path="/analytics" element={<Analytics />} /> */}
-            {/* <Route path="/live" element={<LiveScores />} /> */}
           </Routes>
         </main>
       </div>

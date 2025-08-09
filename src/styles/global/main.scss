@@ -1,16 +1,22 @@
+// Updated src/styles/global/main.scss
 @use "variables" as vars;
 @use "mixins" as mix;
 
-body {
-  background-color: vars.$background-color;
+* {
+  box-sizing: border-box;
 }
 
-.main {
-  display: flex;
-  justify-content: center; /* Horizontally center the search bar */
-  align-items: center; /* Vertically center the search bar */
-  overflow-y: auto;
-  padding: 1rem; /* Optional: Add some padding */
-  margin-left: 250px;
-  
+body {
+  margin: 0;
+  padding: 0;
+  background-color: vars.$background-color;
+  font-family: vars.$secondary-font;
+  overflow-x: hidden;
 }
+
+#root {
+  min-height: 100vh;
+}
+
+// Remove ALL .main styles from here - they're handled in App.scss
+// This prevents conflicting layout rules

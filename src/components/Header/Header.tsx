@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import "./header.scss";
 
 interface NavLink {
@@ -16,12 +17,11 @@ const Header = ({ title, navLinks, allLeaguesLink }: HeaderProps) => {
     <header className="position-fixed top-0 start-0 w-100 py-3 px-4 d-flex align-items-center justify-content-between">
       {/* Website Title */}
       <h1 className="m-0 title">
-        {/* Better: use Link component for SPA routing instead of <a> */}
-        <a href="/" aria-label="Homepage">
+        <Link to="/" aria-label="Homepage">
           <span className="stat-text">{title.stat}</span>
           <span className="trak-text">{title.trak}</span>
           <span className="sports-text">{title.sports}</span>
-        </a>
+        </Link>
       </h1>
 
       {/* Centered Navigation Links */}
@@ -29,9 +29,15 @@ const Header = ({ title, navLinks, allLeaguesLink }: HeaderProps) => {
         <ul className="nav justify-content-center">
           {navLinks.map((link) => (
             <li className="nav-item" key={link.href}>
-              <a href={link.href} className="nav-link">
-                {link.label}
-              </a>
+              {link.href.startsWith("/") ? (
+                <Link to={link.href} className="nav-link">
+                  {link.label}
+                </Link>
+              ) : (
+                <a href={link.href} className="nav-link">
+                  {link.label}
+                </a>
+              )}
             </li>
           ))}
         </ul>
@@ -39,9 +45,15 @@ const Header = ({ title, navLinks, allLeaguesLink }: HeaderProps) => {
 
       {/* All Leagues Link */}
       <div className="allLeagues">
-        <a href={allLeaguesLink.href} className="nav-link px-3 py-2">
-          {allLeaguesLink.label}
-        </a>
+        {allLeaguesLink.href.startsWith("/") ? (
+          <Link to={allLeaguesLink.href} className="nav-link px-3 py-2">
+            {allLeaguesLink.label}
+          </Link>
+        ) : (
+          <a href={allLeaguesLink.href} className="nav-link px-3 py-2">
+            {allLeaguesLink.label}
+          </a>
+        )}
       </div>
     </header>
   );

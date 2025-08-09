@@ -1,8 +1,7 @@
-// src/pages/NBA/nba.scss - COMPLETE REPLACEMENT
+// src/pages/MLB/mlb.scss
 @use "../../styles/global/variables" as vars;
 
-.nba-page {
-  // NO padding, NO max-width - use full available space
+.mlb-page {
   width: 100%;
   color: vars.$secondary-color;
   font-family: vars.$secondary-font;

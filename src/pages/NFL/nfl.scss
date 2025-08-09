@@ -1,8 +1,7 @@
-// src/pages/NBA/nba.scss - COMPLETE REPLACEMENT
+// src/pages/NFL/nfl.scss
 @use "../../styles/global/variables" as vars;
 
-.nba-page {
-  // NO padding, NO max-width - use full available space
+.nfl-page {
   width: 100%;
   color: vars.$secondary-color;
   font-family: vars.$secondary-font;
@@ -47,9 +46,9 @@
 
       .pick-card {
         min-width: 280px;
-        background: vars.$secondary-background-color;
         border-radius: 12px;
         padding: 1.5rem;
+        background: vars.$secondary-background-color;
         border: 2px solid transparent;
         transition: all 0.3s ease;
         cursor: pointer;

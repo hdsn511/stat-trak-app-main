@@ -482,7 +482,7 @@ const NBA: React.FC = () => {
     <div className="nba-page">
       {/* Popular Picks Section */}
       <div className="popular-picks-section">
-        <h2>🔥 Today's Hot Picks</h2>
+        <h2>NBA Hot Picks</h2>
         <div className="picks-container">
           {popularPicks.map((pick) => (
             <div key={pick.id} className="pick-card">
@@ -510,7 +510,7 @@ const NBA: React.FC = () => {
 
       {/* News Section */}
       <div className="news-section">
-        <h2>📰 Latest NBA News</h2>
+        <h2>Latest NBA News</h2>
         <div className="news-container">
           {news.map((item) => (
             <div key={item.id} className="news-card">
@@ -529,7 +529,7 @@ const NBA: React.FC = () => {
 
       {/* Teams Section */}
       <div className="teams-section">
-        <h2>🏀 NBA Teams</h2>
+        <h2>NBA Teams</h2>
         <div className="conferences-container">
           {/* Eastern Conference */}
           <div className="conference">

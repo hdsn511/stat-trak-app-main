@@ -1,8 +1,7 @@
-// src/pages/NBA/nba.scss - COMPLETE REPLACEMENT
+// src/pages/NHL/nhl.scss
 @use "../../styles/global/variables" as vars;
 
-.nba-page {
-  // NO padding, NO max-width - use full available space
+.nhl-page {
   width: 100%;
   color: vars.$secondary-color;
   font-family: vars.$secondary-font;

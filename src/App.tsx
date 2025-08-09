@@ -4,14 +4,17 @@ import SearchbarHeader from "./components/Searchbar/Searchbar";
 import SideBar from "./components/Sidebar/Sidebar";
 import Home from "./pages/Home/Home";
 import NBA from "./pages/NBA/NBA";
+import NFL from "./pages/NFL/NFL";
+import MLB from "./pages/MLB/MLB";
+import NHL from "./pages/NHL/NHL";
 import "./Styles/App.scss";
 
 const App = () => {
   const navLinks = [
     { label: "NBA", href: "/nba" },
-    { label: "NFL", href: "#" },
-    { label: "NHL", href: "#" },
-    { label: "MLB", href: "#" },
+    { label: "NFL", href: "/nfl" },
+    { label: "NHL", href: "/nhl" },
+    { label: "MLB", href: "/mlb" },
   ];
 
   const allLeaguesLink = { label: "All Leagues", href: "#" };
@@ -46,6 +49,11 @@ const App = () => {
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/nba" element={<NBA />} />
+            <Route path="/nfl" element={<NFL />} />
+            <Route path="/nhl" element={<NHL />} />
+            <Route path="/mlb" element={<MLB />} />
+            {/* Add more routes as needed */}
+            <Route path="*" element={<div>Page Not Found</div>} />
             {/* Future routes for your sports betting features */}
             {/* <Route path="/player/:id" element={<PlayerStats />} /> */}
             {/* <Route path="/picks" element={<PopularPicks />} /> */}

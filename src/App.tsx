@@ -5,6 +5,10 @@ import SideBar from "./components/Sidebar/Sidebar";
 import Home from "./pages/Home/Home";
 import TrendFinder from "./components/TrendFinder/TrendFinder";
 import PlayerDetailView from "./components/TrendFinder/PlayerDetailView";
+import NBA from "./pages/NBA/NBA";
+import NFL from "./pages/NFL/NFL";
+import MLB from "./pages/MLB/MLB";
+import NHL from "./pages/NHL/NHL";  
 import "./Styles/App.scss";
 
 const App = () => {
@@ -46,6 +50,10 @@ const App = () => {
         <main className="main flex-grow-1 ms-auto p-3">
           <Routes>
             <Route path="/" element={<Home />} />
+            <Route path="/nba" element={<NBA />} />
+            <Route path="/nfl" element={<NFL />} />
+            <Route path="/mlb" element={<MLB />} />
+            <Route path="/nhl" element={<NHL />} />
             <Route path="/trend-finder" element={<TrendFinder />} />
             <Route path="/trend-finder/player/:id" element={<PlayerDetailView />} />
             {/* Future routes for your sports betting features */}

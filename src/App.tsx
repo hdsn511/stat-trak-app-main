@@ -3,21 +3,19 @@ import Header from "./components/Header/Header";
 import SearchbarHeader from "./components/Searchbar/Searchbar";
 import SideBar from "./components/Sidebar/Sidebar";
 import Home from "./pages/Home/Home";
-import NBA from "./pages/NBA/NBA";
-import NFL from "./pages/NFL/NFL";
-import MLB from "./pages/MLB/MLB";
-import NHL from "./pages/NHL/NHL";
+import TrendFinder from "./components/TrendFinder/TrendFinder";
+import PlayerDetailView from "./components/TrendFinder/PlayerDetailView";
 import "./Styles/App.scss";
 
 const App = () => {
   const navLinks = [
-    { label: "NBA", href: "/nba" },
-    { label: "NFL", href: "/nfl" },
-    { label: "NHL", href: "/nhl" },
-    { label: "MLB", href: "/mlb" },
+    { label: "NBA", href: "#" },
+    { label: "NFL", href: "#" },
+    { label: "NHL", href: "#" },
+    { label: "MLB", href: "#" },
   ];
 
-  const allLeaguesLink = { label: "All Leagues", href: "#" };
+  const trendFinderLink = { label: "Trend Finder", href: "/trend-finder" };
   const title = { stat: "Stat", trak: "Trak", sports: "Sports" };
 
   const handleSearch = (query: string) => {
@@ -34,7 +32,7 @@ const App = () => {
       <Header
         title={title}
         navLinks={navLinks}
-        allLeaguesLink={allLeaguesLink}
+        allLeaguesLink={trendFinderLink}
       />
 
       <SearchbarHeader
@@ -48,12 +46,8 @@ const App = () => {
         <main className="main flex-grow-1 ms-auto p-3">
           <Routes>
             <Route path="/" element={<Home />} />
-            <Route path="/nba" element={<NBA />} />
-            <Route path="/nfl" element={<NFL />} />
-            <Route path="/nhl" element={<NHL />} />
-            <Route path="/mlb" element={<MLB />} />
-            {/* Add more routes as needed */}
-            <Route path="*" element={<div>Page Not Found</div>} />
+            <Route path="/trend-finder" element={<TrendFinder />} />
+            <Route path="/trend-finder/player/:id" element={<PlayerDetailView />} />
             {/* Future routes for your sports betting features */}
             {/* <Route path="/player/:id" element={<PlayerStats />} /> */}
             {/* <Route path="/picks" element={<PopularPicks />} /> */}

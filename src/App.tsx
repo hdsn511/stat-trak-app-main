@@ -8,15 +8,15 @@ import PlayerDetailView from "./components/TrendFinder/PlayerDetailView";
 import NBA from "./pages/NBA/NBA";
 import NFL from "./pages/NFL/NFL";
 import MLB from "./pages/MLB/MLB";
-import NHL from "./pages/NHL/NHL";  
+import NHL from "./pages/NHL/NHL";
 import "./Styles/App.scss";
 
 const App = () => {
   const navLinks = [
-    { label: "NBA", href: "#" },
-    { label: "NFL", href: "#" },
-    { label: "NHL", href: "#" },
-    { label: "MLB", href: "#" },
+    { label: "NBA", href: "/nba" },
+    { label: "NFL", href: "/nfl" },
+    { label: "NHL", href: "/nhl" },
+    { label: "MLB", href: "/mlb" },
   ];
 
   const trendFinderLink = { label: "Trend Finder", href: "/trend-finder" };

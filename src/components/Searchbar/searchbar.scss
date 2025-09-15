@@ -3,7 +3,7 @@
 .searchbar-header-container {
   position: fixed;
   top: 84px; // Below header
-  left: 225px; // To the right of sidebar by default
+  left: 0px; // To the right of sidebar by default
   right: 0;
   z-index: 100; // Lower than header and sidebar
   background-color: rgb(30, 30, 30); // Secondary background

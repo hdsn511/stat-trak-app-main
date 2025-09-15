@@ -17,8 +17,8 @@
 // Main content area - FIXED POSITIONING
 .main {
   position: fixed;
-  top:168px; // 84px header + 50px searchbar // Exact sidebar width
-  left: 225px; // Sidebar width
+  top:140px; // 84px header + 50px searchbar // Exact sidebar width
+  left: 0px; // Sidebar width
   right: 0; // Stretch to screen edge
   bottom: 0; // Stretch to bottom
   overflow-y: auto;

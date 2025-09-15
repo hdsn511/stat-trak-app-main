@@ -11,6 +11,9 @@ import MLB from "./pages/MLB/MLB";
 import NHL from "./pages/NHL/NHL";
 import "./Styles/App.scss";
 
+import { useEffect } from "react";
+import { api } from "./services/api";
+
 const App = () => {
   const navLinks = [
     { label: "NBA", href: "/nba" },
@@ -31,6 +34,27 @@ const App = () => {
     // - Display betting info if applicable
   };
 
+  useEffect(() => {
+    const testBackend = async () => {
+      try {
+        console.log('Testing backend connection...');
+        
+        // Test health endpoint
+        const health = await api.getHealth();
+        console.log('✅ Backend health:', health);
+        
+        // Test players endpoint
+        const players = await api.getPlayers();
+        console.log('✅ Players from backend:', players);
+        
+      } catch (error) {
+        console.error('❌ Backend connection failed:', error);
+      }
+    };
+
+    testBackend();
+  }, []);
+
   return (
     <div className="app">
       <Header
@@ -45,8 +69,7 @@ const App = () => {
       />
 
       <div className="layout d-flex">
-        <SideBar />
-
+        {/* <SideBar />  */}
         <main className="main flex-grow-1 ms-auto p-3">
           <Routes>
             <Route path="/" element={<Home />} />

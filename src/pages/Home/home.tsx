@@ -1,6 +1,7 @@
 // src/pages/Home/home.tsx
 import React from "react";
 import Trends from "../../components/Home/Trends";
+import TrendFinder from "../../components/TrendFinder/TrendFinder";
 import "./home.scss";
 
 const Home: React.FC = () => {
@@ -8,7 +9,7 @@ const Home: React.FC = () => {
     <div className="home-page">
 
       {/* Main Trends Component with Betting Insights */}
-      <Trends />
+      <TrendFinder />
 
       
       {/* Future sections can be added here */}

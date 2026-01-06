@@ -35,7 +35,7 @@ app.get('/api/players', (req: any, res: any) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`íº€ StatTrak API running on http://localhost:${PORT}`);
-  console.log(`í³Š Health check: http://localhost:${PORT}/health`);
-  console.log(`í¿€ Players API: http://localhost:${PORT}/api/players`);
+  console.log(`StatTrak API running on http://localhost:${PORT}`);
+  console.log(`Health check: http://localhost:${PORT}/health`);
+  console.log(`Players API: http://localhost:${PORT}/api/players`);
 });

@@ -21,7 +21,7 @@ export default function Sidebar() {
           <Calendar size={14} className="text-[#2AFFC8]" />
           <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Today's Games</span>
         </div>
-
+      
         {loading && (
           <div className="space-y-3">
             {[1, 2, 3].map(i => (

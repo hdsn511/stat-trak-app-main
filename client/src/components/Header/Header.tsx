@@ -55,6 +55,7 @@ export default function Header() {
       <Link to="/" className="flex-shrink-0 flex items-center">
         <span className="font-display text-xl font-black text-mint">Stat</span>
         <span className="font-display text-xl font-black text-white">Trak</span>
+        <span className="font-display text-xl font-black text-mint">Sports</span>
       </Link>
 
       {/* Nav */}

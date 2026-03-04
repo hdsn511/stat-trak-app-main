@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(npx tailwindcss:*)",
+      "Bash(npx shadcn@latest:*)",
+      "Bash(node:*)",
+      "Bash(npx:*)",
+      "Bash(cmd.exe:*)",
+      "Bash(grep:*)",
+      "Bash(npm test:*)",
+      "Bash(git add:*)",
+      "Bash(git:*)",
+      "Bash(npm uninstall:*)",
+      "Bash(node_modules/.bin/vitest:*)",
+      "Bash(npm run:*)"
+    ]
+  }
+}

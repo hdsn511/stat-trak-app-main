@@ -1,282 +1,215 @@
-import React, { useState, useMemo } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
-import { ArrowLeft } from 'lucide-react';
-import './playerdetailview.scss';
+import { useEffect, useState, useMemo } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
+import { ArrowLeft } from 'lucide-react'
+import { nbaApi, PlayerProfile, GameStat } from '@/services/api'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Badge } from '@/components/ui/badge'
 
-interface PlayerDetailState {
-  player: any;
-  filters: any;
+const STATS = ['points', 'rebounds', 'assists', 'threes'] as const
+type StatKey = typeof STATS[number]
+
+const STAT_LABELS: Record<StatKey, string> = {
+  points: 'PTS', rebounds: 'REB', assists: 'AST', threes: '3PM'
 }
 
-interface CustomFilters {
-  stat: string;
-  threshold: number;
-  games: string;
-  vsTeam: string;
-  season: string;
+function zColor(z: number) {
+  if (z >= 1.5) return 'text-[#2AFFC8]'
+  if (z >= 0.5) return 'text-green-400'
+  if (z <= -1.5) return 'text-red-400'
+  if (z <= -0.5) return 'text-orange-400'
+  return 'text-gray-400'
 }
 
-const PlayerDetailView: React.FC = () => {
-  const location = useLocation();
-  const navigate = useNavigate();
-  const { player, filters: initialFilters } = location.state as PlayerDetailState;
+export default function PlayerDetailView() {
+  const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
+  const [profile, setProfile] = useState<PlayerProfile | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [activeStat, setActiveStat] = useState<StatKey>('points')
+  const [threshold, setThreshold] = useState(20)
+  const [gameWindow, setGameWindow] = useState(10)
 
-  const [customFilters, setCustomFilters] = useState<CustomFilters>({
-    stat: initialFilters.stat,
-    threshold: initialFilters.value,
-    games: initialFilters.games,
-    vsTeam: '',
-    season: '2024-25'
-  });
+  useEffect(() => {
+    if (!id) return
+    nbaApi.getPlayerProfile(parseInt(id))
+      .then(data => {
+        setProfile(data)
+        const ptAvg = data.rollingAvgs?.points
+        if (ptAvg) setThreshold(Math.floor(ptAvg))
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [id])
 
-  // Mock extended game data with opponents
-  const extendedGameData = useMemo(() => [
-    { game: 1, stat: 28, opponent: 'BOS', date: '2024-01-15' },
-    { game: 2, stat: 31, opponent: 'MIA', date: '2024-01-17' },
-    { game: 3, stat: 24, opponent: 'NYK', date: '2024-01-19' },
-    { game: 4, stat: 27, opponent: 'PHI', date: '2024-01-21' },
-    { game: 5, stat: 29, opponent: 'BRK', date: '2024-01-23' },
-    { game: 6, stat: 33, opponent: 'MIL', date: '2024-01-25' },
-    { game: 7, stat: 25, opponent: 'CHI', date: '2024-01-27' },
-    { game: 8, stat: 30, opponent: 'ATL', date: '2024-01-29' },
-    { game: 9, stat: 26, opponent: 'ORL', date: '2024-01-31' },
-    { game: 10, stat: 32, opponent: 'WAS', date: '2024-02-02' },
-  ], []);
+  const chartGames = useMemo(() => {
+    if (!profile) return []
+    return profile.games.slice(0, gameWindow)
+  }, [profile, gameWindow])
 
-  const availableStats = ['Pts', 'Reb', 'Ast', 'Pts+Reb+Ast','Pts+Reb','Pts+Ast','Reb+Ast','3PM', 'STL', 'BLK'];
-  const gameOptions = ['L3', 'L5', 'L10', 'L15', 'L20'];
-  const seasons = ['2024-25', '2023-24', '2022-23'];
-  const teams = ['BOS', 'MIA', 'NYK', 'PHI', 'BRK', 'MIL', 'CHI', 'ATL', 'ORL', 'WAS'];
+  const getStatVal = (game: GameStat, stat: StatKey): number =>
+    game[stat as keyof GameStat] as number
 
-  // Filter and process game data
-  const processedData = useMemo(() => {
-    let data = [...extendedGameData];
-    
-    // Filter by opponent if selected
-    if (customFilters.vsTeam) {
-      data = data.filter(game => game.opponent === customFilters.vsTeam);
-    }
-    
-    // Get recent games based on selection
-    const gamesCount = parseInt(customFilters.games.substring(1));
-    data = data.slice(-gamesCount);
-    
-    return data;
-  }, [customFilters, extendedGameData]);
+  const maxVal = useMemo(
+    () => Math.max(...chartGames.map(g => getStatVal(g, activeStat)), threshold, 1),
+    [chartGames, activeStat, threshold]
+  )
 
-  const BarChart = () => {
-    const maxValue = Math.max(...processedData.map(g => g.stat));
-    
+  const hitRate = useMemo(() => {
+    if (!chartGames.length) return 0
+    const hits = chartGames.filter(g => getStatVal(g, activeStat) >= threshold).length
+    return Math.round((hits / chartGames.length) * 100)
+  }, [chartGames, activeStat, threshold])
+
+  const avg = useMemo(() => {
+    if (!chartGames.length) return 0
+    return chartGames.reduce((s, g) => s + getStatVal(g, activeStat), 0) / chartGames.length
+  }, [chartGames, activeStat])
+
+  if (loading) {
     return (
-      <div className="bar-chart-container">
-        <div className="chart-header">
-          <h3>{customFilters.stat} Over {customFilters.games} Games</h3>
-          <div className="threshold-line-info">
-            Threshold: {customFilters.threshold}
-          </div>
-        </div>
-        
-        <div className="chart-area">
-          <div className="y-axis">
-            {[maxValue, Math.floor(maxValue * 0.75), Math.floor(maxValue * 0.5), Math.floor(maxValue * 0.25), 0].map(value => (
-              <div key={value} className="y-tick">{value}</div>
-            ))}
-          </div>
-          
-          <div className="chart-bars">
-            <div 
-              className="threshold-line" 
-              style={{ bottom: `${(customFilters.threshold / maxValue) * 100}%` }}
-            >
-              <span className="threshold-label">{customFilters.threshold}</span>
-            </div>
-            
-            {processedData.map((game, index) => (
-              <div key={index} className="bar-container">
-                <div
-                  className={`bar ${
-                    game.stat > customFilters.threshold 
-                      ? 'over' 
-                      : game.stat === customFilters.threshold 
-                        ? 'push' 
-                        : 'under'
-                  }`}
-                  style={{ height: `${(game.stat / maxValue) * 100}%` }}
-                  title={`Game ${game.game}: ${game.stat} vs ${game.opponent}`}
-                >
-                  <span className="bar-value">{game.stat}</span>
-                </div>
-                <div className="x-label">
-                  <div className="game-number">G{game.game}</div>
-                  <div className="opponent">vs {game.opponent}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-        
-        <div className="chart-legend">
-          <div className="legend-item">
-            <div className="legend-color over"></div>
-            <span>Over ({processedData.filter(g => g.stat > customFilters.threshold).length})</span>
-          </div>
-          <div className="legend-item">
-            <div className="legend-color push"></div>
-            <span>Push ({processedData.filter(g => g.stat === customFilters.threshold).length})</span>
-          </div>
-          <div className="legend-item">
-            <div className="legend-color under"></div>
-            <span>Under ({processedData.filter(g => g.stat < customFilters.threshold).length})</span>
-          </div>
-        </div>
+      <div className="p-6 space-y-4 max-w-5xl mx-auto">
+        <Skeleton className="h-16 w-64 bg-[#141414]" />
+        <Skeleton className="h-32 w-full bg-[#141414]" />
+        <Skeleton className="h-48 w-full bg-[#141414]" />
       </div>
-    );
-  };
+    )
+  }
+
+  if (!profile) {
+    return <div className="p-6 text-gray-400">Player not found</div>
+  }
 
   return (
-    <div className="player-detail-page">
-      <div className="page-header">
-        <button 
-          className="back-button"
-          onClick={() => navigate('/trend-finder')}
+    <div className="p-6 max-w-5xl mx-auto space-y-6">
+      {/* Back + Player header */}
+      <div>
+        <button
+          onClick={() => navigate(-1)}
+          className="flex items-center gap-2 text-sm text-gray-400 hover:text-white mb-4 transition-colors"
         >
-          <ArrowLeft size={20} />
-          Back to Trend Finder
+          <ArrowLeft size={16} /> Back
         </button>
-        
-        <div className="player-info">
-          <div className="player-avatar-large">
-            {player.name.split(' ').map((n: string) => n[0]).join('')}
+        <div className="flex items-center gap-4">
+          <div className="w-14 h-14 rounded-full bg-[#141414] border border-[#1E1E1E] flex items-center justify-center text-lg font-bold text-[#2AFFC8]">
+            {profile.player.name.split(' ').map(n => n[0]).join('')}
           </div>
-          <div className="player-details">
-            <h1>{player.name}</h1>
-            <div className="player-meta">
-              <span 
-                className="team-indicator"
-                style={{ backgroundColor: player.teamColors.primary }}
-              />
-              {player.team} • {player.position}
-            </div>
+          <div>
+            <h1 className="text-2xl font-bold text-white">{profile.player.name}</h1>
+            <p className="text-sm text-gray-400 mt-0.5">{profile.player.team} · {profile.player.position}</p>
           </div>
         </div>
       </div>
 
-      {/* Custom Filters */}
-      <div className="custom-filters-container">
-        <h3>Customize Analysis</h3>
-        
-        <div className="filters-grid">
-          <div className="filter-group">
-            <label>Stat:</label>
-            <div className="filter-options">
-              {availableStats.map(stat => (
-                <button
-                  key={stat}
-                  className={`filter-btn ${customFilters.stat === stat ? 'active' : ''}`}
-                  onClick={() => setCustomFilters({ ...customFilters, stat })}
-                >
-                  {stat}
-                </button>
-              ))}
-            </div>
-          </div>
+      {/* Z-Score strip */}
+      <div className="grid grid-cols-4 gap-3">
+        {STATS.map(stat => {
+          const z = profile.zScores[stat] ?? 0
+          const avg = profile.rollingAvgs[stat]
+          const isActive = activeStat === stat
+          return (
+            <button
+              key={stat}
+              onClick={() => setActiveStat(stat)}
+              className={`p-3 rounded-xl border transition-all text-left ${
+                isActive
+                  ? 'border-[#2AFFC8] bg-[#2AFFC8]/10'
+                  : 'border-[#1E1E1E] bg-[#141414] hover:border-gray-600'
+              }`}
+            >
+              <div className="text-xs text-gray-500 mb-1">{STAT_LABELS[stat]}</div>
+              <div className={`text-xl font-bold ${isActive ? 'text-[#2AFFC8]' : zColor(z)}`}>
+                {avg != null ? avg.toFixed(1) : '—'}
+              </div>
+              <div className="text-xs text-gray-500 mt-0.5">
+                z: {z != null ? (z > 0 ? '+' : '') + z.toFixed(2) : '—'}
+              </div>
+            </button>
+          )
+        })}
+      </div>
 
-          <div className="filter-group">
-            <label>Line:</label>
-            <input
-              type="number"
-              className="threshold-input"
-              value={customFilters.threshold}
-              onChange={(e) => setCustomFilters({ ...customFilters, threshold: Number(e.target.value) })}
-            />
-          </div>
-
-          <div className="filter-group">
-            <label>Games:</label>
-            <div className="filter-options">
-              {gameOptions.map(games => (
-                <button
-                  key={games}
-                  className={`filter-btn ${customFilters.games === games ? 'active' : ''}`}
-                  onClick={() => setCustomFilters({ ...customFilters, games })}
-                >
-                  {games}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="filter-group">
-            <label>VS Team (Optional):</label>
-            <div className="filter-options">
-              <button
-                className={`filter-btn ${customFilters.vsTeam === '' ? 'active' : ''}`}
-                onClick={() => setCustomFilters({ ...customFilters, vsTeam: '' })}
-              >
-                All
-              </button>
-              {teams.map(team => (
-                <button
-                  key={team}
-                  className={`filter-btn ${customFilters.vsTeam === team ? 'active' : ''}`}
-                  onClick={() => setCustomFilters({ ...customFilters, vsTeam: team })}
-                >
-                  {team}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="filter-group">
-            <label>Season:</label>
-            <div className="filter-options">
-              {seasons.map(season => (
-                <button
-                  key={season}
-                  className={`filter-btn ${customFilters.season === season ? 'active' : ''}`}
-                  onClick={() => setCustomFilters({ ...customFilters, season })}
-                >
-                  {season}
-                </button>
-              ))}
-            </div>
-          </div>
+      {/* Filter row */}
+      <div className="flex items-center gap-4 flex-wrap">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-500">Line:</span>
+          <input
+            type="number"
+            value={threshold}
+            onChange={e => setThreshold(Number(e.target.value))}
+            className="w-20 bg-[#141414] border border-[#1E1E1E] rounded-lg px-3 py-1.5 text-sm text-white outline-none focus:border-[#2AFFC8] transition-colors"
+          />
+          <span className="text-xs text-gray-500">+</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-500">Games:</span>
+          {[5, 10, 15, 20].map(n => (
+            <button
+              key={n}
+              onClick={() => setGameWindow(n)}
+              className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${
+                gameWindow === n
+                  ? 'bg-[#2AFFC8] text-black'
+                  : 'bg-[#141414] text-gray-400 hover:text-white border border-[#1E1E1E]'
+              }`}
+            >
+              L{n}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* Bar Chart */}
-      <div className="chart-section">
-        <BarChart />
-      </div>
-
-      {/* Stats Summary */}
-      <div className="stats-summary">
-        <div className="summary-card">
-          <div className="summary-title">Performance Summary</div>
-          <div className="summary-stats">
-            <div className="stat-item">
-              <span className="stat-label">Hit Rate:</span>
-              <span className="stat-value">
-                {Math.round((processedData.filter(g => g.stat >= customFilters.threshold).length / processedData.length) * 100)}%
-              </span>
-            </div>
-            <div className="stat-item">
-              <span className="stat-label">Average:</span>
-              <span className="stat-value">
-                {(processedData.reduce((sum, g) => sum + g.stat, 0) / processedData.length).toFixed(1)}
-              </span>
-            </div>
-            <div className="stat-item">
-              <span className="stat-label">Best Game:</span>
-              <span className="stat-value">
-                {Math.max(...processedData.map(g => g.stat))}
-              </span>
-            </div>
+      {/* Bar chart */}
+      {chartGames.length > 0 && (
+        <div className="bg-[#141414] border border-[#1E1E1E] rounded-xl p-4">
+          <div className="flex items-end gap-1.5 h-48">
+            {chartGames.map((game, i) => {
+              const val = getStatVal(game, activeStat)
+              const pct = (val / maxVal) * 100
+              const isOver = val >= threshold
+              return (
+                <div
+                  key={i}
+                  className="flex-1 flex flex-col items-center gap-1 h-full justify-end group relative"
+                >
+                  <div
+                    className={`w-full rounded-t transition-all ${
+                      isOver ? 'bg-[#2AFFC8]/80 hover:bg-[#2AFFC8]' : 'bg-red-500/70 hover:bg-red-500'
+                    }`}
+                    style={{ height: `${Math.max(pct, 4)}%` }}
+                  />
+                  <span className="text-[10px] text-gray-600 group-hover:text-gray-300">
+                    G{i + 1}
+                  </span>
+                  <div className="absolute -top-7 left-1/2 -translate-x-1/2 hidden group-hover:block bg-black border border-[#1E1E1E] rounded px-2 py-1 text-xs text-white whitespace-nowrap z-10">
+                    {val} {STAT_LABELS[activeStat]}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          <div className="mt-2 flex items-center gap-2">
+            <div className="w-3 h-0.5 bg-[#2AFFC8]" />
+            <span className="text-xs text-gray-500">Line: {threshold}+</span>
+            <Badge className="ml-auto bg-[#2AFFC8]/10 text-[#2AFFC8] border-[#2AFFC8]/20">
+              {hitRate}% hit rate
+            </Badge>
           </div>
         </div>
+      )}
+
+      {/* Summary stats */}
+      <div className="grid grid-cols-3 gap-3">
+        {[
+          { label: 'Hit Rate', value: `${hitRate}%` },
+          { label: `L${gameWindow} Avg`, value: avg.toFixed(1) },
+          { label: 'Best Game', value: chartGames.length ? Math.max(...chartGames.map(g => getStatVal(g, activeStat))) : '—' },
+        ].map(item => (
+          <div key={item.label} className="bg-[#141414] border border-[#1E1E1E] rounded-xl p-4 text-center">
+            <div className="text-2xl font-bold text-white">{item.value}</div>
+            <div className="text-xs text-gray-500 mt-1">{item.label}</div>
+          </div>
+        ))}
       </div>
     </div>
-  );
-};
-
-export default PlayerDetailView;
+  )
+}

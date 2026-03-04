@@ -1,39 +1,77 @@
-const API_BASE_URL = 'http://localhost:3000/api';
+const BASE = 'http://localhost:3000/api'
 
-export interface Player {
-  id: number;
-  name: string;
-  team: string;
-  position: string;
+export interface TrendingPlayer {
+  playerId: number
+  playerName: string
+  team: string
+  position: string
+  stat: string
+  statId: number
+  zScore: number
+  rollingAvg: number
+  windowSize: number
+  seasonAvg?: number
 }
 
-export interface ApiResponse<T> {
-  success: boolean;
-  message: string;
-  data: T;
+export interface PlayerSearchResult {
+  id: number
+  name: string
+  team: string
+  position: string
 }
 
-export const api = {
-  // Fetch players from backend
-  getPlayers: async (): Promise<Player[]> => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/players`);
-      const result: ApiResponse<Player[]> = await response.json();
-      return result.data;
-    } catch (error) {
-      console.error('Error fetching players:', error);
-      throw error;
-    }
+export interface GameStat {
+  gameId: number
+  date: string
+  opponent?: string
+  points: number
+  rebounds: number
+  assists: number
+  threes: number
+  fouls: number
+  minutes: number
+}
+
+export interface PlayerProfile {
+  player: PlayerSearchResult
+  games: GameStat[]
+  zScores: Record<string, number>
+  rollingAvgs: Record<string, number>
+}
+
+export interface TodaysGame {
+  gameId: string
+  time: string
+  status: string
+  home: { team: string; score: string }
+  away: { team: string; score: string }
+}
+
+async function get<T>(url: string): Promise<T> {
+  const res = await fetch(url)
+  const json = await res.json()
+  if (!json.success) throw new Error(json.error || 'Request failed')
+  return json.data as T
+}
+
+export const nbaApi = {
+  getTopTrending: (): Promise<TrendingPlayer[]> =>
+    get(`${BASE}/nba/trends/top`),
+
+  getTrends: (params: { stat?: string; window?: number; threshold?: number }): Promise<TrendingPlayer[]> => {
+    const q = new URLSearchParams()
+    if (params.stat) q.set('stat', params.stat)
+    if (params.window) q.set('window', String(params.window))
+    if (params.threshold !== undefined && params.threshold > 0) q.set('threshold', String(params.threshold))
+    return get(`${BASE}/nba/trends?${q}`)
   },
 
-  // Health check
-  getHealth: async () => {
-    try {
-      const response = await fetch('http://localhost:3000/health');
-      return await response.json();
-    } catch (error) {
-      console.error('Error checking health:', error);
-      throw error;
-    }
-  }
-};
+  searchPlayers: (query: string): Promise<PlayerSearchResult[]> =>
+    get(`${BASE}/nba/players/search?q=${encodeURIComponent(query)}`),
+
+  getPlayerProfile: (id: number): Promise<PlayerProfile> =>
+    get(`${BASE}/nba/players/${id}/games`),
+
+  getTodaysGames: (): Promise<TodaysGame[]> =>
+    get(`${BASE}/nba/games/today`),
+}

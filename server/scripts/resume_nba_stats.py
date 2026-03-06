@@ -151,7 +151,15 @@ def resume_player_stats(start_index: int = 171):
                                 minutes_played = int(float(min_str))
                         except:
                             minutes_played = 0
-                    
+
+                    game_date_raw = row.get('GAME_DATE', None)
+                    game_date = None
+                    if pd.notna(game_date_raw):
+                        try:
+                            game_date = str(pd.to_datetime(game_date_raw).date())
+                        except Exception:
+                            game_date = None
+
                     stat_record = {
                         'game_id': game_db_id,
                         'player_id': player_db_id,
@@ -161,7 +169,8 @@ def resume_player_stats(start_index: int = 171):
                         'assists': int(row.get('AST', 0) or 0),
                         'three_points_made': int(row.get('FG3M', 0) or 0),
                         'fouls': int(row.get('PF', 0) or 0),
-                        'minutes': minutes_played
+                        'minutes_played': minutes_played,
+                        'game_date': game_date,
                     }
                     all_stats.append(stat_record)
             

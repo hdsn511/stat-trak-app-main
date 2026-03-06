@@ -409,7 +409,16 @@ def fetch_and_insert_player_stats(
                             continue
                         
                         game_db_id = game_id_map[game_ext_id]
-                        
+
+                        # Extract game date from the gamelog row
+                        game_date_raw = row.get('GAME_DATE', None)
+                        game_date = None
+                        if pd.notna(game_date_raw):
+                            try:
+                                game_date = str(pd.to_datetime(game_date_raw).date())
+                            except Exception:
+                                game_date = None
+
                         # CHANGED: Parse team from MATCHUP instead of TEAM_ABBREVIATION
                         matchup = row.get('MATCHUP', '')
                         team_abbr = None
@@ -448,7 +457,8 @@ def fetch_and_insert_player_stats(
                             'assists': int(row.get('AST', 0) or 0),
                             'three_points_made': int(row.get('FG3M', 0) or 0),
                             'fouls': int(row.get('PF', 0) or 0),
-                            'minutes': minutes_played
+                            'minutes_played': minutes_played,
+                            'game_date': game_date,
                         }
                         all_stats.append(stat_record)
                     

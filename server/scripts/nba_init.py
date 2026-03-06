@@ -157,7 +157,8 @@ def fetch_and_insert_players(league_id: int) -> dict:
 def fetch_and_insert_rosters(
     league_id: int,
     team_id_map: dict,
-    player_id_map: dict
+    player_id_map: dict,
+    team_abbr_map: dict
 ):
     """
     Fetch team rosters for each season using commonteamroster endpoint
@@ -200,7 +201,23 @@ def fetch_and_insert_rosters(
                                 'player_id': player_id_map[player_ext_id]
                             }
                             all_rosters.append(roster_record)
-                
+
+                            # Back-fill position and team on player row
+                            position = str(row.get('POSITION', '') or '').strip()
+                            team_abbr = next(
+                                (abbr for abbr, tid in team_abbr_map.items() if tid == team_db_id),
+                                None
+                            )
+                            if position or team_abbr:
+                                update_payload = {}
+                                if position:
+                                    update_payload['position'] = position
+                                if team_abbr:
+                                    update_payload['team'] = team_abbr
+                                supabase.table('players').update(update_payload).eq(
+                                    'id', player_id_map[player_ext_id]
+                                ).execute()
+
                 except Exception as e:
                     print(f"    ⚠️  Error fetching roster for team {team_ext_id}: {e}")
                     continue
@@ -477,7 +494,7 @@ def fetch_nba_data(test_mode: bool = False):
         player_id_map = fetch_and_insert_players(league_id)
         
         # Step 4: Fetch and insert rosters
-        fetch_and_insert_rosters(league_id, team_id_map, player_id_map)
+        fetch_and_insert_rosters(league_id, team_id_map, player_id_map, team_abbr_map)
         
         # Step 5: Fetch and insert games
         game_id_map = fetch_and_insert_games(league_id, team_abbr_map)

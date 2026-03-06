@@ -124,7 +124,9 @@ def fetch_and_insert_players(league_id: int) -> dict:
             player_record = {
                 'league_id': league_id,
                 'ext_id': str(player['id']),
-                'name': player['full_name']
+                'name': player['full_name'],
+                'league': 'nba',
+                'is_active': True,
             }
             player_data.append(player_record)
         

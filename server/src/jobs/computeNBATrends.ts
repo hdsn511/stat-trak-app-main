@@ -11,6 +11,7 @@ type PlayerGameStat = {
   three_points_made: number;
   fouls: number;
   minutes_played: number;
+  game_date: string | null;
 };
 
 type TrendRow = {
@@ -95,7 +96,6 @@ async function loadPlayerStats(playerIds: number[]): Promise<PlayerGameStat[]> {
     .from("nba_player_stats")
     .select("*")
     .in("player_id", playerIds)
-    .gt("season", 2024)
     .order("game_date", { ascending: false });
 
   if (error) throw error;

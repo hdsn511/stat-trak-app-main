@@ -167,7 +167,8 @@ def fetch_and_insert_rosters(
     
     try:
         all_rosters = []
-        
+        player_updates: dict[int, dict] = {}
+
         for season in SEASONS:
             season_year = int(season.split('-')[0])
             print(f"\n  📅 Season {season} (year: {season_year})")
@@ -187,8 +188,6 @@ def fetch_and_insert_rosters(
                     if df.empty:
                         continue
                     
-                    # Get team abbreviation for logging
-                    team_abbr = [k for k, v in team_id_map.items() if v == team_db_id]
                     print(f"    → Team {team_ext_id}: {len(df)} players")
                     
                     for _, row in df.iterrows():
@@ -202,21 +201,19 @@ def fetch_and_insert_rosters(
                             }
                             all_rosters.append(roster_record)
 
-                            # Back-fill position and team on player row
+                            # Collect position/team updates (later seasons win for multi-team players)
                             position = str(row.get('POSITION', '') or '').strip()
                             team_abbr = next(
                                 (abbr for abbr, tid in team_abbr_map.items() if tid == team_db_id),
                                 None
                             )
-                            if position or team_abbr:
-                                update_payload = {}
-                                if position:
-                                    update_payload['position'] = position
-                                if team_abbr:
-                                    update_payload['team'] = team_abbr
-                                supabase.table('players').update(update_payload).eq(
-                                    'id', player_id_map[player_ext_id]
-                                ).execute()
+                            update_payload = {}
+                            if position:
+                                update_payload['position'] = position
+                            if team_abbr:
+                                update_payload['team'] = team_abbr
+                            if update_payload:
+                                player_updates[player_id_map[player_ext_id]] = update_payload
 
                 except Exception as e:
                     print(f"    ⚠️  Error fetching roster for team {team_ext_id}: {e}")
@@ -230,7 +227,14 @@ def fetch_and_insert_rosters(
                 batch = all_rosters[i:i + batch_size]
                 supabase.table('rosters').upsert(batch, on_conflict='season, team_id, player_id').execute()
                 print(f"    → Inserted {min(i + batch_size, len(all_rosters))}/{len(all_rosters)}")
-        
+
+        # Apply player position/team updates
+        if player_updates:
+            print(f"\n  Updating position/team for {len(player_updates)} players...")
+            for player_db_id, payload in player_updates.items():
+                supabase.table('players').update(payload).eq('id', player_db_id).execute()
+            print(f"  Player updates complete")
+
         print(f"  ✅ Processed {len(all_rosters)} roster entries")
     
     except Exception as e:

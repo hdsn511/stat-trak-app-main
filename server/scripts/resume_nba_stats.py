@@ -62,21 +62,28 @@ def resume_player_stats(start_index: int = 171):
     try:
         # Get team and game mappings
         print("\n📥 Loading mappings...")
+
+        # Get NBA league_id dynamically
+        league_response = supabase.table('leagues').select('id').eq('name', 'NBA').execute()
+        if not league_response.data:
+            raise ValueError("NBA league not found in DB. Run nba_init.py first.")
+        league_id = league_response.data[0]['id']
+
         teams = supabase.table('teams')\
             .select('id, abbreviation')\
-            .eq('league_id', 1)\
+            .eq('league_id', league_id)\
             .execute()
         team_abbr_map = {team['abbreviation']: team['id'] for team in teams.data}
-        
+
         games = supabase.table('games')\
             .select('id, ext_id')\
-            .eq('league_id', 1)\
+            .eq('league_id', league_id)\
             .execute()
         game_id_map = {game['ext_id']: game['id'] for game in games.data}
         
         players_response = supabase.table('players')\
             .select('id, ext_id')\
-            .eq('league_id', 1)\
+            .eq('league_id', league_id)\
             .execute()
         player_id_map = {player['ext_id']: player['id'] for player in players_response.data}
         

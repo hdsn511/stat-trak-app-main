@@ -6,14 +6,14 @@ export default {
     extend: {
       colors: {
         mint: {
-          DEFAULT: '#2AFFC8',
-          50: '#edfff9',
-          100: '#c8fff0',
-          200: '#94ffe2',
-          300: '#2AFFC8',
-          400: '#00e8ae',
-          500: '#00c994',
-          600: '#00a077',
+          DEFAULT: '#FF5F2E',
+          50: '#fff2ee',
+          100: '#ffe0d4',
+          200: '#ffbda8',
+          300: '#FF5F2E',
+          400: '#f04918',
+          500: '#cc3c13',
+          600: '#a3300f',
         },
         surface: {
           DEFAULT: '#141414',
@@ -50,8 +50,9 @@ export default {
         ring: 'hsl(var(--ring))',
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
+        sans: ['IBM Plex Sans', 'system-ui', 'sans-serif'],
         display: ['Doto', 'sans-serif'],
+        condensed: ['Bebas Neue', 'sans-serif'],
       },
       borderRadius: {
         lg: 'var(--radius)',

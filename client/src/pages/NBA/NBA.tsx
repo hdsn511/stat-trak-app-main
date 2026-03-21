@@ -6,15 +6,17 @@ export default function NBA() {
   return (
     <div className="flex h-full">
       <Sidebar />
-      <main className="flex-1 overflow-y-auto p-4 space-y-8">
-        <div className="bg-surface border border-[#1E1E1E] rounded-xl p-5">
+      <main className="flex-1 overflow-y-auto p-5 space-y-4">
+        <div className="bg-[#090909] border border-[#141414] rounded-2xl p-5">
           <TrendFinder />
         </div>
-        <div className="bg-surface border border-[#1E1E1E] rounded-xl overflow-hidden">
-          <div className="p-5 border-b border-[#1E1E1E]">
-            <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">Pre-Computed Trends</h2>
+        <div className="bg-[#090909] border border-[#141414] rounded-2xl overflow-hidden">
+          <div className="px-4 py-3 border-b border-[#111]">
+            <span className="text-[10px] font-bold text-gray-700 uppercase tracking-[0.2em] font-condensed">
+              Pre-Computed Trends
+            </span>
           </div>
-          <div className="p-5 text-sm font-semibold text-gray-400 uppercase tracking-wider">
+          <div className="px-4 py-3">
             <TopTrending />
           </div>
         </div>

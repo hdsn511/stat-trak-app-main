@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**StatTrak** is a full-stack sports statistics and trends analysis app focused on identifying betting-relevant player performance trends. Currently only NBA data infrastructure is complete; NFL/MLB/NHL are scaffolded with mock data.
+**StatTrak** is a full-stack sports statistics and trends analysis app focused on identifying betting-relevant player performance trends. Currently only NBA data infrastructure is complete; NFL/MLB/NHL render a ComingSoon page.
 
 ## Architecture
 
@@ -57,17 +57,61 @@ python server/scripts/check_missing_stats.py
 | `server/.env` | Supabase URL/key, OpenAI key, API-Sports key, PORT |
 | `server/src/jobs/computeNBATrends.ts` | Core statistical analysis (z-scores, rolling averages) for 6 NBA stats |
 | `client/src/services/api.ts` | API client — base URL hardcoded to `http://localhost:3000/api` |
-| `client/src/App.tsx` | Route definitions; tests backend health on mount |
+| `client/src/App.tsx` | Route definitions |
+| `client/src/index.css` | Global styles, font imports, custom keyframe animations |
+| `client/tailwind.config.js` | Design tokens: colors, font families |
 | `server/src/config/supabaseAdmin.ts` | Supabase client initialization |
 | `server/src/server.ts` | Express app with middleware (Helmet, CORS, Morgan) |
 
 ## Frontend Structure
 
-Routes: `/` (Home/TrendFinder), `/nba`, `/nfl`, `/mlb`, `/nhl`, `/trend-finder`, `/trend-finder/player/:id`
+**Routes:** `/` (Home), `/nba`, `/nfl`, `/mlb`, `/nhl`, `/player/:id`
 
-Styling: SCSS + Bootstrap 5. Import order matters — Bootstrap variables before component SCSS.
+**Styling:** Tailwind CSS + shadcn/ui. No SCSS or Bootstrap. Design tokens live in `tailwind.config.js` and CSS variables in `index.css`.
 
-`TrendFinder` component (`client/src/components/TrendFinder/`) is the main analysis UI. NBA/NFL/MLB/NHL page components under `client/src/pages/` currently use hardcoded mock data awaiting API integration.
+**Font stack:**
+- `font-display` → Doto (logo, large stat numbers)
+- `font-condensed` → Barlow Condensed (section labels, headings, stat badges)
+- `font-sans` → DM Sans (body text, default)
+
+**Design tokens (tailwind.config.js):**
+- `mint` / `mint/DEFAULT` → `#2AFFC8` — primary accent; use for active states, live indicators, positive z-scores
+- `surface` / `surface.elevated` → `#141414` / `#1a1a1a`
+- `over` → `#22C55E`, `under` → `#EF4444`, `push` → `#EAB308` — hit-rate result colors
+
+**Custom animations (index.css):**
+- `animate-bar-grow` — scaleY from 0, use on chart bars with staggered `animationDelay`
+- `animate-pulse-live` — opacity/scale pulse, use on live game indicators
+- `animate-fade-up` — for dropdowns and modal-like elements
+
+**Layout pattern:** Every page is `<Sidebar /> + <main className="flex-1 overflow-y-auto">`. Header is fixed `h-16`, content area uses `pt-16 h-screen flex flex-col` in App.tsx.
+
+**Component map:**
+
+| Component | Location | Notes |
+|-----------|----------|-------|
+| Header | `components/Header/Header.tsx` | Fixed top bar; active nav via `useLocation`; player search with debounce |
+| Sidebar | `components/Sidebar/Sidebar.tsx` | `w-52`; today's NBA games; VS-layout cards; live pulse dot |
+| PickOfTheDay | `components/Home/PickOfTheDay.tsx` | Hero card; large Doto number; radial glow; trend-strength bar |
+| TopTrending | `components/Home/TopTrending.tsx` | Ranked list; z-score mini bar per row |
+| TrendFinder | `components/TrendFinder/TrendFinder.tsx` | Tab stat selector; line + window filters; player result rows |
+| PlayerDetailView | `components/TrendFinder/PlayerDetailView.tsx` | Stat cards + bar chart with absolute threshold line + summary grid |
+| ComingSoon | `components/ComingSoon/ComingSoon.tsx` | Used by NFL/MLB/NHL pages; watermark + feature chips |
+
+**Label/heading pattern used throughout:**
+```
+text-[10px] font-bold text-gray-600 uppercase tracking-[0.2em] font-condensed
+```
+
+**Card container pattern:**
+```
+bg-[#0D0D0D] border border-[#161616] rounded-2xl
+```
+
+**Active tab/nav indicator pattern:**
+```
+absolute bottom-0 left-1 right-1 h-0.5 bg-mint rounded-t-full
+```
 
 ## Backend Structure
 

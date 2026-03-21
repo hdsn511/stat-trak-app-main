@@ -13,7 +13,23 @@
       "Bash(git:*)",
       "Bash(npm uninstall:*)",
       "Bash(node_modules/.bin/vitest:*)",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "mcp__ide__getDiagnostics",
+      "mcp__supabase__list_projects",
+      "mcp__supabase__execute_sql",
+      "mcp__plugin_context7_context7__resolve-library-id",
+      "mcp__plugin_context7_context7__query-docs",
+      "Bash(python3 -c \":*)",
+      "Bash(python -c \":*)",
+      "Bash(python:*)",
+      "Bash(source venv/Scripts/activate)",
+      "Bash(pip install:*)",
+      "mcp__supabase__apply_migration",
+      "Bash(source venv/bin/activate)"
     ]
-  }
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "supabase"
+  ]
 }

@@ -3,6 +3,10 @@ import { nbaApi, TodaysGame } from '@/services/api'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Calendar } from 'lucide-react'
 
+function isLive(status: string) {
+  return /Q\d|Half|OT/i.test(status)
+}
+
 export default function Sidebar() {
   const [games, setGames] = useState<TodaysGame[]>([])
   const [loading, setLoading] = useState(true)
@@ -15,45 +19,75 @@ export default function Sidebar() {
   }, [])
 
   return (
-    <aside className="w-52 flex-shrink-0 border-r border-[#1E1E1E] bg-[#0A0A0A] overflow-y-auto">
-      <div className="p-4">
-        <div className="flex items-center gap-2 mb-4">
-          <Calendar size={14} className="text-[#2AFFC8]" />
-          <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Today's Games</span>
+    <aside className="w-52 flex-shrink-0 border-r border-[#141414] bg-[#080808] overflow-y-auto">
+      <div className="p-3.5">
+        <div className="flex items-center gap-2 mb-4 pb-3 border-b border-[#141414]">
+          <Calendar size={12} className="text-mint" />
+          <span className="text-[10px] font-bold text-gray-600 uppercase tracking-[0.2em] font-condensed">Today's Games</span>
         </div>
-      
+
         {loading && (
-          <div className="space-y-3">
+          <div className="space-y-2.5">
             {[1, 2, 3].map(i => (
-              <Skeleton key={i} className="h-16 w-full bg-[#141414]" />
+              <Skeleton key={i} className="h-[80px] w-full bg-[#0F0F0F]" />
             ))}
           </div>
         )}
 
         {!loading && games.length === 0 && (
-          <p className="text-xs text-gray-600">No games today</p>
+          <p className="text-[11px] text-gray-700 text-center py-8 font-condensed">No games today</p>
         )}
 
-        {!loading && games.map(game => (
-          <div
-            key={game.gameId}
-            className="mb-3 p-3 bg-[#141414] rounded-lg border border-[#1E1E1E]"
-          >
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-sm font-semibold text-white">{game.away.team}</span>
-              {game.away.score && (
-                <span className="text-sm font-bold text-white">{game.away.score}</span>
-              )}
+        {!loading && games.map(game => {
+          const live = isLive(game.status)
+          return (
+            <div
+              key={game.gameId}
+              className="mb-2.5 p-3 bg-[#0D0D0D] rounded-xl border border-[#161616] hover:border-[#222] transition-colors"
+            >
+              {/* Status row */}
+              <div className="flex items-center gap-1.5 mb-2.5">
+                {live && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-mint animate-pulse-live flex-shrink-0" />
+                )}
+                <span className={`text-[10px] font-bold font-condensed tracking-widest uppercase ${live ? 'text-mint' : 'text-gray-700'}`}>
+                  {game.status}
+                </span>
+              </div>
+
+              {/* Away */}
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[12px] font-semibold text-gray-300 font-condensed tracking-wide leading-none">
+                  {game.away.team}
+                </span>
+                {game.away.score != null && (
+                  <span className={`text-[13px] font-black font-condensed tabular-nums leading-none ${live ? 'text-white' : 'text-gray-500'}`}>
+                    {game.away.score}
+                  </span>
+                )}
+              </div>
+
+              {/* VS divider */}
+              <div className="flex items-center gap-2 my-1.5">
+                <div className="flex-1 h-px bg-[#1A1A1A]" />
+                <span className="text-[9px] text-gray-800 font-condensed font-bold">VS</span>
+                <div className="flex-1 h-px bg-[#1A1A1A]" />
+              </div>
+
+              {/* Home */}
+              <div className="flex items-center justify-between mt-1.5">
+                <span className="text-[12px] font-semibold text-gray-300 font-condensed tracking-wide leading-none">
+                  {game.home.team}
+                </span>
+                {game.home.score != null && (
+                  <span className={`text-[13px] font-black font-condensed tabular-nums leading-none ${live ? 'text-white' : 'text-gray-500'}`}>
+                    {game.home.score}
+                  </span>
+                )}
+              </div>
             </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-semibold text-white">{game.home.team}</span>
-              {game.home.score && (
-                <span className="text-sm font-bold text-white">{game.home.score}</span>
-              )}
-            </div>
-            <div className="mt-1.5 text-xs text-[#2AFFC8]">{game.status}</div>
-          </div>
-        ))}
+          )
+        })}
       </div>
     </aside>
   )

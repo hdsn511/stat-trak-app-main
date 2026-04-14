@@ -16,6 +16,7 @@ from nba_api.stats.endpoints import (
 import pandas as pd
 import time
 from datetime import datetime
+from requests.exceptions import ReadTimeout, ConnectionError as ReqConnError
 
 # Load environment variables
 load_dotenv()
@@ -38,20 +39,18 @@ def _api_call_with_retry(call_fn, description: str, max_retries: int = 5):
     Call call_fn() with exponential backoff. Handles timeouts, connection errors,
     and HTTP 429 rate limiting. Returns None after max_retries failures.
     """
-    import time as _time
-    from requests.exceptions import ReadTimeout, ConnectionError as ReqConnError
     MAX_RATE_LIMIT_RETRIES = 10
     rate_limit_hits = 0
     attempt = 0
     while attempt < max_retries:
         attempt += 1
-        _time.sleep(0.6)
+        time.sleep(0.6)
         try:
             return call_fn()
         except (ReadTimeout, ReqConnError) as exc:
             wait = min(5 * (2 ** (attempt - 1)), 60)
             print(f"    ⏳ [{description}] attempt {attempt}/{max_retries} failed ({type(exc).__name__}). Waiting {wait}s...")
-            _time.sleep(wait)
+            time.sleep(wait)
         except Exception as exc:
             exc_str = str(exc).lower()
             if "429" in exc_str or "rate limit" in exc_str or "too many requests" in exc_str:
@@ -62,7 +61,7 @@ def _api_call_with_retry(call_fn, description: str, max_retries: int = 5):
                 attempt -= 1  # 429 does not count against max_retries
                 wait = min(5 * (2 ** (rate_limit_hits + 1)), 60)
                 print(f"    ⏳ [{description}] rate limited (hit #{rate_limit_hits}). Waiting {wait}s...")
-                _time.sleep(wait)
+                time.sleep(wait)
             else:
                 print(f"    ❌ [{description}] unexpected error: {exc}")
                 return None
@@ -429,6 +428,7 @@ def fetch_and_insert_player_stats(
                             player_id=pid,
                             season=s,
                             season_type_all_star='Regular Season',
+                            timeout=60,
                         )
                     result = _api_call_with_retry(_call, f"{player_name} {season}")
                     if result is None:

@@ -30,7 +30,7 @@ if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
 supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 # NBA seasons to fetch (last 3 seasons)
-SEASONS = ['2022-23', '2023-24', '2024-25']
+SEASONS = ['2022-23', '2023-24', '2024-25', '2025-26']
 NBA_SPORT_CODE = 1  # As per your schema: 1 = NBA
 
 # ... rest of your functions stay the same ...

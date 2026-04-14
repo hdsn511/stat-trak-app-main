@@ -14,7 +14,7 @@ from requests.exceptions import ReadTimeout, ConnectionError
 load_dotenv()
 supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_ROLE_KEY"))
 
-SEASONS = ['2022-23', '2023-24', '2024-25']
+SEASONS = ['2022-23', '2023-24', '2024-25', '2025-26']
 
 def fetch_player_game_log_with_retry(player_ext_id: str, season: str, max_retries: int = 5):
     """

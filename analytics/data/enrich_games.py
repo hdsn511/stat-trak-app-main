@@ -83,12 +83,16 @@ def _fetch_all(table: str, select: str = "*", filters: Optional[list] = None) ->
 
 def api_call_with_retry(call_fn, description: str) -> Optional[Any]:
     """
-    Call call_fn() with exponential backoff on ReadTimeout / ConnectionError.
+    Call call_fn() with exponential backoff on network errors and HTTP 429.
 
     Returns the result of call_fn() or None after MAX_RETRIES failures.
     Always sleeps API_DELAY_SECONDS before the first attempt and between retries.
+    On HTTP 429 (rate limit), uses double backoff and does not count against retries.
     """
-    for attempt in range(1, MAX_RETRIES + 1):
+    rate_limit_hits = 0
+    attempt = 0
+    while attempt < MAX_RETRIES:
+        attempt += 1
         time.sleep(API_DELAY_SECONDS)
         try:
             return call_fn()
@@ -100,9 +104,19 @@ def api_call_with_retry(call_fn, description: str) -> Optional[Any]:
             )
             time.sleep(wait)
         except Exception as exc:  # noqa: BLE001
-            # Any other NBA API error — log and give up immediately
-            print(f"  ERROR [{description}] unexpected error: {exc}")
-            return None
+            exc_str = str(exc).lower()
+            if "429" in exc_str or "rate limit" in exc_str or "too many requests" in exc_str:
+                rate_limit_hits += 1
+                attempt -= 1  # don't count 429 against retries
+                wait = min(BACKOFF_BASE_SECONDS * (2 ** rate_limit_hits), BACKOFF_MAX_SECONDS)
+                print(
+                    f"  WARNING [{description}] HTTP 429 rate limited "
+                    f"(hit #{rate_limit_hits}). Waiting {wait}s ..."
+                )
+                time.sleep(wait)
+            else:
+                print(f"  ERROR [{description}] unexpected error: {exc}")
+                return None
     print(f"  ERROR [{description}] all {MAX_RETRIES} retries exhausted. Skipping.")
     return None
 

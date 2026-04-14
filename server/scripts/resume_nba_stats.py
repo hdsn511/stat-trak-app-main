@@ -45,10 +45,11 @@ def fetch_player_game_log_with_retry(player_ext_id: str, season: str, max_retrie
         except Exception as e:
             exc_str = str(e).lower()
             if "429" in exc_str or "rate limit" in exc_str or "too many requests" in exc_str:
-                wait_time = min(2 ** (attempt + 2) * 5, 120)  # longer backoff for rate limits
-                print(f"      ⏳ Rate limited attempt {attempt + 1}/{max_retries}, waiting {wait_time}s...")
-                time.sleep(wait_time)
-                if attempt >= max_retries - 1:
+                if attempt < max_retries - 1:
+                    wait_time = min(2 ** (attempt + 2) * 5, 120)  # longer backoff for rate limits
+                    print(f"      ⏳ Rate limited attempt {attempt + 1}/{max_retries}, waiting {wait_time}s...")
+                    time.sleep(wait_time)
+                else:
                     print(f"      ❌ Rate limited, failed after {max_retries} attempts")
                     return pd.DataFrame()
             else:

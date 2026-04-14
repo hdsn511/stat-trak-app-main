@@ -33,7 +33,41 @@ supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 SEASONS = ['2022-23', '2023-24', '2024-25', '2025-26']
 NBA_SPORT_CODE = 1  # As per your schema: 1 = NBA
 
-# ... rest of your functions stay the same ...
+def _api_call_with_retry(call_fn, description: str, max_retries: int = 5):
+    """
+    Call call_fn() with exponential backoff. Handles timeouts, connection errors,
+    and HTTP 429 rate limiting. Returns None after max_retries failures.
+    """
+    import time as _time
+    from requests.exceptions import ReadTimeout, ConnectionError as ReqConnError
+    MAX_RATE_LIMIT_RETRIES = 10
+    rate_limit_hits = 0
+    attempt = 0
+    while attempt < max_retries:
+        attempt += 1
+        _time.sleep(0.6)
+        try:
+            return call_fn()
+        except (ReadTimeout, ReqConnError) as exc:
+            wait = min(5 * (2 ** (attempt - 1)), 60)
+            print(f"    ⏳ [{description}] attempt {attempt}/{max_retries} failed ({type(exc).__name__}). Waiting {wait}s...")
+            _time.sleep(wait)
+        except Exception as exc:
+            exc_str = str(exc).lower()
+            if "429" in exc_str or "rate limit" in exc_str or "too many requests" in exc_str:
+                rate_limit_hits += 1
+                if rate_limit_hits > MAX_RATE_LIMIT_RETRIES:
+                    print(f"    ❌ [{description}] too many 429s ({rate_limit_hits}). Giving up.")
+                    return None
+                attempt -= 1  # 429 does not count against max_retries
+                wait = min(5 * (2 ** (rate_limit_hits + 1)), 60)
+                print(f"    ⏳ [{description}] rate limited (hit #{rate_limit_hits}). Waiting {wait}s...")
+                _time.sleep(wait)
+            else:
+                print(f"    ❌ [{description}] unexpected error: {exc}")
+                return None
+    print(f"    ❌ [{description}] all {max_retries} retries exhausted.")
+    return None
 
 def get_or_create_league() -> int:
     """
@@ -389,21 +423,23 @@ def fetch_and_insert_player_stats(
             
             for season in SEASONS:
                 try:
-                    # Rate limiting
-                    time.sleep(0.6)
-                    
-                    # Use playergamelog endpoint
-                    gamelog = playergamelog.PlayerGameLog(
-                        player_id=player_ext_id,
-                        season=season,
-                        season_type_all_star='Regular Season'
-                    )
-                    df = gamelog.get_data_frames()[0]
-                    
+                    # Use playergamelog endpoint with retry
+                    def _call(pid=player_ext_id, s=season):
+                        return playergamelog.PlayerGameLog(
+                            player_id=pid,
+                            season=s,
+                            season_type_all_star='Regular Season',
+                        )
+                    result = _api_call_with_retry(_call, f"{player_name} {season}")
+                    if result is None:
+                        print(f"    → {season}: SKIPPED (API failure)")
+                        continue
+                    df = result.get_data_frames()[0]
+
                     if df.empty:
                         print(f"    → {season}: No data")
                         continue
-                    
+
                     print(f"    → {season}: {len(df)} games")
                     
                     for _, row in df.iterrows():

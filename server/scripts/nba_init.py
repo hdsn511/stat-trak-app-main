@@ -124,7 +124,9 @@ def fetch_and_insert_players(league_id: int) -> dict:
             player_record = {
                 'league_id': league_id,
                 'ext_id': str(player['id']),
-                'name': player['full_name']
+                'name': player['full_name'],
+                'league': 'nba',
+                'is_active': True,
             }
             player_data.append(player_record)
         
@@ -155,7 +157,8 @@ def fetch_and_insert_players(league_id: int) -> dict:
 def fetch_and_insert_rosters(
     league_id: int,
     team_id_map: dict,
-    player_id_map: dict
+    player_id_map: dict,
+    team_abbr_map: dict
 ):
     """
     Fetch team rosters for each season using commonteamroster endpoint
@@ -164,7 +167,8 @@ def fetch_and_insert_rosters(
     
     try:
         all_rosters = []
-        
+        player_updates: dict[int, dict] = {}
+
         for season in SEASONS:
             season_year = int(season.split('-')[0])
             print(f"\n  📅 Season {season} (year: {season_year})")
@@ -184,8 +188,6 @@ def fetch_and_insert_rosters(
                     if df.empty:
                         continue
                     
-                    # Get team abbreviation for logging
-                    team_abbr = [k for k, v in team_id_map.items() if v == team_db_id]
                     print(f"    → Team {team_ext_id}: {len(df)} players")
                     
                     for _, row in df.iterrows():
@@ -198,7 +200,21 @@ def fetch_and_insert_rosters(
                                 'player_id': player_id_map[player_ext_id]
                             }
                             all_rosters.append(roster_record)
-                
+
+                            # Collect position/team updates (later seasons win for multi-team players)
+                            position = str(row.get('POSITION', '') or '').strip()
+                            team_abbr = next(
+                                (abbr for abbr, tid in team_abbr_map.items() if tid == team_db_id),
+                                None
+                            )
+                            update_payload = {}
+                            if position:
+                                update_payload['position'] = position
+                            if team_abbr:
+                                update_payload['team'] = team_abbr
+                            if update_payload:
+                                player_updates[player_id_map[player_ext_id]] = update_payload
+
                 except Exception as e:
                     print(f"    ⚠️  Error fetching roster for team {team_ext_id}: {e}")
                     continue
@@ -211,7 +227,14 @@ def fetch_and_insert_rosters(
                 batch = all_rosters[i:i + batch_size]
                 supabase.table('rosters').upsert(batch, on_conflict='season, team_id, player_id').execute()
                 print(f"    → Inserted {min(i + batch_size, len(all_rosters))}/{len(all_rosters)}")
-        
+
+        # Apply player position/team updates
+        if player_updates:
+            print(f"\n  Updating position/team for {len(player_updates)} players...")
+            for player_db_id, payload in player_updates.items():
+                supabase.table('players').update(payload).eq('id', player_db_id).execute()
+            print(f"  Player updates complete")
+
         print(f"  ✅ Processed {len(all_rosters)} roster entries")
     
     except Exception as e:
@@ -390,7 +413,16 @@ def fetch_and_insert_player_stats(
                             continue
                         
                         game_db_id = game_id_map[game_ext_id]
-                        
+
+                        # Extract game date from the gamelog row
+                        game_date_raw = row.get('GAME_DATE', None)
+                        game_date = None
+                        if pd.notna(game_date_raw):
+                            try:
+                                game_date = str(pd.to_datetime(game_date_raw).date())
+                            except Exception:
+                                game_date = None
+
                         # CHANGED: Parse team from MATCHUP instead of TEAM_ABBREVIATION
                         matchup = row.get('MATCHUP', '')
                         team_abbr = None
@@ -429,7 +461,8 @@ def fetch_and_insert_player_stats(
                             'assists': int(row.get('AST', 0) or 0),
                             'three_points_made': int(row.get('FG3M', 0) or 0),
                             'fouls': int(row.get('PF', 0) or 0),
-                            'minutes': minutes_played
+                            'minutes_played': minutes_played,
+                            'game_date': game_date,
                         }
                         all_stats.append(stat_record)
                     
@@ -475,7 +508,7 @@ def fetch_nba_data(test_mode: bool = False):
         player_id_map = fetch_and_insert_players(league_id)
         
         # Step 4: Fetch and insert rosters
-        fetch_and_insert_rosters(league_id, team_id_map, player_id_map)
+        fetch_and_insert_rosters(league_id, team_id_map, player_id_map, team_abbr_map)
         
         # Step 5: Fetch and insert games
         game_id_map = fetch_and_insert_games(league_id, team_abbr_map)

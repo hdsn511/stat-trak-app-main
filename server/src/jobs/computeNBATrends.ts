@@ -11,6 +11,7 @@ type PlayerGameStat = {
   three_points_made: number;
   fouls: number;
   minutes_played: number;
+  game_date: string | null;
 };
 
 type TrendRow = {
@@ -91,16 +92,22 @@ async function loadPlayers(): Promise<number[]> {
 async function loadPlayerStats(playerIds: number[]): Promise<PlayerGameStat[]> {
   if (playerIds.length === 0) return [];
 
-  let { data, error } = await supabaseAdmin
-    .from("nba_player_stats")
-    .select("*")
-    .in("player_id", playerIds)
-    .gt("season", 2024)
-    .order("game_date", { ascending: false });
+  const CHUNK_SIZE = 50;
+  const allStats: PlayerGameStat[] = [];
 
-  if (error) throw error;
+  for (let i = 0; i < playerIds.length; i += CHUNK_SIZE) {
+    const chunk = playerIds.slice(i, i + CHUNK_SIZE);
+    const { data, error } = await supabaseAdmin
+      .from("nba_player_stats")
+      .select("*")
+      .in("player_id", chunk)
+      .order("game_date", { ascending: false });
 
-  return data as PlayerGameStat[];
+    if (error) throw error;
+    if (data) allStats.push(...(data as PlayerGameStat[]));
+  }
+
+  return allStats;
 }
 
 function groupByPlayer(stats: PlayerGameStat[]): Map<number, PlayerGameStat[]> {

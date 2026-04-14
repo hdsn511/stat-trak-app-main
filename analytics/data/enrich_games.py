@@ -87,8 +87,10 @@ def api_call_with_retry(call_fn, description: str) -> Optional[Any]:
 
     Returns the result of call_fn() or None after MAX_RETRIES failures.
     Always sleeps API_DELAY_SECONDS before the first attempt and between retries.
-    On HTTP 429 (rate limit), uses double backoff and does not count against retries.
+    On HTTP 429 (rate limit), uses double backoff and does not count against retries,
+    up to a maximum of MAX_RATE_LIMIT_RETRIES times before giving up.
     """
+    MAX_RATE_LIMIT_RETRIES = 10
     rate_limit_hits = 0
     attempt = 0
     while attempt < MAX_RETRIES:
@@ -107,7 +109,13 @@ def api_call_with_retry(call_fn, description: str) -> Optional[Any]:
             exc_str = str(exc).lower()
             if "429" in exc_str or "rate limit" in exc_str or "too many requests" in exc_str:
                 rate_limit_hits += 1
-                attempt -= 1  # don't count 429 against retries
+                if rate_limit_hits > MAX_RATE_LIMIT_RETRIES:
+                    print(
+                        f"  ERROR [{description}] too many 429 rate limits "
+                        f"({rate_limit_hits}). Giving up."
+                    )
+                    return None
+                attempt -= 1  # 429 does not count against MAX_RETRIES
                 wait = min(BACKOFF_BASE_SECONDS * (2 ** rate_limit_hits), BACKOFF_MAX_SECONDS)
                 print(
                     f"  WARNING [{description}] HTTP 429 rate limited "

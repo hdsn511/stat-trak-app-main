@@ -5,6 +5,10 @@ const STAT_NAMES: Record<number, string> = {
   3: 'threes', 4: 'fouls', 5: 'minutes'
 };
 
+const PICK_STAT_LABELS: Record<string, string> = {
+  pts: 'PTS', reb: 'REB', ast: 'AST', fg3m: '3PM',
+};
+
 export async function getTopTrending(req: any, res: any) {
   try {
     const { data, error } = await supabaseAdmin
@@ -182,6 +186,132 @@ export async function getTodaysGames(req: any, res: any) {
     });
 
     res.json({ success: true, data: games });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+export async function getTodaysPicks(req: any, res: any) {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+
+    const { data: pickRows, error } = await supabaseAdmin
+      .from('pick_results')
+      .select(
+        'id, entity_id, stat, pick_type, recommended_line, hit_rate, ' +
+        'sample_size, confidence_score, implied_prob, edge, ' +
+        'conditions_matched, total_conditions'
+      )
+      .eq('game_date', today)
+      .eq('prop_type', 'player')
+      .order('confidence_score', { ascending: false });
+
+    if (error) throw error;
+
+    if (!pickRows || pickRows.length === 0) {
+      return res.json({ success: true, data: { topPick: null, allPicks: [] } });
+    }
+
+    const playerIds = [...new Set((pickRows as any[]).map((r) => r.entity_id))];
+    const { data: playerRows } = await supabaseAdmin
+      .from('players')
+      .select('id, name, team, position')
+      .in('id', playerIds);
+
+    const playerMap: Record<number, any> = {};
+    for (const p of (playerRows || [])) playerMap[p.id] = p;
+
+    const { data: todayGames } = await supabaseAdmin
+      .from('games')
+      .select('id')
+      .eq('game_date', today)
+      .eq('league_id', 1);
+
+    const todayGameIds = (todayGames || []).map((g: any) => g.id);
+
+    const outIds = new Set<number>();
+    if (todayGameIds.length > 0) {
+      const { data: outRows } = await supabaseAdmin
+        .from('player_availability')
+        .select('player_id')
+        .eq('status', 'out')
+        .in('game_id', todayGameIds);
+
+      for (const r of (outRows || [])) outIds.add(r.player_id);
+    }
+
+    const picks = (pickRows as any[])
+      .filter((row) => !outIds.has(row.entity_id))
+      .map((row) => {
+        const player = playerMap[row.entity_id] || {};
+        return {
+          pickId: row.id,
+          playerId: row.entity_id,
+          playerName: player.name ?? null,
+          team: player.team ?? null,
+          position: player.position ?? null,
+          stat: row.stat,
+          statLabel: PICK_STAT_LABELS[row.stat] ?? row.stat.toUpperCase(),
+          pickType: row.pick_type,
+          recommendedLine: row.recommended_line,
+          confidence: row.confidence_score,
+          edge: row.edge,
+          hitRate: row.hit_rate,
+          impliedProb: row.implied_prob,
+          sampleSize: row.sample_size,
+          conditionsMatched: row.conditions_matched,
+          totalConditions: row.total_conditions,
+        };
+      });
+
+    res.json({
+      success: true,
+      data: {
+        topPick: picks[0] ?? null,
+        allPicks: picks,
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+export async function getPlayerPicks(req: any, res: any) {
+  try {
+    const { id } = req.params;
+    const from = new Date();
+    from.setDate(from.getDate() - 30);
+    const fromDate = from.toISOString().slice(0, 10);
+
+    const { data, error } = await supabaseAdmin
+      .from('pick_results')
+      .select(
+        'id, game_date, entity_id, stat, pick_type, recommended_line, ' +
+        'hit_rate, confidence_score, implied_prob, edge, actual_result, did_hit'
+      )
+      .eq('entity_id', parseInt(id))
+      .eq('prop_type', 'player')
+      .gte('game_date', fromDate)
+      .order('game_date', { ascending: false });
+
+    if (error) throw error;
+
+    const picks = (data || []).map((row: any) => ({
+      pickId: row.id,
+      date: row.game_date,
+      stat: row.stat,
+      statLabel: PICK_STAT_LABELS[row.stat] ?? row.stat.toUpperCase(),
+      pickType: row.pick_type,
+      recommendedLine: row.recommended_line,
+      confidence: row.confidence_score,
+      hitRate: row.hit_rate,
+      impliedProb: row.implied_prob,
+      edge: row.edge,
+      actualResult: row.actual_result,
+      didHit: row.did_hit,
+    }));
+
+    res.json({ success: true, data: picks });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }

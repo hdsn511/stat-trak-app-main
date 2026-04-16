@@ -138,6 +138,14 @@ def run_step(step: dict) -> bool:
         _log(f"  Running: {' '.join(step['cmd'])}")
 
         try:
+            # Force UTF-8 in the child process so emoji in scripts (nba_init.py etc.)
+            # don't crash on Windows cp1252 terminals.
+            child_env = {
+                **os.environ,
+                "PYTHONIOENCODING": "utf-8",
+                "PYTHONUTF8": "1",
+            }
+
             # Stream output live — each line goes to stdout AND the log file
             proc = subprocess.Popen(
                 step["cmd"],
@@ -147,13 +155,17 @@ def run_step(step: dict) -> bool:
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                env={**os.environ},
+                env=child_env,
             )
 
             assert proc.stdout is not None
             for line in proc.stdout:
                 line = line.rstrip("\n")
-                print(line, flush=True)
+                # Encode safely for the terminal (replace unencodable chars)
+                try:
+                    print(line, flush=True)
+                except UnicodeEncodeError:
+                    print(line.encode("ascii", errors="replace").decode("ascii"), flush=True)
                 try:
                     with LOG_FILE.open("a", encoding="utf-8") as f:
                         f.write(line + "\n")
@@ -226,10 +238,10 @@ def run_pipeline(start_from: str | None = None) -> None:
 
         if success:
             mark_done(state, step["id"])
-            _log(f"  ✓ Step '{step['id']}' complete.")
+            _log(f"  [OK] Step '{step['id']}' complete.")
         else:
             _log("")
-            _log(f"  ✗ Step '{step['id']}' failed after {MAX_STEP_RETRIES} attempts.")
+            _log(f"  [FAIL] Step '{step['id']}' failed after {MAX_STEP_RETRIES} attempts.")
             _log("  Progress saved. Restart script to retry from this step.")
             _log(f"  Or run:  python backfill.py --from {step['id']}")
             mark_paused(state, step["id"])
@@ -253,11 +265,11 @@ def show_status() -> None:
     for step in STEPS:
         sid = step["id"]
         if sid in completed:
-            marker = "✓ done   "
+            marker = "[done]  "
         elif sid == paused_at:
-            marker = "✗ PAUSED "
+            marker = "[PAUSED]"
         else:
-            marker = "  pending"
+            marker = "[      ]"
         print(f"  {marker}  {sid}")
     print()
     if paused_at:

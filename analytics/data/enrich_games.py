@@ -317,16 +317,37 @@ def _load_already_enriched() -> set[str]:
 
 
 def _upsert_batch(table: str, rows: list[dict], on_conflict: str) -> None:
-    """Upsert rows in BATCH_SIZE chunks with on_conflict resolution."""
+    """
+    Upsert rows in BATCH_SIZE chunks with on_conflict resolution.
+    Retries up to 3 times on transient errors so a network blip doesn't
+    crash a long-running backfill. Logs and skips a chunk after 3 failures.
+    """
     for i in range(0, len(rows), BATCH_SIZE):
         chunk = rows[i : i + BATCH_SIZE]
-        supabase.table(table).upsert(chunk, on_conflict=on_conflict).execute()
+        for attempt in range(1, 4):
+            try:
+                supabase.table(table).upsert(chunk, on_conflict=on_conflict).execute()
+                break
+            except Exception as exc:
+                if attempt < 3:
+                    wait = 5 * attempt
+                    print(
+                        f"\n  WARNING: upsert to {table} failed (attempt {attempt}/3): {exc}. "
+                        f"Retrying in {wait}s ..."
+                    )
+                    time.sleep(wait)
+                else:
+                    print(
+                        f"\n  ERROR: upsert to {table} failed after 3 attempts. "
+                        f"Skipping {len(chunk)} rows — re-run with --resume to fill gaps."
+                    )
 
 
 def enrich_games(
     season_filter: Optional[int] = None,
     test_mode: bool = False,
     resume: bool = False,
+    yes: bool = False,
 ) -> None:
     """
     Enrich games with advanced stats (BoxScoreAdvancedV2) and inactive player
@@ -389,10 +410,13 @@ def enrich_games(
             f"\nAbout to enrich {total_games} games "
             f"(~{estimated_minutes} min estimated)."
         )
-        confirm = input("Proceed? [y/N] ").strip().lower()
-        if confirm != "y":
-            print("Aborted.")
-            return
+        if yes:
+            print("Auto-confirmed via --yes.")
+        else:
+            confirm = input("Proceed? [y/N] ").strip().lower()
+            if confirm != "y":
+                print("Aborted.")
+                return
 
     total = len(games_to_process)
     pgc_rows: list[dict] = []
@@ -591,6 +615,7 @@ def backfill_basic_stats(
     season_filter: Optional[int] = None,
     test_mode: bool = False,
     resume: bool = False,
+    yes: bool = False,
 ) -> None:
     """
     For each game in 2023/2024 with missing nba_player_stats rows, fetch
@@ -638,10 +663,13 @@ def backfill_basic_stats(
             f"\nAbout to backfill basic stats for {total_games} games "
             f"(~{estimated_minutes} min estimated)."
         )
-        confirm = input("Proceed? [y/N] ").strip().lower()
-        if confirm != "y":
-            print("Aborted.")
-            return
+        if yes:
+            print("Auto-confirmed via --yes.")
+        else:
+            confirm = input("Proceed? [y/N] ").strip().lower()
+            if confirm != "y":
+                print("Aborted.")
+                return
 
     total = len(games_to_process)
     stat_rows_buffer: list[dict] = []
@@ -944,6 +972,11 @@ Examples:
         action="store_true",
         help="Skip games that have already been enriched",
     )
+    parser.add_argument(
+        "--yes", "-y",
+        action="store_true",
+        help="Skip confirmation prompt (useful for unattended runs)",
+    )
 
     args = parser.parse_args()
 
@@ -956,6 +989,7 @@ Examples:
             season_filter=args.season,
             test_mode=args.test,
             resume=args.resume,
+            yes=args.yes,
         )
         return 0
 
@@ -968,6 +1002,7 @@ Examples:
         season_filter=args.season,
         test_mode=args.test,
         resume=args.resume,
+        yes=args.yes,
     )
     return 0
 

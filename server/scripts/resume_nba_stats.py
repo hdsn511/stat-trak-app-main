@@ -194,15 +194,24 @@ def resume_player_stats(start_index: int = 171):
             # Insert in batches of 500
             if len(all_stats) >= 500:
                 print(f"\n    💾 Inserting batch of {len(all_stats)} stats...")
-                try:
-                    supabase.table('nba_player_stats').upsert(
-                        all_stats,
-                        on_conflict='game_id,player_id'
-                    ).execute()
-                    stats_inserted += len(all_stats)
-                    all_stats = []
-                except Exception as e:
-                    print(f"    ❌ Error inserting batch: {e}")
+                inserted = False
+                for attempt in range(1, 4):
+                    try:
+                        supabase.table('nba_player_stats').upsert(
+                            all_stats,
+                            on_conflict='game_id,player_id'
+                        ).execute()
+                        stats_inserted += len(all_stats)
+                        all_stats = []
+                        inserted = True
+                        break
+                    except Exception as e:
+                        if attempt < 3:
+                            print(f"    ⏳ Batch insert attempt {attempt}/3 failed: {e}. Retrying in {attempt * 5}s...")
+                            time.sleep(attempt * 5)
+                        else:
+                            print(f"    ❌ Batch insert failed after 3 attempts: {e}. Clearing buffer — re-run to fill gaps.")
+                            all_stats = []
             
             # Take a break every 20 players
             if (idx - start_index + 1) % 20 == 0:
@@ -235,18 +244,13 @@ def resume_player_stats(start_index: int = 171):
 
 if __name__ == "__main__":
     import sys
-    
-    # Default to player 171, or pass as argument
-    start_idx = 171
+
+    # Default to player 1, or pass as argument
+    start_idx = 1
     if len(sys.argv) > 1:
         start_idx = int(sys.argv[1])
-    
+
     print(f"\n🎯 Starting from player #{start_idx}")
-    print("💡 To start from a different player, run: python scripts/resume_nba_stats.py <player_number>")
-    
-    response = input(f"\nContinue from player #{start_idx}? (yes/no): ")
-    if response.lower() not in ['yes', 'y']:
-        print("Cancelled.")
-        exit()
-    
+    print("💡 To resume from a different player, run: python scripts/resume_nba_stats.py <player_number>")
+
     resume_player_stats(start_index=start_idx)

@@ -47,6 +47,30 @@ export interface TodaysGame {
   away: { team: string; score: string }
 }
 
+export interface Pick {
+  pickId: number
+  playerId: number
+  playerName: string
+  team: string
+  position: string
+  stat: string
+  statLabel: string       // "PTS" | "REB" | "AST" | "3PM"
+  pickType: 'safe' | 'value'
+  recommendedLine: number
+  confidence: number      // 0-100
+  edge: number            // e.g. 0.12 = 12% edge over market
+  hitRate: number         // historical hit rate e.g. 0.87
+  impliedProb: number     // Kalshi market implied prob e.g. 0.71
+  sampleSize: number
+  conditionsMatched: number
+  totalConditions: number
+}
+
+export interface TodaysPicks {
+  topPick: Pick | null
+  allPicks: Pick[]
+}
+
 async function get<T>(url: string): Promise<T> {
   const res = await fetch(url)
   const json = await res.json()
@@ -74,4 +98,10 @@ export const nbaApi = {
 
   getTodaysGames: (): Promise<TodaysGame[]> =>
     get(`${BASE}/nba/games/today`),
+
+  getTodaysPicks: (): Promise<TodaysPicks> =>
+    get(`${BASE}/nba/picks/today`),
+
+  getPlayerPicks: (playerId: number): Promise<Pick[]> =>
+    get(`${BASE}/nba/picks/player/${playerId}`),
 }

@@ -1,7 +1,7 @@
 # StatTrak SportQuery Assistant Design
 
 **Date:** 2026-04-17
-**Status:** Draft (pending user review)
+**Status:** Approved
 **Goal:** Add a conversational AI assistant ("SportQuery") that lets users query NBA player and game statistics through multi-turn natural-language chat. Queries are translated by Groq's Kimi-K2 model into sandboxed read-only PostgreSQL executed against the existing Supabase database. Results render inline in the chat as native StatTrak player cards.
 
 ---
@@ -271,7 +271,8 @@ Clicking a chip creates a session and sends the prompt.
 ### System prompt structure
 
 ```
-You are SportQuery, an assistant that answers questions about NBA
+You are SportQuery, an assistant that answers questions about sport 
+(currently only supporting NBA)
 statistics by writing read-only PostgreSQL queries against a known schema.
 
 SCHEMA:
@@ -448,13 +449,11 @@ Estimated effort (without the frontend overhaul which is a separate project): ~2
 
 ---
 
-## Open Questions for User Review
+## Resolved UI Decisions
 
-None blocking. The following would be nice-to-have refinements and can be deferred:
-
-- Do you want a keyboard shortcut (⌘K / Ctrl+K) from anywhere in the app to jump to SportQuery with focus in the input?
-- Do you want Groq's SQL to be visible in the UI (behind a "Show query" toggle) for debugging/transparency?
-- Should follow-up suggestion chips appear automatically after every result, or only when opted in?
+- **Keyboard shortcut to jump to SportQuery:** Skipped for v1. Clicking the `SPORTQUERY` Header nav item is the only entry point. The existing `⌘K` binding in Header stays on player search. Revisit after real usage.
+- **Show-query / debug toggle:** Not in v1. Groq's generated SQL is never rendered in the UI. It is stored in `sportquery_messages.sql_executed` for server-side debugging only.
+- **Follow-up suggestion chips:** Off by default. `follow_up_suggestions` from the LLM envelope are only rendered when the user enables them via a small toggle in the chat header (`Suggestions: on/off`). Preference persists in `localStorage`.
 
 ---
 

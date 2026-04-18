@@ -6,6 +6,7 @@ const morgan = require('morgan');
 require('dotenv').config();
 
 import { startScheduler } from './jobs/scheduler';
+import sportqueryRoutes from './routes/sportquery';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -25,6 +26,7 @@ app.get('/health', (req: any, res: any) => {
 
 const nbaRoutes = require('./routes/nba');
 app.use('/api/nba', nbaRoutes);
+app.use('/api/sportquery', sportqueryRoutes);
 
 app.listen(PORT, () => {
   console.log(`StatTrak API running on http://localhost:${PORT}`);

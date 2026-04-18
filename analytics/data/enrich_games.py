@@ -3,7 +3,7 @@ analytics/data/enrich_games.py
 
 Three enrichment operations for StatTrak Analytics:
   1. backfill_positions()      -- CommonTeamRoster -> players.position
-  2. enrich_games()            -- BoxScoreAdvancedV2 + BoxScoreSummaryV2
+  2. enrich_games()            -- BoxScoreAdvancedV3 + BoxScoreSummaryV2
                                   -> player_game_conditions, team_game_stats,
                                      player_availability
   3. backfill_basic_stats()    -- BoxScoreTraditionalV2 -> nba_player_stats
@@ -22,10 +22,12 @@ from __future__ import annotations
 
 import argparse
 import math
+import random
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from datetime import date, datetime
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from requests.exceptions import ConnectionError, ReadTimeout
 
@@ -48,6 +50,70 @@ TEST_GAME_LIMIT = 5            # Number of games to process in --test mode
 CURRENT_SEASON_STR = "2024-25" # Season string used for CommonTeamRoster
 DAYS_REST_DEFAULT = 3          # Days rest assumed when no prior game found
 MINUTES_DEFAULT = 0            # Fallback minutes when parsing fails
+
+# Adaptive rate-limiting — kicks in after a call exhausts all retries
+COOLDOWN_SECONDS_MIN = 120     # Min cooldown after suspected rate limit
+COOLDOWN_SECONDS_MAX = 180     # Max cooldown (jittered)
+SLOW_MODE_CALLS = 30           # Number of subsequent calls in slow mode
+SLOW_MODE_DELAY_MIN = 5.0      # Min delay between calls while in slow mode
+SLOW_MODE_DELAY_MAX = 10.0     # Max delay (jittered)
+
+# Hard wall-clock kill for hung API calls. On Windows, a blackholed socket can
+# keep a requests call blocked past the library's own timeout — this ensures
+# we always surface a timeout exception so retry/cooldown logic fires.
+HARD_TIMEOUT_SECONDS = 45
+
+# Module-level state for adaptive delay
+_slow_mode_calls_remaining = 0
+
+
+def _adaptive_delay() -> float:
+    """Return delay to apply before the next API call.
+
+    Normally returns API_DELAY_SECONDS. After a cooldown trigger, returns a
+    random value in [SLOW_MODE_DELAY_MIN, SLOW_MODE_DELAY_MAX] for the next
+    SLOW_MODE_CALLS calls before auto-returning to normal pace.
+    """
+    global _slow_mode_calls_remaining
+    if _slow_mode_calls_remaining > 0:
+        _slow_mode_calls_remaining -= 1
+        return random.uniform(SLOW_MODE_DELAY_MIN, SLOW_MODE_DELAY_MAX)
+    return API_DELAY_SECONDS
+
+
+def _call_with_hard_timeout(fn: Callable) -> Any:
+    """Run fn() in a worker thread with a strict wall-clock timeout.
+
+    If the call doesn't return within HARD_TIMEOUT_SECONDS, raises FutureTimeout
+    and the worker is abandoned (shutdown(wait=False)). This is the only reliable
+    way to recover from Windows socket hangs where requests' own timeout never
+    fires because the kernel never sees an RST/FIN from the peer.
+    """
+    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="nba_api")
+    try:
+        future = executor.submit(fn)
+        return future.result(timeout=HARD_TIMEOUT_SECONDS)
+    finally:
+        executor.shutdown(wait=False)
+
+
+def _trigger_cooldown(description: str) -> None:
+    """Sleep a long jittered cooldown and engage slow mode.
+
+    Called after an API call exhausts all retries — indicates the NBA Stats
+    API has started rate-limiting this IP. Subsequent calls use 5-10s
+    randomized delays for SLOW_MODE_CALLS to let the rate limit window clear
+    without risking a longer blacklist.
+    """
+    global _slow_mode_calls_remaining
+    cooldown = random.uniform(COOLDOWN_SECONDS_MIN, COOLDOWN_SECONDS_MAX)
+    print(
+        f"\n  RATE LIMIT suspected after [{description}] — "
+        f"cooling down {cooldown:.0f}s, then slow mode for next "
+        f"{SLOW_MODE_CALLS} calls."
+    )
+    time.sleep(cooldown)
+    _slow_mode_calls_remaining = SLOW_MODE_CALLS
 
 
 # ── Supabase pagination helper ──────────────────────────────────────────────────
@@ -95,14 +161,19 @@ def api_call_with_retry(call_fn, description: str) -> Optional[Any]:
     attempt = 0
     while attempt < MAX_RETRIES:
         attempt += 1
-        time.sleep(API_DELAY_SECONDS)
+        time.sleep(_adaptive_delay())
         try:
-            return call_fn()
-        except (ReadTimeout, ConnectionError) as exc:
+            return _call_with_hard_timeout(call_fn)
+        except (ReadTimeout, ConnectionError, FutureTimeout) as exc:
             wait = min(BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)), BACKOFF_MAX_SECONDS)
+            label = (
+                f"hard timeout after {HARD_TIMEOUT_SECONDS}s"
+                if isinstance(exc, FutureTimeout)
+                else type(exc).__name__
+            )
             print(
                 f"  WARNING [{description}] attempt {attempt}/{MAX_RETRIES} "
-                f"failed ({type(exc).__name__}). Waiting {wait}s ..."
+                f"failed ({label}). Waiting {wait}s ..."
             )
             time.sleep(wait)
         except Exception as exc:  # noqa: BLE001
@@ -126,6 +197,7 @@ def api_call_with_retry(call_fn, description: str) -> Optional[Any]:
                 print(f"  ERROR [{description}] unexpected error: {exc}")
                 return None
     print(f"  ERROR [{description}] all {MAX_RETRIES} retries exhausted. Skipping.")
+    _trigger_cooldown(description)
     return None
 
 
@@ -321,7 +393,19 @@ def _upsert_batch(table: str, rows: list[dict], on_conflict: str) -> None:
     Upsert rows in BATCH_SIZE chunks with on_conflict resolution.
     Retries up to 3 times on transient errors so a network blip doesn't
     crash a long-running backfill. Logs and skips a chunk after 3 failures.
+
+    Deduplicates rows by on_conflict key (keeping the last value) before
+    sending. Postgres rejects a single upsert containing two rows with the
+    same conflict target with "ON CONFLICT DO UPDATE command cannot affect
+    row a second time".
     """
+    conflict_keys = [k.strip() for k in on_conflict.split(",")]
+    deduped: dict[tuple, dict] = {}
+    for row in rows:
+        key = tuple(row.get(k) for k in conflict_keys)
+        deduped[key] = row
+    rows = list(deduped.values())
+
     for i in range(0, len(rows), BATCH_SIZE):
         chunk = rows[i : i + BATCH_SIZE]
         for attempt in range(1, 4):
@@ -350,7 +434,7 @@ def enrich_games(
     yes: bool = False,
 ) -> None:
     """
-    Enrich games with advanced stats (BoxScoreAdvancedV2) and inactive player
+    Enrich games with advanced stats (BoxScoreAdvancedV3) and inactive player
     info (BoxScoreSummaryV2). Writes to:
       - player_game_conditions
       - team_game_stats
@@ -362,7 +446,7 @@ def enrich_games(
         resume:        Skip games that already have rows in player_game_conditions.
     """
     try:
-        from nba_api.stats.endpoints import BoxScoreAdvancedV2, BoxScoreSummaryV2
+        from nba_api.stats.endpoints import BoxScoreAdvancedV3, BoxScoreSummaryV2
     except ImportError as exc:
         print(f"ERROR: nba_api not installed: {exc}")
         sys.exit(1)
@@ -371,7 +455,13 @@ def enrich_games(
     stats_index = _load_player_stats_index(player_map)
 
     # Build ordered list of games to process
-    games_to_process = list(game_map.items())  # [(ext_id, info), ...]
+    # Only regular season (002) and playoffs (004/005) have advanced box score data.
+    # Preseason (001) and All-Star (003) return empty responses.
+    games_to_process = [
+        (ext_id, info)
+        for ext_id, info in game_map.items()
+        if ext_id[:3] in ("002", "004", "005")
+    ]
 
     if season_filter is not None:
         games_to_process = [
@@ -431,18 +521,13 @@ def enrich_games(
 
         print(f"[{game_num}/{total}] Game {ext_id} ({game_date_str})", end=" ... ", flush=True)
 
-        # ── BoxScoreAdvancedV2 ──────────────────────────────────────────
+        # ── BoxScoreAdvancedV3 ──────────────────────────────────────────
+        # V2 was deprecated by stats.nba.com and returns empty responses.
+        # V3 uses camelCase column names.
         def _adv(gid=ext_id):
-            return BoxScoreAdvancedV2(
-                game_id=gid,
-                end_period=1,
-                end_range=0,
-                range_type=0,
-                start_period=1,
-                start_range=0,
-            )
+            return BoxScoreAdvancedV3(game_id=gid)
 
-        adv_result = api_call_with_retry(_adv, f"BoxScoreAdvancedV2 {ext_id}")
+        adv_result = api_call_with_retry(_adv, f"BoxScoreAdvancedV3 {ext_id}")
 
         if adv_result is not None:
             try:
@@ -452,13 +537,13 @@ def enrich_games(
 
                 # --- player_game_conditions rows ---
                 for _, row in player_adv_df.iterrows():
-                    p_ext_id = str(row.get("PLAYER_ID", "")).strip()
+                    p_ext_id = str(row.get("personId", "")).strip()
                     p_db_id = player_map.get(p_ext_id)
                     if not p_db_id:
                         continue  # player not in our DB
 
                     # Determine team membership from the advanced row
-                    t_ext_id = str(row.get("TEAM_ID", "")).strip()
+                    t_ext_id = str(row.get("teamId", "")).strip()
                     t_db_id = team_map.get(t_ext_id)
 
                     home_away = "home" if t_db_id == home_team_db_id else "away"
@@ -481,20 +566,20 @@ def enrich_games(
                             "player_id": p_db_id,
                             "game_id": game_db_id,
                             "game_date": game_date_str,
-                            "usg_pct": _safe_float(row.get("USG_PCT")),
-                            "pace": _safe_float(row.get("PACE")),
-                            "off_rating": _safe_float(row.get("OFF_RATING")),
-                            "def_rating": _safe_float(row.get("DEF_RATING")),
+                            "usg_pct": _safe_float(row.get("usagePercentage")),
+                            "pace": _safe_float(row.get("pace")),
+                            "off_rating": _safe_float(row.get("offensiveRating")),
+                            "def_rating": _safe_float(row.get("defensiveRating")),
                             "home_away": home_away,
                             "days_rest": rest,
                             "opponent_team_id": opponent_db_id,
-                            "minutes_played": _parse_minutes(row.get("MIN")),
+                            "minutes_played": _parse_minutes(row.get("minutes")),
                         }
                     )
 
                 # --- team_game_stats rows ---
                 for _, row in team_adv_df.iterrows():
-                    t_ext_id = str(row.get("TEAM_ID", "")).strip()
+                    t_ext_id = str(row.get("teamId", "")).strip()
                     t_db_id = team_map.get(t_ext_id)
                     if not t_db_id:
                         continue
@@ -504,14 +589,14 @@ def enrich_games(
                             "team_id": t_db_id,
                             "game_id": game_db_id,
                             "game_date": game_date_str,
-                            "pace": _safe_float(row.get("PACE")),
-                            "off_rating": _safe_float(row.get("OFF_RATING")),
-                            "def_rating": _safe_float(row.get("DEF_RATING")),
+                            "pace": _safe_float(row.get("pace")),
+                            "off_rating": _safe_float(row.get("offensiveRating")),
+                            "def_rating": _safe_float(row.get("defensiveRating")),
                         }
                     )
 
             except Exception as exc:
-                print(f"\n  WARNING: could not parse BoxScoreAdvancedV2 for {ext_id}: {exc}")
+                print(f"\n  WARNING: could not parse BoxScoreAdvancedV3 for {ext_id}: {exc}")
 
         # ── BoxScoreSummaryV2 (inactive players) ────────────────────────
         def _summ(gid=ext_id):
@@ -522,8 +607,9 @@ def enrich_games(
         if summ_result is not None:
             try:
                 summ_frames = summ_result.get_data_frames()
-                # InactivePlayers is dataset index 5 in BoxScoreSummaryV2
-                inactive_df = summ_frames[5]
+                # InactivePlayers is dataset index 3 in BoxScoreSummaryV2
+                # (0=GameSummary, 1=OtherStats, 2=Officials, 3=InactivePlayers)
+                inactive_df = summ_frames[3]
 
                 for _, row in inactive_df.iterrows():
                     p_ext_id = str(row.get("PLAYER_ID", "")).strip()

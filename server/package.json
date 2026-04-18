@@ -7,7 +7,8 @@
     "dev": "nodemon src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "sync-data": "ts-node src/scripts/runSync.ts"
   },
   "keywords": [],
@@ -19,7 +20,10 @@
     "cors": "^2.8.5",
     "dotenv": "^17.2.2",
     "express": "^5.1.0",
+    "express-rate-limit": "^8.3.2",
+    "groq-sdk": "^1.1.2",
     "helmet": "^8.1.0",
+    "libpg-query": "^17.7.3",
     "morgan": "^1.10.1",
     "node-cron": "^4.2.1",
     "openai": "^5.20.2",
@@ -30,8 +34,10 @@
     "@types/node": "^24.4.0",
     "@types/node-cron": "^3.0.11",
     "@types/pg": "^8.15.5",
+    "@vitest/ui": "^4.1.4",
     "nodemon": "^3.1.10",
     "ts-node": "^10.9.2",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "vitest": "^4.1.4"
   }
 }

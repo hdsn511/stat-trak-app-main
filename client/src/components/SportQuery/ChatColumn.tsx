@@ -3,7 +3,8 @@ import { MessageList } from './MessageList'
 import { ChatInput } from './ChatInput'
 import { EmptyState } from './EmptyState'
 import { SessionSwitcher } from './SessionSwitcher'
-import { SuggestionsToggle, useShowSuggestions } from './SuggestionsToggle'
+import { SuggestionsToggle } from './SuggestionsToggle'
+import { useShowSuggestions } from './hooks/useShowSuggestions'
 
 type Props = { sessionId?: string }
 

@@ -4,6 +4,7 @@ import { Search } from 'lucide-react'
 import { nbaApi, PlayerSearchResult } from '@/services/api'
 
 const NAV_LINKS = [
+  { label: 'SPORTQUERY', href: '/sportquery' },
   { label: 'NBA', href: '/nba' },
   { label: 'NFL', href: '/nfl' },
   { label: 'MLB', href: '/mlb' },

@@ -6,6 +6,7 @@ import NFL from '@/pages/NFL/NFL'
 import MLB from '@/pages/MLB/MLB'
 import NHL from '@/pages/NHL/NHL'
 import PlayerDetailView from '@/components/TrendFinder/PlayerDetailView'
+import SportQuery from '@/components/SportQuery/SportQuery'
 
 export default function App() {
   return (
@@ -19,6 +20,8 @@ export default function App() {
           <Route path="/mlb" element={<MLB />} />
           <Route path="/nhl" element={<NHL />} />
           <Route path="/player/:id" element={<PlayerDetailView />} />
+          <Route path="/sportquery" element={<SportQuery />} />
+          <Route path="/sportquery/:sessionId" element={<SportQuery />} />
         </Routes>
       </div>
     </div>

@@ -59,7 +59,7 @@ STEPS: list[dict] = [
     },
     {
         "id":   "enrich_games",
-        "name": "Enrich games → player_game_conditions / team_game_stats",
+        "name": "Enrich games -> player_game_conditions / team_game_stats",
         "cmd":  [PY, "-m", "analytics.data.enrich_games", "--resume", "--yes"],
     },
     {

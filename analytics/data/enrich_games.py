@@ -666,13 +666,17 @@ def _find_games_missing_basic_stats(
     game_map: dict,
 ) -> list[tuple[str, dict]]:
     """
-    Identify games in seasons 2023/2024 (or season_filter) that have zero or
-    very few rows in nba_player_stats.
+    Identify games in every season present in game_map (or season_filter) that
+    have zero or very few rows in nba_player_stats.
 
     A game is considered "missing" if it has fewer than 5 stat rows
     (the absolute minimum for any real game).
     """
-    target_seasons = [2023, 2024]
+    # Cover every season the games table knows about — current season included.
+    # Using a hardcoded list historically skipped the live season and left
+    # nba_player_stats empty for it, which downstream opp-defense ranking read as
+    # "no data" and silently no-op'd.
+    target_seasons = sorted({info["season"] for info in game_map.values()})
     if season_filter is not None:
         target_seasons = [s for s in target_seasons if s == season_filter]
 
@@ -849,6 +853,19 @@ def backfill_basic_stats(
 
 # ── Opponent Position Defense Backfill ──────────────────────────────────────────
 
+# Maps players.position strings (from CommonTeamRoster) to the 3 position groups
+# used for opponent-defense ranking. Dual positions map to their primary (first) token.
+POSITION_GROUP_MAP: dict[str, str] = {
+    "G": "G",
+    "F": "F",
+    "C": "C",
+    "G-F": "G",
+    "F-G": "F",
+    "F-C": "F",
+    "C-F": "C",
+}
+
+
 def backfill_opp_defense(snapshot_date: str | None = None):
     """
     Compute opponent-position-defense rankings from nba_player_stats + player positions.
@@ -996,15 +1013,23 @@ def backfill_opp_defense(snapshot_date: str | None = None):
             "league_rank": data.get("league_rank"),
         })
 
-    if rows:
-        for i in range(0, len(rows), BATCH_SIZE):
-            chunk = rows[i:i + BATCH_SIZE]
-            supabase.table("opponent_position_defense").upsert(
-                chunk, on_conflict="team_id,position_group,snapshot_date"
-            ).execute()
-        print(f"  Upserted {len(rows)} opponent_position_defense rows.")
-    else:
-        print("  No opponent defense data computed.")
+    if not rows:
+        # Fail loud: a successful opp-defense run must produce rankings. Reaching
+        # here means upstream data is missing (typically nba_player_stats for the
+        # current season). Exiting 0 here would mask the gap.
+        raise RuntimeError(
+            f"No opponent defense data computed for season {current_season}. "
+            f"Loaded {len(all_stats)} stat rows across "
+            f"{len(game_ids)} games, {len(player_pos)} positioned players. "
+            "Verify nba_player_stats coverage for the current season."
+        )
+
+    for i in range(0, len(rows), BATCH_SIZE):
+        chunk = rows[i:i + BATCH_SIZE]
+        supabase.table("opponent_position_defense").upsert(
+            chunk, on_conflict="team_id,position_group,snapshot_date"
+        ).execute()
+    print(f"  Upserted {len(rows)} opponent_position_defense rows.")
 
 
 # ── CLI ─────────────────────────────────────────────────────────────────────────

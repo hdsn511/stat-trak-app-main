@@ -63,6 +63,11 @@ STEPS: list[dict] = [
         "cmd":  [PY, "-m", "analytics.data.enrich_games", "--resume", "--yes"],
     },
     {
+        "id":   "basic_stats_fill",
+        "name": "Fill gaps in nba_player_stats (BoxScoreTraditionalV2)",
+        "cmd":  [PY, "-m", "analytics.data.enrich_games", "--basic-stats", "--resume", "--yes"],
+    },
+    {
         "id":   "opp_defense",
         "name": "Opponent-position-defense rankings",
         "cmd":  [PY, "-m", "analytics.data.enrich_games", "--opp-defense"],
@@ -114,7 +119,11 @@ def mark_paused(state: dict, step_id: str) -> None:
 def _log(msg: str) -> None:
     ts   = time.strftime("%Y-%m-%d %H:%M:%S")
     line = f"[{ts}] {msg}"
-    print(line, flush=True)
+    try:
+        print(line, flush=True)
+    except UnicodeEncodeError:
+        # Windows cp1252 terminal can't render chars like → U+2192
+        print(line.encode("ascii", errors="replace").decode("ascii"), flush=True)
     try:
         with LOG_FILE.open("a", encoding="utf-8") as f:
             f.write(line + "\n")

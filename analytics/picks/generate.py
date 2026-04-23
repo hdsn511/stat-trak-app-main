@@ -28,7 +28,7 @@ from datetime import date, datetime, timedelta
 from typing import Optional
 
 from analytics.db.connection import supabase
-from analytics.engine.backtest import backtest_player, backtest_game_prop
+from analytics.engine.backtest import backtest_player, backtest_game_prop, backtest_winner
 from analytics.engine.scorer import score, MIN_HIT_RATE, MIN_EDGE
 from analytics.kalshi.client import KalshiClient
 from analytics.screener.screen import screen_player_candidates, screen_game_candidates
@@ -391,22 +391,35 @@ def generate_picks(game_date: date, mock_kalshi: bool = False) -> list[dict]:
         game_id = game_candidate["game_id"]
 
         for (event_key, prop_type), lines in game_props.items():
-            if prop_type == "winner":
-                continue  # backtest only supports total and spread
+            # Scope each game's loop to only that game's Kalshi lines.
+            if event_key_to_game_id.get(event_key) != game_id:
+                continue
+
             for line_entry in lines:
                 line_val = line_entry["line"]
                 implied_prob = line_entry["implied_prob"]
                 is_first_half = line_entry.get("is_first_half", False)
 
-                bt = backtest_game_prop(game_id, prop_type, line_val, date_str)
+                if prop_type == "winner":
+                    bt = backtest_winner(game_id, date_str)
+                else:
+                    bt = backtest_game_prop(game_id, prop_type, line_val, date_str)
+
                 if bt is None:
                     continue
+
+                # conditions_matched from backtest_winner is a string ("self_accuracy"),
+                # not an int. score() expects an int — cast here at the call site.
+                cond_matched = bt["conditions_matched"]
+                cond_matched_for_score = (
+                    bt["total_conditions"] if isinstance(cond_matched, str) else cond_matched
+                )
 
                 # Game props use days_rest=3 (not applicable) and stat=prop_type
                 sc = score(
                     hit_rate=bt["hit_rate"],
                     sample_size=bt["sample_size"],
-                    conditions_matched=bt["conditions_matched"],
+                    conditions_matched=cond_matched_for_score,
                     total_conditions=bt["total_conditions"],
                     implied_prob=implied_prob,
                     days_rest=3,

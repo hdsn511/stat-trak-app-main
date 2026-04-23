@@ -24,6 +24,9 @@ app.get('/health', (req: any, res: any) => {
 
 const nbaRoutes = require('./routes/nba');
 app.use('/api/nba', nbaRoutes);
+
+const picksRoutes = require('./routes/picks');
+app.use('/api/nba', picksRoutes);
 app.use('/api/sportquery', sportqueryRoutes);
 
 app.listen(PORT, () => {

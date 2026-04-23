@@ -19,7 +19,8 @@ async function findNearestPickDate(today: string): Promise<string> {
 
 export async function getTopPicks(req: any, res: any) {
   try {
-    const limit = Math.max(1, Math.min(20, parseInt((req.query.limit as string) ?? '5', 10)));
+    const parsed = parseInt((req.query.limit as string) ?? '5', 10);
+    const limit = Number.isNaN(parsed) ? 5 : Math.max(1, Math.min(20, parsed));
     const today = new Date().toISOString().slice(0, 10);
     const pickDate = await findNearestPickDate(today);
 

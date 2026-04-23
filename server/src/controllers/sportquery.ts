@@ -10,6 +10,49 @@ import {
   listSessions,
   setSessionTitle,
 } from '../services/sportquerySession'
+import { detectShape, enrich } from '../services/sportqueryEnrich'
+import { supabaseAdmin } from '../config/supabaseAdmin'
+
+async function findNextAvailableSlate(table: 'pick_results' | 'daily_lines'): Promise<string | null> {
+  const today = new Date().toISOString().slice(0, 10)
+  const { data } = await supabaseAdmin
+    .from(table)
+    .select('game_date')
+    .gte('game_date', today)
+    .order('game_date', { ascending: true })
+    .limit(1)
+    .maybeSingle()
+  return data?.game_date ?? null
+}
+
+// If the query targets picks/lines with a strict CURRENT_DATE and returned 0 rows,
+// widen to the nearest upcoming slate. Returns the (possibly widened) rows and a
+// widening_note describing any substitution.
+async function maybeWidenToNextSlate(
+  sql: string,
+  rows: any[]
+): Promise<{ rows: any[]; note: string | null }> {
+  if (rows.length > 0) return { rows, note: null }
+
+  const picksMatch = /FROM\s+pick_results/i.test(sql)
+  const linesMatch = /FROM\s+daily_lines/i.test(sql)
+  const hasCurrentDate = /CURRENT_DATE/.test(sql)
+  if (!hasCurrentDate || (!picksMatch && !linesMatch)) return { rows, note: null }
+
+  const table: 'pick_results' | 'daily_lines' = picksMatch ? 'pick_results' : 'daily_lines'
+  const nextDate = await findNextAvailableSlate(table)
+  if (!nextDate) return { rows, note: null }
+
+  const widenedSql = sql.replace(/CURRENT_DATE/g, `'${nextDate}'`)
+  const v = await validateSql(widenedSql)
+  if (!v.ok) return { rows, note: null }
+
+  const widenedRows = await runReadOnly(v.rewritten)
+  return {
+    rows: widenedRows,
+    note: widenedRows.length > 0 ? `No rows for today — showing ${nextDate} instead.` : null,
+  }
+}
 
 export async function postSession(_req: Request, res: Response) {
   try {
@@ -118,8 +161,22 @@ export async function postMessage(req: Request, res: Response) {
       }
     }
 
+    let wideningNote: string | null = null
+    if (sqlForLog) {
+      const fb = await maybeWidenToNextSlate(sqlForLog, rows)
+      if (fb.rows.length > rows.length) {
+        rows = fb.rows
+        wideningNote = fb.note
+      }
+    }
+
+    const shape = detectShape(rows)
+    const enriched = enrich(shape, rows)
+
     send('results', {
-      rows,
+      rows: enriched,
+      shape,
+      widening_note: wideningNote,
       disambiguation,
       follow_up_suggestions: envelope.follow_up_suggestions ?? [],
     })

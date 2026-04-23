@@ -170,8 +170,11 @@ export async function getPerfectStreaks(req: any, res: any) {
       ? 5
       : Math.max(3, Math.min(10, parsedWindow));
 
+    if (type === 'game') {
+      return await getGamePerfectStreaks(req, res, stat, window);
+    }
     if (type !== 'player') {
-      return res.status(400).json({ success: false, error: `type=${type} not yet supported` });
+      return res.status(400).json({ success: false, error: `unknown type: ${type}` });
     }
 
     const statCfg = STAT_TO_COLUMN[stat];
@@ -362,4 +365,115 @@ export async function getPerfectStreaks(req: any, res: any) {
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
+}
+
+const GAME_STAT_CHOICES = new Set(['cover_spread', 'over_total', 'winner']);
+
+async function getGamePerfectStreaks(req: any, res: any, stat: string, window: number) {
+  if (!GAME_STAT_CHOICES.has(stat)) {
+    return res.status(400).json({ success: false, error: `invalid game stat: ${stat}` });
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  // Today's teams
+  const { data: todaysGames } = await supabaseAdmin
+    .from('games')
+    .select('id,home_team_id,away_team_id')
+    .eq('game_date', today)
+    .eq('league_id', 1);
+  const slateTeamIds = new Set<number>();
+  for (const g of (todaysGames ?? [])) {
+    slateTeamIds.add(g.home_team_id);
+    slateTeamIds.add(g.away_team_id);
+  }
+  if (slateTeamIds.size === 0) {
+    console.warn('[getGamePerfectStreaks] no teams on today\'s slate');
+    return res.json({ success: true, data: { stat, window, rows: [] } });
+  }
+
+  const candidateTeamIds = [...slateTeamIds];
+
+  // For each candidate team, pull last `window` completed games and evaluate
+  const rows = await Promise.all(candidateTeamIds.map(async (teamId) => {
+    const { data: history } = await supabaseAdmin
+      .from('games')
+      .select('id,game_date,home_team_id,away_team_id,home_score,away_score')
+      .or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`)
+      .lt('game_date', today)
+      .order('game_date', { ascending: false })
+      .limit(window);
+
+    if (!history || history.length < window) return null;
+
+    let allHit = true;
+    for (const g of history) {
+      const isHome = g.home_team_id === teamId;
+      if (g.home_score == null || g.away_score == null) {
+        allHit = false;
+        break;
+      }
+
+      if (stat === 'winner') {
+        const won = isHome ? g.home_score > g.away_score : g.away_score > g.home_score;
+        if (!won) { allHit = false; break; }
+      } else {
+        const neededPropType = stat === 'cover_spread' ? 'spread' : 'total';
+        const { data: lineRow } = await supabaseAdmin
+          .from('daily_lines')
+          .select('line,prop_type')
+          .eq('game_date', g.game_date)
+          .eq('entity_id', g.id)
+          .eq('prop_type', neededPropType)
+          .limit(1)
+          .maybeSingle();
+        if (!lineRow) { allHit = false; break; }
+
+        if (stat === 'cover_spread') {
+          const margin = isHome ? (g.home_score - g.away_score) : (g.away_score - g.home_score);
+          if (!(margin > lineRow.line)) { allHit = false; break; }
+        } else {
+          // over_total
+          const total = g.home_score + g.away_score;
+          if (!(total > lineRow.line)) { allHit = false; break; }
+        }
+      }
+    }
+    if (!allHit) return null;
+    return { team_id: teamId, streak_count: window };
+  }));
+
+  const hits = rows.filter((r): r is NonNullable<typeof r> => r !== null);
+  if (hits.length === 0) {
+    return res.json({ success: true, data: { stat, window, rows: [] } });
+  }
+
+  // Enrich with team abbr + today's opponent
+  const { data: teams } = await supabaseAdmin.from('teams').select('id,abbreviation,name');
+  const teamMap = new Map<number, any>();
+  for (const t of (teams ?? [])) teamMap.set(t.id, t);
+
+  const opponentByTeam = new Map<number, number>();
+  for (const g of (todaysGames ?? [])) {
+    opponentByTeam.set(g.home_team_id, g.away_team_id);
+    opponentByTeam.set(g.away_team_id, g.home_team_id);
+  }
+
+  const enriched = hits.map((h) => {
+    const team: any = teamMap.get(h.team_id) ?? {};
+    const oppId = opponentByTeam.get(h.team_id);
+    const opp: any = oppId != null ? teamMap.get(oppId) : null;
+    return {
+      team_id: h.team_id,
+      team_abbr: team.abbreviation ?? null,
+      team_name: team.name ?? null,
+      streak_count: h.streak_count,
+      opponent: opp ? { team: opp.abbreviation, team_name: opp.name } : null,
+    };
+  });
+
+  res.json({
+    success: true,
+    data: { stat, window, rows: enriched.slice(0, 10) },
+  });
 }

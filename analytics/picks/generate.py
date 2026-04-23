@@ -45,6 +45,7 @@ def _store_daily_lines(
     player_props: dict,
     game_props: dict,
     name_to_id: dict[str, int],
+    event_key_to_game_id: dict[str, int],
 ) -> None:
     """Insert fetched Kalshi lines into the daily_lines table."""
     date_str = game_date.strftime("%Y-%m-%d")
@@ -66,12 +67,13 @@ def _store_daily_lines(
             })
 
     for (event_key, prop_type), lines in game_props.items():
+        game_id = event_key_to_game_id.get(event_key)
         for entry in lines:
             rows.append({
                 "game_date": date_str,
                 "prop_type": prop_type,
-                "entity_id": None,
-                "stat": event_key,
+                "entity_id": game_id,
+                "stat": prop_type,
                 "line": entry["line"],
                 "kalshi_price": entry["price"],
                 "implied_prob": entry["implied_prob"],
@@ -80,7 +82,6 @@ def _store_daily_lines(
             })
 
     if rows:
-        # Insert in batches
         BATCH = 500
         for i in range(0, len(rows), BATCH):
             supabase.table("daily_lines").insert(rows[i : i + BATCH]).execute()
@@ -260,8 +261,31 @@ def generate_picks(game_date: date, mock_kalshi: bool = False) -> list[dict]:
         name_to_id[name_lower] = row["id"]
         id_to_name[row["id"]] = row["name"]
 
+    # Build event_key -> game_id map so game-prop rows get a joinable entity_id.
+    # Kalshi event_ticker strings (e.g. "LAL-GSW") embed team abbreviations; we
+    # match against the home/away abbreviations for each scheduled game.
+    team_abbr_rows = (
+        supabase.table("teams")
+        .select("id,abbreviation")
+        .execute()
+    )
+    team_id_to_abbr: dict[int, str] = {
+        r["id"]: r["abbreviation"].upper()
+        for r in (team_abbr_rows.data or [])
+        if r.get("abbreviation")
+    }
+    event_key_to_game_id: dict[str, int] = {}
+    for event_key, _prop_type in game_props:
+        ek_upper = event_key.upper()
+        for candidate in game_candidates:
+            home_abbr = team_id_to_abbr.get(candidate["home_team_id"], "")
+            away_abbr = team_id_to_abbr.get(candidate["away_team_id"], "")
+            if home_abbr and away_abbr and home_abbr in ek_upper and away_abbr in ek_upper:
+                event_key_to_game_id[event_key] = candidate["game_id"]
+                break
+
     # Store lines to daily_lines table
-    _store_daily_lines(game_date, player_props, game_props, name_to_id)
+    _store_daily_lines(game_date, player_props, game_props, name_to_id, event_key_to_game_id)
 
     # ── Steps 3+4: Backtest + Score Player Props ─────────────────────────────
     print("\n[Steps 3+4] Backtesting + scoring player props ...")

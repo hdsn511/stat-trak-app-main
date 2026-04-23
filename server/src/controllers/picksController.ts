@@ -41,12 +41,27 @@ export async function getTopPicks(req: any, res: any) {
       .order('confidence_score', { ascending: false });
 
     if (error) throw error;
+    if (!picks || picks.length === 0) {
+      console.warn(`[getTopPicks] no picks found for game_date=${pickDate} — returning empty payload`);
+    }
     const allPicks = (picks ?? []) as any[];
 
     const playerRows = allPicks.filter((p) => p.prop_type === 'player');
     const gameRows = allPicks.filter((p) =>
       ['winner', 'spread', 'total'].includes(p.prop_type)
     );
+
+    // Dedupe game picks by (game_id, prop_type), preferring pick_type='safe'
+    const bestPerGameProp = new Map<string, any>();
+    for (const g of gameRows) {
+      const key = `${g.entity_id}-${g.prop_type}`;
+      const existing = bestPerGameProp.get(key);
+      if (!existing || (g.pick_type === 'safe' && existing.pick_type !== 'safe')) {
+        bestPerGameProp.set(key, g);
+      }
+    }
+    const dedupedGameRows = Array.from(bestPerGameProp.values())
+      .sort((a, b) => (b.confidence_score ?? 0) - (a.confidence_score ?? 0));
 
     // ── Player side: dedupe by (entity_id, stat), prefer pick_type='safe'
     const bestPerPlayerStat = new Map<string, any>();
@@ -69,7 +84,7 @@ export async function getTopPicks(req: any, res: any) {
     const playerMap = new Map((players ?? []).map((p: any) => [p.id, p]));
 
     // ── Game side: one of each ML/Spread/Total, then fill by confidence
-    const pickByPropType = (t: string) => gameRows.find((r: any) => r.prop_type === t);
+    const pickByPropType = (t: string) => dedupedGameRows.find((r: any) => r.prop_type === t);
     const featuredPicks: Array<{ row: any; featured: 'ml' | 'spread' | 'total' }> = [];
     const ml = pickByPropType('winner');
     if (ml) featuredPicks.push({ row: ml, featured: 'ml' });
@@ -79,7 +94,7 @@ export async function getTopPicks(req: any, res: any) {
     if (to) featuredPicks.push({ row: to, featured: 'total' });
 
     const featuredIds = new Set(featuredPicks.map((f) => f.row.id));
-    const fillers = gameRows
+    const fillers = dedupedGameRows
       .filter((r: any) => !featuredIds.has(r.id))
       .slice(0, Math.max(0, limit - featuredPicks.length));
 

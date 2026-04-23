@@ -45,7 +45,11 @@ async function maybeWidenToNextSlate(
 
   const widenedSql = sql.replace(/CURRENT_DATE/g, `'${nextDate}'`)
   const v = await validateSql(widenedSql)
-  if (!v.ok) return { rows, note: null }
+  if (!v.ok) {
+    const failReason = (v as { ok: false; reason: string }).reason
+    console.warn(`[sportquery] today-widening validator rejected widened SQL: ${failReason}`)
+    return { rows, note: null }
+  }
 
   const widenedRows = await runReadOnly(v.rewritten)
   return {

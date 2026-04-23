@@ -284,6 +284,16 @@ def generate_picks(game_date: date, mock_kalshi: bool = False) -> list[dict]:
                 event_key_to_game_id[event_key] = candidate["game_id"]
                 break
 
+    # Warn on event_keys that had no matching scheduled game so failures are
+    # visible rather than silently producing entity_id=None rows.
+    unmatched = [
+        (ek, pt) for (ek, pt) in game_props if ek not in event_key_to_game_id
+    ]
+    if unmatched:
+        preview = unmatched[:5]
+        tail = "..." if len(unmatched) > 5 else ""
+        print(f"  WARN: {len(unmatched)} game-prop (event_key, prop_type) pairs had no game match: {preview}{tail}")
+
     # Store lines to daily_lines table
     _store_daily_lines(game_date, player_props, game_props, name_to_id, event_key_to_game_id)
 

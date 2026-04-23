@@ -7,11 +7,11 @@ export const FEW_SHOT_EXAMPLES: FewShotExample[] = [
   {
     user: 'Show me the top trending scorers over the last 10 games.',
     assistant: JSON.stringify({
-      sql: `SELECT p.id, p.name, p.team, p.position, t.z_score, t.rolling_avg
+      sql: `SELECT p.id, p.name, p.team, p.position, t.trend_val AS z_score, t.rolling_avg
 FROM nba_trends t
 JOIN players p ON t.player_id = p.id
-WHERE t.stat = 'pts' AND t.window = 10
-ORDER BY t.z_score DESC
+WHERE t.stat = 0 AND t.window_size = 10
+ORDER BY t.trend_val DESC
 LIMIT 20`,
       narrative:
         'Top 20 scorers by 10-game z-score against their season baseline.',
@@ -20,13 +20,13 @@ LIMIT 20`,
   {
     user: 'Which guards are trending up on assists over the last 5 games?',
     assistant: JSON.stringify({
-      sql: `SELECT p.id, p.name, p.team, p.position, t.z_score, t.rolling_avg
+      sql: `SELECT p.id, p.name, p.team, p.position, t.trend_val AS z_score, t.rolling_avg
 FROM nba_trends t
 JOIN players p ON t.player_id = p.id
-WHERE t.stat = 'ast' AND t.window = 5
+WHERE t.stat = 2 AND t.window_size = 5
   AND (p.position ILIKE '%G%' OR p.position IN ('PG','SG','G'))
-  AND t.z_score > 0.8
-ORDER BY t.z_score DESC
+  AND t.trend_val > 0.8
+ORDER BY t.trend_val DESC
 LIMIT 20`,
       narrative:
         'Guards with positive assist trends (z > 0.8) over their last 5 games.',
@@ -127,7 +127,9 @@ LIMIT 40`,
        dl.stat, dl.line, dl.kalshi_price
 FROM player_game_conditions pgc
 JOIN players p ON pgc.player_id = p.id
-JOIN daily_lines dl ON dl.player_id = p.id AND dl.pick_date = CURRENT_DATE
+JOIN daily_lines dl ON dl.entity_id = p.id
+  AND dl.prop_type = 'player'
+  AND dl.game_date = CURRENT_DATE
 WHERE pgc.game_date = CURRENT_DATE
   AND pgc.days_rest >= 2
   AND dl.kalshi_price IS NOT NULL
@@ -153,18 +155,18 @@ LIMIT 40`,
     user: "Find guards in today's slate against a bottom-10 defense who are trending up on points over the last 10 games.",
     assistant: JSON.stringify({
       sql: `SELECT DISTINCT p.id, p.name, p.team, p.position,
-       t.z_score, t.rolling_avg, opd.league_rank AS opp_def_rank
+       t.trend_val AS z_score, t.rolling_avg, opd.league_rank AS opp_def_rank
 FROM players p
 JOIN nba_trends t ON t.player_id = p.id
 JOIN player_game_conditions pgc ON pgc.player_id = p.id
 JOIN opponent_position_defense opd ON opd.team_id = pgc.opponent_team_id
   AND opd.position_group = 'G'
 WHERE (p.position ILIKE '%G%' OR p.position IN ('PG','SG','G'))
-  AND t.stat = 'pts' AND t.window = 10
-  AND t.z_score > 0.5
+  AND t.stat = 0 AND t.window_size = 10
+  AND t.trend_val > 0.5
   AND pgc.game_date = CURRENT_DATE
   AND opd.league_rank >= 21
-ORDER BY t.z_score DESC
+ORDER BY t.trend_val DESC
 LIMIT 20`,
       narrative:
         "Guards on today's slate trending up on points (10-game window) against a bottom-10 positional defense.",

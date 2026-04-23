@@ -109,7 +109,7 @@ export async function callLLM(
     result = parseEnvelope(retryRaw)
   }
 
-  if (!result.ok) {
+  if (result.ok === false) {
     throw new Error(`LLM returned unparsable envelope: ${result.reason}`)
   }
   return result.envelope

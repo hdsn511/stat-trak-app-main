@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "nodemon src/server.ts",
+    "dev": "nodemon --exec \"node --env-file=.env --require tsx/cjs\" --ext ts,json --watch src --watch .env src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
     "test": "vitest run",
@@ -37,6 +37,7 @@
     "@vitest/ui": "^4.1.4",
     "nodemon": "^3.1.10",
     "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.2",
     "vitest": "^4.1.4"
   }

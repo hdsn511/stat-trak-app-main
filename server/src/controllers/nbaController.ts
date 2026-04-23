@@ -11,16 +11,62 @@ const PICK_STAT_LABELS: Record<string, string> = {
 
 export async function getTopTrending(req: any, res: any) {
   try {
-    const { data, error } = await supabaseAdmin
-      .from('nba_trends')
-      .select('player_id, stat, window_size, trend_val, rolling_avg, players(name, team, position)')
-      .order('trend_val', { ascending: false })
-      .eq('window_size', 10)
-      .limit(10);
+    const today = new Date().toISOString().slice(0, 10);
+    const MINUTES_STAT_ID = 5;
 
-    if (error) throw error;
+    // Fetch trending rows, today's games, and player availability in parallel
+    const [trendsResult, espnResult, gamesResult] = await Promise.all([
+      supabaseAdmin
+        .from('nba_trends')
+        .select('player_id, stat, window_size, trend_val, rolling_avg, season_avg, players(name, team, position)')
+        .order('trend_val', { ascending: false })
+        .eq('window_size', 10)
+        .neq('stat', MINUTES_STAT_ID)
+        .limit(80),
+      fetch('https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard')
+        .then(r => r.ok ? r.json() : null)
+        .catch(() => null),
+      supabaseAdmin
+        .from('games')
+        .select('id')
+        .eq('game_date', today)
+        .eq('league_id', 1),
+    ]);
 
-    const result = (data || []).map((row: any) => ({
+    if (trendsResult.error) throw trendsResult.error;
+
+    // Build set of teams playing today from ESPN
+    const todayTeams = new Set<string>();
+    const espnEvents = (espnResult as any)?.events || [];
+    for (const event of espnEvents) {
+      const comp = event.competitions?.[0];
+      for (const c of (comp?.competitors || [])) {
+        const abbr = c.team?.abbreviation;
+        if (abbr) todayTeams.add(abbr.toUpperCase());
+      }
+    }
+
+    // Build set of player_ids that are out today
+    const outIds = new Set<number>();
+    const gameIds = (gamesResult.data || []).map((g: any) => g.id);
+    if (gameIds.length > 0) {
+      const { data: outRows } = await supabaseAdmin
+        .from('player_availability')
+        .select('player_id')
+        .eq('status', 'out')
+        .in('game_id', gameIds);
+      for (const r of (outRows || [])) outIds.add(r.player_id);
+    }
+
+    const rows = (trendsResult.data || []) as any[];
+    const filtered = todayTeams.size > 0
+      ? rows.filter(row => {
+          const team = (row.players?.team || '').toUpperCase();
+          return todayTeams.has(team) && !outIds.has(row.player_id);
+        })
+      : rows.filter(row => !outIds.has(row.player_id));
+
+    const result = filtered.slice(0, 10).map((row: any) => ({
       playerId: row.player_id,
       playerName: row.players?.name,
       team: row.players?.team,
@@ -29,6 +75,7 @@ export async function getTopTrending(req: any, res: any) {
       statId: row.stat,
       zScore: row.trend_val,
       rollingAvg: row.rolling_avg,
+      seasonAvg: row.season_avg,
       windowSize: row.window_size,
     }));
 
@@ -195,6 +242,18 @@ export async function getTodaysPicks(req: any, res: any) {
   try {
     const today = new Date().toISOString().slice(0, 10);
 
+    // Find the nearest upcoming game_date that has picks (today or future)
+    const { data: dateRow } = await supabaseAdmin
+      .from('pick_results')
+      .select('game_date')
+      .gte('game_date', today)
+      .eq('prop_type', 'player')
+      .order('game_date', { ascending: true })
+      .limit(1)
+      .single();
+
+    const pickDate = dateRow?.game_date ?? today;
+
     const { data: pickRows, error } = await supabaseAdmin
       .from('pick_results')
       .select(
@@ -202,7 +261,7 @@ export async function getTodaysPicks(req: any, res: any) {
         'sample_size, confidence_score, implied_prob, edge, ' +
         'conditions_matched, total_conditions'
       )
-      .eq('game_date', today)
+      .eq('game_date', pickDate)
       .eq('prop_type', 'player')
       .order('confidence_score', { ascending: false });
 
@@ -224,7 +283,7 @@ export async function getTodaysPicks(req: any, res: any) {
     const { data: todayGames } = await supabaseAdmin
       .from('games')
       .select('id')
-      .eq('game_date', today)
+      .eq('game_date', pickDate)
       .eq('league_id', 1);
 
     const todayGameIds = (todayGames || []).map((g: any) => g.id);
@@ -267,6 +326,7 @@ export async function getTodaysPicks(req: any, res: any) {
     res.json({
       success: true,
       data: {
+        gameDate: pickDate,
         topPick: picks[0] ?? null,
         allPicks: picks,
       },

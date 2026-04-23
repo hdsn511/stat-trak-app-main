@@ -357,6 +357,8 @@ def generate_picks(game_date: date, mock_kalshi: bool = False) -> list[dict]:
         game_id = game_candidate["game_id"]
 
         for (event_key, prop_type), lines in game_props.items():
+            if prop_type == "winner":
+                continue  # backtest only supports total and spread
             for line_entry in lines:
                 line_val = line_entry["line"]
                 implied_prob = line_entry["implied_prob"]

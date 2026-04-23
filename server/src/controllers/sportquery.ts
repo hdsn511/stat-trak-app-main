@@ -85,10 +85,11 @@ export async function postMessage(req: Request, res: Response) {
 
     if (envelope.sql) {
       const v = await validateSql(envelope.sql)
-      if (!v.ok) {
+      if (v.ok === false) {
+        const failReason = v.reason
         const retryEnvelope = await callLLM(
           forLLM,
-          `${message}\n\n[SYSTEM NOTE] Your previous SQL was rejected by the validator: ${v.reason}. Produce a corrected query.`
+          `${message}\n\n[SYSTEM NOTE] Your previous SQL was rejected by the validator: ${failReason}. Produce a corrected query.`
         )
         if (retryEnvelope.sql) {
           const v2 = await validateSql(retryEnvelope.sql)

@@ -15,7 +15,7 @@ export default function TopTrending() {
 
   useEffect(() => {
     nbaApi.getTopTrending()
-      .then(data => setPlayers(data.slice(1, 10)))
+      .then(data => setPlayers(data.slice(0, 10)))
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [])
@@ -43,7 +43,7 @@ export default function TopTrending() {
         >
           {/* Rank */}
           <span className="text-[11px] font-black text-gray-800 font-condensed w-5 shrink-0 group-hover:text-mint transition-colors tabular-nums">
-            {i + 2}
+            {i + 1}
           </span>
 
           {/* Name + meta */}
@@ -53,10 +53,15 @@ export default function TopTrending() {
             </div>
             <div className="text-[10px] text-gray-700 font-condensed tracking-wide mt-0.5">
               {player.team} · {STAT_LABELS[player.stat] ?? player.stat.toUpperCase()}
+              {player.seasonAvg != null && (
+                <span className="text-gray-800 ml-1">
+                  · avg {player.seasonAvg.toFixed(1)}
+                </span>
+              )}
             </div>
           </div>
 
-          {/* Z-bar + avg */}
+          {/* Z-bar + rolling avg */}
           <div className="flex items-center gap-2.5 shrink-0">
             <div className="w-14 h-1 bg-[#1A1A1A] rounded-full overflow-hidden">
               <div
@@ -64,9 +69,14 @@ export default function TopTrending() {
                 style={{ width: `${Math.min((player.zScore / maxZ) * 100, 100)}%` }}
               />
             </div>
-            <span className="text-[13px] font-black text-mint font-condensed w-10 text-right tabular-nums">
-              {player.rollingAvg.toFixed(1)}
-            </span>
+            <div className="flex flex-col items-end w-12">
+              <span className="text-[13px] font-black text-mint font-condensed tabular-nums leading-none">
+                {player.rollingAvg.toFixed(1)}
+              </span>
+              <span className="text-[9px] text-gray-700 font-condensed tabular-nums leading-none mt-0.5">
+                z{player.zScore.toFixed(1)}
+              </span>
+            </div>
           </div>
         </button>
       ))}

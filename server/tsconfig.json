@@ -1,20 +1,20 @@
 {
   "compilerOptions": {
     "target": "ES2020",
-    "module": "commonjs",
-    "lib": ["ES2020"],
-    "outDir": "./dist",
-    "rootDir": "./src",
-    "strict": true,
+    "module": "CommonJS",
+    "lib": ["ES2020", "DOM.Iterable"],
+    "downlevelIteration": true,
     "esModuleInterop": true,
-    "allowSyntheticDefaultImports" : true,
     "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule": true
+    "moduleResolution": "node",
+    "rootDir": "./src",
+    "outDir": "./dist"
   },
-  "include": ["src"],
-  "exclude": ["node_modules", "dist"],
-  "ts-node" : {
-    "esm" : false
-  }
+  "ts-node": {
+    "transpileOnly": true,
+    "compilerOptions": {
+      "downlevelIteration": true
+    }
+  },
+  "include": ["src/**/*"]
 }

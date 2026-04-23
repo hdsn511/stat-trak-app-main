@@ -3,8 +3,6 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
-require('dotenv').config();
-
 import { startScheduler } from './jobs/scheduler';
 import sportqueryRoutes from './routes/sportquery';
 

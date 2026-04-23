@@ -6,7 +6,7 @@ import os
 import sys
 from pathlib import Path
 from dotenv import load_dotenv
-from supabase import create_client, Client
+from supabase import create_client, Client, ClientOptions
 
 # ── Environment ────────────────────────────────────────────────────
 # Load server/.env relative to this file
@@ -20,7 +20,11 @@ if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
     print(f"ERROR: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in {_env_path}")
     sys.exit(1)
 
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+supabase: Client = create_client(
+    SUPABASE_URL,
+    SUPABASE_SERVICE_ROLE_KEY,
+    options=ClientOptions(postgrest_client_timeout=30),
+)
 
 # ── Kalshi Config ──────────────────────────────────────────────────
 KALSHI_API_KEY = os.getenv("KALSHI_API_KEY", "")

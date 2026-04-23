@@ -166,10 +166,16 @@ def reconcile_picks(yesterday: date) -> None:
     print(f"  Resolved {resolved}/{len(picks)} picks.")
 
 
-def _fetch_and_insert_box_scores(target_date: date) -> None:
+def _fetch_and_insert_box_scores(
+    target_date: date,
+    game_ext_ids: Optional[list] = None,
+) -> None:
     """
     Fetch box scores for target_date via BoxScoreTraditionalV2 and insert rows
-    into nba_player_stats. Used by reconcile_picks when stats are missing.
+    into nba_player_stats.
+
+    If game_ext_ids is provided (list of zero-padded strings from the DB), use
+    them directly. Otherwise fall back to LeagueGameFinder.
     """
     try:
         from nba_api.stats.endpoints import BoxScoreTraditionalV2, LeagueGameFinder
@@ -179,29 +185,32 @@ def _fetch_and_insert_box_scores(target_date: date) -> None:
 
     date_str = _date_str(target_date)
 
-    # Find game ext_ids for the date
-    def _find_games():
-        return LeagueGameFinder(
-            date_from_nullable=date_str,
-            date_to_nullable=date_str,
-            league_id_nullable="00",
-        )
+    if game_ext_ids is None:
+        # Fall back: discover game IDs via LeagueGameFinder
+        def _find_games():
+            return LeagueGameFinder(
+                date_from_nullable=date_str,
+                date_to_nullable=date_str,
+                league_id_nullable="00",
+            )
 
-    lgf = api_call_with_retry(_find_games, f"LeagueGameFinder {date_str}")
-    if lgf is None:
-        print("  WARNING: LeagueGameFinder returned nothing for box score fetch.")
-        return
+        lgf = api_call_with_retry(_find_games, f"LeagueGameFinder {date_str}")
+        if lgf is None:
+            print("  WARNING: LeagueGameFinder returned nothing for box score fetch.")
+            return
 
-    try:
-        df = lgf.get_data_frames()[0]
-        game_ext_ids = list({str(r).strip() for r in df["GAME_ID"].tolist() if r})
-    except Exception as exc:
-        print(f"  WARNING: could not parse LeagueGameFinder results: {exc}")
-        return
+        try:
+            df = lgf.get_data_frames()[0]
+            game_ext_ids = list({str(int(r)).zfill(10) for r in df["GAME_ID"].tolist() if r})
+        except Exception as exc:
+            print(f"  WARNING: could not parse LeagueGameFinder results: {exc}")
+            return
 
     if not game_ext_ids:
-        print("  No game IDs found for yesterday. Cannot fetch box scores.")
+        print(f"  No game IDs for {date_str}. Cannot fetch box scores.")
         return
+
+    print(f"  Fetching box scores for {len(game_ext_ids)} game(s) on {date_str} ...")
 
     # Load player and team ID maps
     player_rows = supabase.table("players").select("id,ext_id").eq("league", "nba").execute()
@@ -210,7 +219,14 @@ def _fetch_and_insert_box_scores(target_date: date) -> None:
     team_rows = supabase.table("teams").select("id,ext_id").eq("league_id", NBA_LEAGUE_ID).execute()
     team_map = {r["ext_id"]: r["id"] for r in (team_rows.data or [])}
 
-    game_rows = supabase.table("games").select("id,ext_id").eq("league_id", NBA_LEAGUE_ID).execute()
+    # Query only the specific games we need — avoids PostgREST 1000-row default cap
+    game_rows = (
+        supabase.table("games")
+        .select("id,ext_id")
+        .eq("league_id", NBA_LEAGUE_ID)
+        .in_("ext_id", game_ext_ids)
+        .execute()
+    )
     game_map = {r["ext_id"]: r["id"] for r in (game_rows.data or [])}
 
     stat_buffer: list[dict] = []
@@ -218,6 +234,7 @@ def _fetch_and_insert_box_scores(target_date: date) -> None:
     for ext_id in game_ext_ids:
         game_db_id = game_map.get(ext_id)
         if not game_db_id:
+            print(f"  WARNING: game ext_id {ext_id!r} not found in game_map. Skipping.")
             continue
 
         def _trad(gid=ext_id):
@@ -225,6 +242,7 @@ def _fetch_and_insert_box_scores(target_date: date) -> None:
 
         result = api_call_with_retry(_trad, f"BoxScoreTraditionalV2 {ext_id}")
         if result is None:
+            print(f"  WARNING: BoxScoreTraditionalV2 returned None for {ext_id}.")
             continue
 
         try:
@@ -234,9 +252,14 @@ def _fetch_and_insert_box_scores(target_date: date) -> None:
             print(f"  WARNING: parse error for game {ext_id}: {exc}")
             continue
 
+        print(f"    {ext_id}: {len(player_df)} player rows")
+
         for _, row in player_df.iterrows():
-            p_ext_id = str(row.get("PLAYER_ID", "")).strip()
-            t_ext_id = str(row.get("TEAM_ID", "")).strip()
+            try:
+                p_ext_id = str(int(float(row["PLAYER_ID"])))
+                t_ext_id = str(int(float(row["TEAM_ID"])))
+            except (ValueError, TypeError, KeyError):
+                continue
             p_db_id = player_map.get(p_ext_id)
             t_db_id = team_map.get(t_ext_id)
             if not p_db_id or not t_db_id:
@@ -274,6 +297,155 @@ def _fetch_and_insert_box_scores(target_date: date) -> None:
         print("  No box score rows to insert.")
 
 
+# ── Step 0.5: Backfill Completed Games ───────────────────────────────────────
+
+def backfill_completed_games(up_to: date) -> None:
+    """
+    Find the latest game_date in the local games table, then for each date
+    between that date+1 and up_to (exclusive), fetch completed games via
+    LeagueGameFinder and their box scores via _fetch_and_insert_box_scores.
+
+    Runs before get_slate so rolling averages in daily_conditions are current.
+    """
+    try:
+        from nba_api.stats.endpoints import LeagueGameFinder
+    except ImportError as exc:
+        print(f"[Step 0.5] nba_api not installed: {exc}. Skipping backfill.")
+        return
+
+    # Drive the start date from nba_player_stats, not games.
+    # Games may already be in the games table but have no box scores yet.
+    latest_res = (
+        supabase.table("nba_player_stats")
+        .select("game_date")
+        .lt("game_date", _date_str(up_to))
+        .order("game_date", desc=True)
+        .limit(1)
+        .execute()
+    )
+    latest_rows = latest_res.data or []
+    if not latest_rows:
+        print("[Step 0.5] No prior stats in DB. Skipping backfill.")
+        return
+
+    latest_str = latest_rows[0]["game_date"]
+    latest_date = datetime.strptime(latest_str, "%Y-%m-%d").date()
+    start_date = latest_date + timedelta(days=1)
+
+    if start_date >= up_to:
+        print(f"[Step 0.5] Stats current through {latest_str}. No backfill needed.")
+        return
+
+    print(f"[Step 0.5] Backfilling completed games {_date_str(start_date)} to {_date_str(up_to - timedelta(days=1))} ...")
+
+    # Load lookup maps once
+    team_rows = (
+        supabase.table("teams").select("id,ext_id").eq("league_id", NBA_LEAGUE_ID).execute()
+    )
+    team_map = {r["ext_id"]: r["id"] for r in (team_rows.data or [])}
+
+    current = start_date
+    total_games = 0
+
+    while current < up_to:
+        date_str = _date_str(current)
+
+        # Check whether games are already in the games table
+        games_exist = (
+            supabase.table("games")
+            .select("id")
+            .eq("game_date", date_str)
+            .eq("league_id", NBA_LEAGUE_ID)
+            .limit(1)
+            .execute()
+        )
+
+        if not games_exist.data:
+            # Need to fetch and insert game rows via LeagueGameFinder
+            def _lgf(ds=date_str):
+                return LeagueGameFinder(
+                    date_from_nullable=ds,
+                    date_to_nullable=ds,
+                    league_id_nullable="00",
+                )
+
+            lgf_result = api_call_with_retry(_lgf, f"LeagueGameFinder {date_str}")
+            if lgf_result is None:
+                print(f"  WARNING: no LeagueGameFinder data for {date_str}. Skipping.")
+                current += timedelta(days=1)
+                continue
+
+            try:
+                df = lgf_result.get_data_frames()[0]
+            except Exception as exc:
+                print(f"  WARNING: parse error for {date_str}: {exc}")
+                current += timedelta(days=1)
+                continue
+
+            if df.empty:
+                current += timedelta(days=1)
+                continue
+
+            from collections import defaultdict
+            game_groups: dict[str, list] = defaultdict(list)
+            for _, row in df.iterrows():
+                gid_raw = row.get("GAME_ID")
+                if gid_raw:
+                    gid = str(int(gid_raw)).zfill(10)
+                    game_groups[gid].append(row)
+
+            games_to_insert: list[dict] = []
+            for ext_id, rows in game_groups.items():
+                home_row = next((r for r in rows if " vs. " in str(r.get("MATCHUP", ""))), None)
+                away_row = next((r for r in rows if " @ " in str(r.get("MATCHUP", ""))), None)
+                if home_row is None or away_row is None:
+                    continue
+                home_db = team_map.get(str(home_row.get("TEAM_ID", "")).strip())
+                away_db = team_map.get(str(away_row.get("TEAM_ID", "")).strip())
+                if not home_db or not away_db:
+                    continue
+                games_to_insert.append({
+                    "ext_id": ext_id,
+                    "league_id": NBA_LEAGUE_ID,
+                    "game_date": date_str,
+                    "home_team_id": home_db,
+                    "away_team_id": away_db,
+                    "season": int(date_str[:4]) if int(date_str[5:7]) >= 10 else int(date_str[:4]) - 1,
+                })
+
+            if games_to_insert:
+                supabase.table("games").upsert(games_to_insert, on_conflict="league_id,ext_id").execute()
+                print(f"  {date_str}: inserted {len(games_to_insert)} game(s).")
+                total_games += len(games_to_insert)
+
+        # Check whether box scores are already in nba_player_stats for this date
+        stats_exist = (
+            supabase.table("nba_player_stats")
+            .select("player_id")
+            .eq("game_date", date_str)
+            .limit(1)
+            .execute()
+        )
+        if stats_exist.data:
+            print(f"  {date_str}: box scores already present. Skipping fetch.")
+        else:
+            # Fetch game ext_ids for this date directly from DB (avoids format guessing)
+            date_game_rows = (
+                supabase.table("games")
+                .select("ext_id")
+                .eq("game_date", date_str)
+                .eq("league_id", NBA_LEAGUE_ID)
+                .execute()
+            )
+            date_ext_ids = [r["ext_id"] for r in (date_game_rows.data or [])]
+            _fetch_and_insert_box_scores(current, game_ext_ids=date_ext_ids)
+
+        current += timedelta(days=1)
+        time.sleep(API_DELAY_SECONDS)
+
+    print(f"[Step 0.5] Backfill complete. {total_games} new game(s) inserted.")
+
+
 # ── Step 1: Get Slate ────────────────────────────────────────────────────────
 
 def get_slate(target_date: date) -> list[dict]:
@@ -298,33 +470,16 @@ def get_slate(target_date: date) -> list[dict]:
         print(f"  Found {len(games)} game(s) in local DB.")
         return games
 
-    print("  No games in local DB. Trying LeagueGameFinder ...")
+    print("  No games in local DB. Trying NBA API ...")
 
     try:
         from nba_api.stats.endpoints import LeagueGameFinder
+        from nba_api.stats.endpoints.scoreboardv2 import ScoreboardV2
     except ImportError as exc:
         print(f"  ERROR: nba_api not installed: {exc}")
         return []
 
-    def _lgf():
-        return LeagueGameFinder(
-            date_from_nullable=date_str,
-            date_to_nullable=date_str,
-            league_id_nullable="00",
-        )
-
-    lgf_result = api_call_with_retry(_lgf, f"LeagueGameFinder {date_str}")
-    if lgf_result is None:
-        print("  WARNING: LeagueGameFinder returned nothing.")
-        return []
-
-    try:
-        df = lgf_result.get_data_frames()[0]
-    except Exception as exc:
-        print(f"  WARNING: could not parse LeagueGameFinder: {exc}")
-        return []
-
-    # Load team ext_id -> db_id map
+    # Load team ext_id -> db_id map (needed by both paths)
     team_rows = (
         supabase.table("teams")
         .select("id,ext_id")
@@ -333,55 +488,107 @@ def get_slate(target_date: date) -> list[dict]:
     )
     team_map = {r["ext_id"]: r["id"] for r in (team_rows.data or [])}
 
-    # LeagueGameFinder returns one row per team per game — deduplicate by GAME_ID
-    seen: set[str] = set()
+    # ── Path A: ScoreBoard (works for scheduled/future games) ────────────────
     games_to_insert: list[dict] = []
 
-    # Group rows by GAME_ID to pair home/away teams
-    from collections import defaultdict
-    game_groups: dict[str, list] = defaultdict(list)
-    for _, row in df.iterrows():
-        gid = str(row.get("GAME_ID", "")).strip()
-        if gid:
-            game_groups[gid].append(row)
+    def _sb():
+        return ScoreboardV2(game_date=date_str)
 
-    for ext_id, rows in game_groups.items():
-        if ext_id in seen:
-            continue
-        seen.add(ext_id)
+    sb_result = api_call_with_retry(_sb, f"ScoreBoard {date_str}")
+    if sb_result is not None:
+        try:
+            header_df = sb_result.game_header.get_data_frame()
+            season_yr = int(date_str[:4]) if int(date_str[5:7]) >= 10 else int(date_str[:4]) - 1
+            seen_sb: set[str] = set()
+            for _, row in header_df.iterrows():
+                gid_raw = row.get("GAME_ID")
+                if not gid_raw:
+                    continue
+                ext_id = str(int(gid_raw)).zfill(10)
+                if ext_id in seen_sb:
+                    continue
+                seen_sb.add(ext_id)
+                home_t_ext = str(row.get("HOME_TEAM_ID", "")).strip()
+                away_t_ext = str(row.get("VISITOR_TEAM_ID", "")).strip()
+                home_db_id = team_map.get(home_t_ext)
+                away_db_id = team_map.get(away_t_ext)
+                if not home_db_id or not away_db_id:
+                    continue
+                games_to_insert.append({
+                    "ext_id": ext_id,
+                    "league_id": NBA_LEAGUE_ID,
+                    "game_date": date_str,
+                    "home_team_id": home_db_id,
+                    "away_team_id": away_db_id,
+                    "season": season_yr,
+                })
+            if games_to_insert:
+                print(f"  ScoreBoard found {len(games_to_insert)} game(s).")
+        except Exception as exc:
+            print(f"  ScoreBoard parse warning: {exc}")
+            games_to_insert = []
 
-        home_row = None
-        away_row = None
-        for row in rows:
-            matchup = str(row.get("MATCHUP", ""))
-            if " vs. " in matchup:
-                home_row = row
-            elif " @ " in matchup:
-                away_row = row
+    # ── Path B: LeagueGameFinder fallback (completed games only) ─────────────
+    if not games_to_insert:
+        def _lgf():
+            return LeagueGameFinder(
+                date_from_nullable=date_str,
+                date_to_nullable=date_str,
+                league_id_nullable="00",
+            )
 
-        if home_row is None or away_row is None:
-            continue
+        lgf_result = api_call_with_retry(_lgf, f"LeagueGameFinder {date_str}")
+        if lgf_result is None:
+            print("  WARNING: NBA API returned nothing for this date.")
+        else:
+            try:
+                df = lgf_result.get_data_frames()[0]
+                from collections import defaultdict
+                game_groups: dict[str, list] = defaultdict(list)
+                for _, row in df.iterrows():
+                    gid_raw = row.get("GAME_ID")
+                    if gid_raw:
+                        gid = str(int(gid_raw)).zfill(10)
+                        game_groups[gid].append(row)
 
-        home_t_ext = str(home_row.get("TEAM_ID", "")).strip()
-        away_t_ext = str(away_row.get("TEAM_ID", "")).strip()
-        home_db_id = team_map.get(home_t_ext)
-        away_db_id = team_map.get(away_t_ext)
+                season_yr = int(date_str[:4]) if int(date_str[5:7]) >= 10 else int(date_str[:4]) - 1
+                seen_lgf: set[str] = set()
+                for ext_id, rows in game_groups.items():
+                    if ext_id in seen_lgf:
+                        continue
+                    seen_lgf.add(ext_id)
+                    home_row, away_row = None, None
+                    for row in rows:
+                        matchup = str(row.get("MATCHUP", ""))
+                        if " vs. " in matchup:
+                            home_row = row
+                        elif " @ " in matchup:
+                            away_row = row
+                    if home_row is None or away_row is None:
+                        continue
+                    home_t_ext = str(home_row.get("TEAM_ID", "")).strip()
+                    away_t_ext = str(away_row.get("TEAM_ID", "")).strip()
+                    home_db_id = team_map.get(home_t_ext)
+                    away_db_id = team_map.get(away_t_ext)
+                    if not home_db_id or not away_db_id:
+                        continue
+                    games_to_insert.append({
+                        "ext_id": ext_id,
+                        "league_id": NBA_LEAGUE_ID,
+                        "game_date": date_str,
+                        "home_team_id": home_db_id,
+                        "away_team_id": away_db_id,
+                        "season": season_yr,
+                    })
+            except Exception as exc:
+                print(f"  WARNING: could not parse LeagueGameFinder: {exc}")
 
-        if not home_db_id or not away_db_id:
-            continue
+    if not games_to_insert:
+        print(f"  Slate: 0 game(s) for {date_str}.")
+        return []
 
-        games_to_insert.append({
-            "ext_id": ext_id,
-            "league_id": NBA_LEAGUE_ID,
-            "game_date": date_str,
-            "home_team_id": home_db_id,
-            "away_team_id": away_db_id,
-            "season": int(date_str[:4]) if int(date_str[5:7]) >= 10 else int(date_str[:4]) - 1,
-        })
-
-    if games_to_insert:
-        supabase.table("games").upsert(games_to_insert, on_conflict="ext_id").execute()
-        print(f"  Inserted {len(games_to_insert)} game(s) from LeagueGameFinder.")
+    supabase.table("games").upsert(games_to_insert, on_conflict="league_id,ext_id").execute()
+    print(f"  Inserted/confirmed {len(games_to_insert)} game(s).")
 
     # Re-query to get DB-assigned ids
     db_result2 = (
@@ -601,8 +808,9 @@ def compute_daily_conditions(games: list[dict], target_date: date) -> None:
 def run_nightly(target_date: date, test: bool = False) -> None:
     """
     Full nightly pipeline:
-      Step 0 - reconcile picks from yesterday
-      Step 1 - fetch game slate for target_date
+      Step 0   - reconcile picks from yesterday
+      Step 0.5 - backfill completed games + box scores since last DB entry
+      Step 1   - fetch game slate for target_date
       Steps 2+3 - compute daily_conditions for all players on today's teams
     """
     yesterday = target_date - timedelta(days=1)
@@ -616,13 +824,19 @@ def run_nightly(target_date: date, test: bool = False) -> None:
     # Step 0
     try:
         reconcile_picks(yesterday)
-    except Exception as exc:
+    except (Exception, KeyboardInterrupt) as exc:
         print(f"  ERROR in reconcile_picks: {exc}")
+
+    # Step 0.5 — backfill any completed games since the last DB entry
+    try:
+        backfill_completed_games(up_to=target_date)
+    except (Exception, KeyboardInterrupt) as exc:
+        print(f"  ERROR in backfill_completed_games: {exc}")
 
     # Step 1
     try:
         games = get_slate(target_date)
-    except Exception as exc:
+    except (Exception, KeyboardInterrupt) as exc:
         print(f"  ERROR in get_slate: {exc}")
         games = []
 

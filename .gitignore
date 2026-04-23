@@ -23,4 +23,9 @@ dist-ssr
 *.sln
 *.sw?
 *.env
-*.pemserver/logs/*.log
+*.pem
+server/logs/*.log
+__pycache__/
+*.pyc
+backfill_state.json
+.claude/scheduled_tasks.lock

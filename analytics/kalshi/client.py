@@ -27,6 +27,28 @@ from analytics.db.connection import KALSHI_API_KEY, KALSHI_BASE_URL, KALSHI_PRIV
 # Seconds between requests to stay within 20 reads/sec Basic tier limit
 RATE_LIMIT_DELAY = 0.06
 
+# Targeted NBA series tickers for player/game props (avoids querying 200+ series)
+PLAYER_PROP_SERIES = [
+    "KXNBAPTS",        # points props
+    "KXNBAREB",        # rebounds props
+    "KXNBAAST",        # assists props
+    "KXNBASTL",        # steals props
+    "KXNBABLK",        # blocks props
+    "KXNBAPLAYOFFPTS", # playoff player points
+]
+
+GAME_PROP_SERIES = [
+    "KXNBAGAME",       # game lines / winners
+    "KXNBASPREAD",     # spread markets
+    "KXNBAPLAYOFF",    # playoff game markets
+    "KXNBAMATCHUP",    # per-game matchup markets
+    "KXNBATEAMTOTAL",  # team totals
+    "KXNBA1HTOTAL",    # first-half totals
+    "KXNBA2HTOTAL",    # second-half totals
+]
+
+TARGET_NBA_SERIES = PLAYER_PROP_SERIES + GAME_PROP_SERIES
+
 # Number of retry attempts for transient HTTP errors
 MAX_RETRIES = 3
 
@@ -48,6 +70,8 @@ STAT_KEYWORDS = {
     "3pm":          "fg3m",
     "rebound":      "reb",
     "assist":       "ast",
+    "steal":        "stl",
+    "block":        "blk",
     "point":        "pts",
     "score":        "pts",
 }
@@ -192,42 +216,35 @@ class KalshiClient:
 
     def discover_nba_series(self) -> list[str]:
         """
-        Return a list of NBA series tickers from the Kalshi sport-filter index.
+        Return a targeted list of NBA prop series tickers.
 
-        Falls back to a hardcoded default if the endpoint returns unexpected data.
+        Queries /series to confirm which tickers exist, then intersects with
+        TARGET_NBA_SERIES.  Falls back to TARGET_NBA_SERIES directly if the
+        endpoint fails.
         """
         if self.mock:
-            return ["NBA", "NBABBALL", "NBAPTS"]
+            return list(TARGET_NBA_SERIES)
 
-        data = self._request("GET", "/search/filters_by_sport")
-        if not data:
-            return ["NBA"]
+        data = self._request("GET", "/series")
+        if data:
+            existing = {s["ticker"] for s in (data.get("series") or [])}
+            confirmed = [t for t in TARGET_NBA_SERIES if t in existing]
+            if confirmed:
+                print(f"[KalshiClient] Confirmed {len(confirmed)} prop series: {confirmed}")
+                return confirmed
+            print(f"[KalshiClient] /series did not confirm any target tickers — using full target list")
 
-        tickers = []
-        # The response shape varies; try known patterns
-        sports = data.get("sports") or data.get("filters") or []
-        for sport in sports:
-            name = str(sport.get("name", "")).upper()
-            if "NBA" in name or "BASKETBALL" in name:
-                series = sport.get("series_tickers") or sport.get("tickers") or []
-                tickers.extend(series)
-
-        if not tickers:
-            # Fallback: scan all tickers for "NBA" prefix
-            all_tickers = data.get("series_tickers") or []
-            tickers = [t for t in all_tickers if "NBA" in str(t).upper()]
-
-        return tickers or ["NBA"]
+        return list(TARGET_NBA_SERIES)
 
     # ── Market Fetching ────────────────────────────────────────────────────────
 
     def get_nba_markets(self, series_tickers: list[str] | None = None) -> list[dict]:
         """
-        Pull all open NBA markets, paginating via cursor.
+        Pull all open NBA markets from targeted prop series, paginating via cursor.
 
         Parameters
         ----------
-        series_tickers : list of series tickers to query. Auto-discovered if None.
+        series_tickers : series tickers to query. Defaults to TARGET_NBA_SERIES.
 
         Returns a flat list of raw market dicts as returned by the Kalshi API.
         """
@@ -266,6 +283,9 @@ class KalshiClient:
 
                 print(f"[KalshiClient] {ticker} page {page}: {len(markets)} markets, cursor={cursor[:12]}...")
 
+            if markets:
+                print(f"[KalshiClient] {ticker}: {len([m for m in all_markets])} total so far")
+
         print(f"[KalshiClient] Fetched {len(all_markets)} total open markets")
         return all_markets
 
@@ -275,25 +295,31 @@ class KalshiClient:
         """
         Heuristic player name extraction from a market title.
 
-        Looks for the text that precedes action markers: "over", "under",
-        "score", "have", "record", "make".  Strips leading "will" and
-        possessive "'s".
+        Handles two formats:
+          1. "First Last: 25+ points"  (Kalshi actual format — name before colon)
+          2. "Will First Last over/score/record ..."  (legacy descriptive format)
 
         Returns the cleaned name string, or None if no name can be found.
         """
-        title_lower = title.lower()
+        # Primary: "PlayerName: ..." — name is everything before the first colon
+        colon_m = re.match(
+            r'^([A-Z][a-zA-Z\'\.\-]+(?:\s+[A-Z]?[a-zA-Z\'\.\-]+){1,3})\s*:',
+            title,
+        )
+        if colon_m:
+            name = colon_m.group(1).strip()
+            if 2 < len(name) < 50:
+                return name
 
-        # Markers that typically follow a player name
+        # Fallback: "Will X over/under/score/have/record/make ..."
+        title_lower = title.lower()
         markers = (r"\bover\b", r"\bunder\b", r"\bscores?\b", r"\bhave\b",
                    r"\brecords?\b", r"\bmakes?\b")
-
         for marker in markers:
             m = re.search(marker, title_lower)
             if m:
                 candidate = title[: m.start()].strip()
-                # Strip leading "Will" (case-insensitive)
                 candidate = re.sub(r"(?i)^will\s+", "", candidate).strip()
-                # Strip trailing possessive "'s"
                 candidate = re.sub(r"'s\s*$", "", candidate).strip()
                 if 2 < len(candidate) < 50:
                     return candidate
@@ -343,9 +369,37 @@ class KalshiClient:
         """
         Extract implied probability (0.0 – 1.0) from a market.
 
-        Kalshi prices are strings in `_dollars` format (e.g. "0.5600").
-        Tries `yes_price` first, then `last_price`, then `yes_ask`.
+        Kalshi v2 stores prices in *_dollars fields (e.g. "yes_ask_dollars").
+        Uses bid/ask midpoint when both are positive, otherwise the ask alone.
+        Falls back to last_price_dollars, then legacy field names.
         """
+        yes_ask = market.get("yes_ask_dollars")
+        yes_bid = market.get("yes_bid_dollars")
+
+        if yes_ask is not None:
+            try:
+                ask_f = float(yes_ask)
+                if ask_f > 0:
+                    if yes_bid is not None:
+                        bid_f = float(yes_bid)
+                        # Only use midpoint when spread is tight (≤0.30).
+                        # Wide spreads (e.g. ask=0.99, bid=0.01) indicate a
+                        # stale/placeholder bid — midpoint would be misleading.
+                        if bid_f > 0 and (ask_f - bid_f) <= 0.30:
+                            return (ask_f + bid_f) / 2
+                    return ask_f
+            except (TypeError, ValueError):
+                pass
+
+        last = market.get("last_price_dollars")
+        if last is not None:
+            try:
+                val = float(last)
+                if val > 0:
+                    return val
+            except (TypeError, ValueError):
+                pass
+
         for key in ("yes_price", "last_price", "yes_ask"):
             val = market.get(key)
             if val is not None:
@@ -353,23 +407,34 @@ class KalshiClient:
                     return float(val)
                 except (TypeError, ValueError):
                     pass
+
         return None
+
+    @staticmethod
+    def _series_prefix(ticker: str) -> str:
+        """Extract series prefix from a ticker like 'KXNBAPTS-26APR22PHXOKC-...'."""
+        return ticker.split("-")[0] if "-" in ticker else ticker
 
     def parse_player_props(self, markets: list[dict]) -> dict:
         """
         Parse raw markets into structured player prop lines.
 
+        Only considers markets from PLAYER_PROP_SERIES tickers to avoid
+        team/game markets being misclassified as player props.
+
         Returns
         -------
         dict keyed by (player_name_lower, stat) ->
             list of {line, price, implied_prob, ticker, is_first_half}
-
-        Only markets where both a player name and a stat can be extracted are
-        included.  Markets without a resolvable price or line are skipped.
         """
         result: dict[tuple[str, str], list[dict]] = {}
+        player_series_set = set(PLAYER_PROP_SERIES)
 
         for market in markets:
+            ticker = market.get("ticker", "")
+            if self._series_prefix(ticker) not in player_series_set:
+                continue
+
             title = market.get("title", "")
             if not title:
                 continue
@@ -391,8 +456,8 @@ class KalshiClient:
             entry = {
                 "line":         line,
                 "price":        price,
-                "implied_prob": price,   # price IS the implied probability on Kalshi
-                "ticker":       market.get("ticker", ""),
+                "implied_prob": price,
+                "ticker":       ticker,
                 "is_first_half": self._is_first_half(title),
                 "title":        title,
             }
@@ -402,15 +467,26 @@ class KalshiClient:
 
     # ── Parsing: Game Props ────────────────────────────────────────────────────
 
-    def _detect_game_prop_type(self, title: str) -> str | None:
+    def _detect_game_prop_type(self, title: str, ticker: str = "") -> str | None:
         """
-        Return 'total', 'spread', or None based on title keywords.
+        Return 'total', 'spread', or 'winner' based on ticker series or title keywords.
         """
+        series = self._series_prefix(ticker)
+
+        if series in ("KXNBATEAMTOTAL", "KXNBA1HTOTAL", "KXNBA2HTOTAL"):
+            return "total"
+        if series == "KXNBASPREAD":
+            return "spread"
+        if series in ("KXNBAGAME", "KXNBAPLAYOFF", "KXNBAMATCHUP"):
+            return "winner"
+
+        # Fallback: keyword scan for markets not in a known game series
         title_lower = title.lower()
         total_kws  = ("total points", "combined points", "combined score",
-                      "total score", "over/under", "o/u")
+                      "total score", "over/under", "o/u", "score", "team total")
         spread_kws = ("spread", "margin", "cover", "point differential",
-                      "win by")
+                      "win by", "wins by")
+        winner_kws = ("winner", "wins the game", "wins game")
 
         for kw in total_kws:
             if kw in title_lower:
@@ -418,6 +494,9 @@ class KalshiClient:
         for kw in spread_kws:
             if kw in title_lower:
                 return "spread"
+        for kw in winner_kws:
+            if kw in title_lower:
+                return "winner"
         return None
 
     def _extract_event_key(self, market: dict) -> str:
@@ -432,19 +511,23 @@ class KalshiClient:
         """
         Parse raw markets into structured game prop lines.
 
+        Only considers markets from GAME_PROP_SERIES tickers.
+
         Returns
         -------
         dict keyed by (event_key, prop_type) ->
             list of {line, price, implied_prob, ticker, is_first_half}
         """
         result: dict[tuple[str, str], list[dict]] = {}
+        game_series_set = set(GAME_PROP_SERIES)
 
         for market in markets:
-            title = market.get("title", "")
-            if not title:
+            ticker = market.get("ticker", "")
+            if self._series_prefix(ticker) not in game_series_set:
                 continue
 
-            prop_type = self._detect_game_prop_type(title)
+            title = market.get("title", "")
+            prop_type = self._detect_game_prop_type(title, ticker)
             if not prop_type:
                 continue
 
@@ -459,7 +542,7 @@ class KalshiClient:
                 "line":          line,
                 "price":         price,
                 "implied_prob":  price,
-                "ticker":        market.get("ticker", ""),
+                "ticker":        ticker,
                 "is_first_half": self._is_first_half(title),
                 "title":         title,
             }
@@ -591,8 +674,17 @@ def _run_test(live: bool = False) -> None:
     print(f"NBA series tickers: {series}")
 
     # 2. Fetch markets
-    markets = client.get_nba_markets(series_tickers=series if live else None)
+    markets = client.get_nba_markets()
     print(f"Total markets fetched: {len(markets)}")
+
+    if live and not markets:
+        print("\n[DIAGNOSTIC] Fetching first page of ALL open markets (no NBA filter) ...")
+        raw = client._request("GET", "/markets", params={"status": "open", "limit": 5})
+        if raw:
+            sample = raw.get("markets") or []
+            print(f"  Sample open markets (first 5): {[m.get('ticker') for m in sample]}")
+        else:
+            print("  /markets returned None -- possible auth failure")
 
     # 3. Parse player props
     player_props = client.parse_player_props(markets)

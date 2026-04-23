@@ -382,7 +382,11 @@ export async function getPerfectStreaks(req: any, res: any) {
   }
 }
 
-const GAME_STAT_CHOICES = new Set(['cover_spread', 'over_total', 'winner']);
+// cover_spread is intentionally excluded: daily_lines.line stores the unsigned
+// absolute spread value, and we don't capture which team the Kalshi market
+// asks about, so "did team X cover" can't be evaluated deterministically.
+// Re-add once the kalshi parser records the favored team per spread market.
+const GAME_STAT_CHOICES = new Set(['over_total', 'winner']);
 
 async function getGamePerfectStreaks(req: any, res: any, stat: string, window: number) {
   if (!GAME_STAT_CHOICES.has(stat)) {
@@ -433,25 +437,19 @@ async function getGamePerfectStreaks(req: any, res: any, stat: string, window: n
         const won = isHome ? g.home_score > g.away_score : g.away_score > g.home_score;
         if (!won) { allHit = false; break; }
       } else {
-        const neededPropType = stat === 'cover_spread' ? 'spread' : 'total';
+        // over_total (cover_spread removed — see GAME_STAT_CHOICES comment)
         const { data: lineRow } = await supabaseAdmin
           .from('daily_lines')
           .select('line,prop_type')
           .eq('game_date', g.game_date)
           .eq('entity_id', g.id)
-          .eq('prop_type', neededPropType)
+          .eq('prop_type', 'total')
           .limit(1)
           .maybeSingle();
         if (!lineRow) { allHit = false; break; }
 
-        if (stat === 'cover_spread') {
-          const margin = isHome ? (g.home_score - g.away_score) : (g.away_score - g.home_score);
-          if (!(margin > lineRow.line)) { allHit = false; break; }
-        } else {
-          // over_total
-          const total = g.home_score + g.away_score;
-          if (!(total > lineRow.line)) { allHit = false; break; }
-        }
+        const total = g.home_score + g.away_score;
+        if (!(total > lineRow.line)) { allHit = false; break; }
       }
     }
     if (!allHit) return null;

@@ -178,7 +178,7 @@ export const nbaApi = {
     get(`${BASE}/nba/streaks/perfect?type=player&stat=${stat}&window=${window}`),
 
   getGameStreaks: (
-    stat: 'cover_spread' | 'over_total' | 'winner',
+    stat: 'over_total' | 'winner',
     window: 3 | 5 | 10
   ): Promise<PerfectStreaksResponse<GameStreakRow>> =>
     get(`${BASE}/nba/streaks/perfect?type=game&stat=${stat}&window=${window}`),

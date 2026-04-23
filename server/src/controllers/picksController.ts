@@ -83,6 +83,79 @@ export async function getTopPicks(req: any, res: any) {
       : { data: [] as any[] };
     const playerMap = new Map((players ?? []).map((p: any) => [p.id, p]));
 
+    // ── Season avg batch fetch for direction derivation
+    // Build a list of (player_id, stat_id) pairs for top picks
+    const statIdMap: Record<string, number> = { pts: 0, reb: 1, ast: 2, fg3m: 3 };
+    const trendFilters = topPlayerPicks
+      .map((p) => ({ player_id: p.entity_id, stat: statIdMap[p.stat as string] }))
+      .filter((f) => f.stat !== undefined);
+
+    // Fetch season_avg from nba_trends (window_size=10) for all relevant (player_id, stat) combos
+    const seasonAvgMap = new Map<string, number | null>(); // key = `${player_id}-${stat_str}`
+    if (trendFilters.length > 0) {
+      const uniquePlayerIds = [...new Set(trendFilters.map((f) => f.player_id))];
+      const uniqueStatIds = [...new Set(trendFilters.map((f) => f.stat))];
+      const { data: trendRows } = await supabaseAdmin
+        .from('nba_trends')
+        .select('player_id,stat,season_avg')
+        .in('player_id', uniquePlayerIds)
+        .in('stat', uniqueStatIds)
+        .eq('window_size', 10);
+      for (const row of (trendRows ?? [])) {
+        // stat is smallint; reverse-map to string key
+        const statStr = Object.entries(statIdMap).find(([, v]) => v === row.stat)?.[0];
+        if (statStr) seasonAvgMap.set(`${row.player_id}-${statStr}`, row.season_avg);
+      }
+    }
+
+    // ── Opponent lookup for player picks (using pickDate's games + teams)
+    // We need: player team abbr → game on pickDate → opponent team abbr + name
+    const playerTeams = (players ?? []).map((p: any) => p.team).filter(Boolean) as string[];
+    const oppByTeamAbbr = new Map<string, { team: string | null; team_name: string | null }>();
+    if (playerTeams.length > 0) {
+      // Fetch all teams to build abbr→id and id→{abbr,name} maps
+      const { data: allTeams } = await supabaseAdmin
+        .from('teams')
+        .select('id,abbreviation,name');
+      const abbrToTeamId = new Map<string, number>();
+      const teamIdToInfo = new Map<number, { abbreviation: string; name: string }>();
+      for (const t of (allTeams ?? [])) {
+        abbrToTeamId.set((t.abbreviation ?? '').toUpperCase(), t.id);
+        teamIdToInfo.set(t.id, { abbreviation: t.abbreviation, name: t.name });
+      }
+
+      // Resolve team IDs for player teams
+      const playerTeamIds = playerTeams
+        .map((abbr: string) => abbrToTeamId.get(abbr.toUpperCase()))
+        .filter((id): id is number => id != null);
+
+      if (playerTeamIds.length > 0) {
+        const { data: pickDateGames } = await supabaseAdmin
+          .from('games')
+          .select('home_team_id,away_team_id')
+          .eq('game_date', pickDate)
+          .or(
+            playerTeamIds.map((id) => `home_team_id.eq.${id},away_team_id.eq.${id}`).join(',')
+          );
+        for (const g of (pickDateGames ?? [])) {
+          const homeInfo = teamIdToInfo.get(g.home_team_id);
+          const awayInfo = teamIdToInfo.get(g.away_team_id);
+          if (homeInfo) {
+            oppByTeamAbbr.set(homeInfo.abbreviation.toUpperCase(), {
+              team: awayInfo?.abbreviation ?? null,
+              team_name: awayInfo?.name ?? null,
+            });
+          }
+          if (awayInfo) {
+            oppByTeamAbbr.set(awayInfo.abbreviation.toUpperCase(), {
+              team: homeInfo?.abbreviation ?? null,
+              team_name: homeInfo?.name ?? null,
+            });
+          }
+        }
+      }
+    }
+
     // ── Game side: one of each ML/Spread/Total, then fill by confidence
     const pickByPropType = (t: string) => dedupedGameRows.find((r: any) => r.prop_type === t);
     const featuredPicks: Array<{ row: any; featured: 'ml' | 'spread' | 'total' }> = [];
@@ -127,6 +200,22 @@ export async function getTopPicks(req: any, res: any) {
     // ── Build response
     const playerPayload = topPlayerPicks.map((p) => {
       const pl: any = playerMap.get(p.entity_id) ?? { name: null, team: null, position: null };
+
+      // Derive direction: compare recommended_line vs season_avg proxy (nba_trends window=10)
+      const trendKey = `${p.entity_id}-${p.stat}`;
+      const seasonAvg = seasonAvgMap.has(trendKey) ? seasonAvgMap.get(trendKey) : undefined;
+      let direction: 'over' | 'under';
+      if (seasonAvg == null) {
+        console.warn(`[getTopPicks] no season_avg for player_id=${p.entity_id} stat=${p.stat} — defaulting direction to 'over'`);
+        direction = 'over';
+      } else {
+        direction = p.recommended_line < seasonAvg ? 'over' : 'under';
+      }
+
+      // Derive opponent from games on pickDate
+      const teamAbbr = (pl.team ?? '').toUpperCase();
+      const opponent = teamAbbr ? (oppByTeamAbbr.get(teamAbbr) ?? null) : null;
+
       return {
         player_id: p.entity_id,
         player_name: pl.name,
@@ -136,11 +225,13 @@ export async function getTopPicks(req: any, res: any) {
         stat_label: PICK_STAT_LABELS[p.stat] ?? String(p.stat).toUpperCase(),
         pick_type: p.pick_type,
         line: p.recommended_line,
+        direction,
         hit_rate: p.hit_rate,
         confidence: p.confidence_score,
         edge: p.edge,
         sample_size: p.sample_size,
         implied_prob: p.implied_prob,
+        opponent,
       };
     });
 

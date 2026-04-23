@@ -80,11 +80,13 @@ export interface TopPickPlayer {
   stat_label: string
   pick_type: 'safe' | 'value'
   line: number
+  direction: 'over' | 'under'
   hit_rate: number
   confidence: number
   edge: number
   sample_size: number
   implied_prob: number
+  opponent: { team: string | null; team_name: string | null } | null
 }
 
 export interface TopPickGame {

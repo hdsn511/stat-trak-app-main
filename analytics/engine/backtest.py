@@ -581,7 +581,7 @@ def backtest_winner(game_id: int, game_date: str) -> Optional[dict]:
               data (too many skips due to insufficient historical stats).
     """
     from analytics.engine.game_model import compute_game_strength, predict_winner, HOME_BUMP
-    from datetime import date as _date  # noqa: F401 (kept for potential future use)
+    from datetime import date as _date
 
     # ── 1. Fetch today's game ────────────────────────────────────────────────
     game_result = (
@@ -631,14 +631,15 @@ def backtest_winner(game_id: int, game_date: str) -> Optional[dict]:
     total = 0
 
     for hgame in completed[:MIN_SAMPLE_SIZE]:
-        gd = hgame["game_date"]
+        gd_str = hgame["game_date"]
         hhome = hgame["home_team_id"]
         haway = hgame["away_team_id"]
         h_score = hgame["home_score"]
         a_score = hgame["away_score"]
 
-        home_str = compute_game_strength(hhome, gd)
-        away_str = compute_game_strength(haway, gd)
+        gd_date = _date.fromisoformat(gd_str)
+        home_str = compute_game_strength(hhome, gd_date)
+        away_str = compute_game_strength(haway, gd_date)
 
         if home_str is None or away_str is None:
             continue  # Insufficient data to run model for this game — skip

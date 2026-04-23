@@ -183,8 +183,17 @@ export async function getPerfectStreaks(req: any, res: any) {
 
     // ── A. Today's slate teams (ESPN)
     const espn = await fetch('https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard')
-      .then((r) => (r.ok ? r.json() : null))
-      .catch(() => null);
+      .then((r) => {
+        if (!r.ok) {
+          console.error(`[getPerfectStreaks] ESPN scoreboard returned ${r.status}`);
+          return null;
+        }
+        return r.json();
+      })
+      .catch((err) => {
+        console.error('[getPerfectStreaks] ESPN scoreboard fetch failed:', err?.message ?? err);
+        return null;
+      });
     const slateTeams = new Set<string>();
     for (const ev of (((espn as any)?.events) ?? [])) {
       for (const c of (ev.competitions?.[0]?.competitors ?? [])) {
@@ -193,6 +202,7 @@ export async function getPerfectStreaks(req: any, res: any) {
       }
     }
     if (slateTeams.size === 0) {
+      console.warn('[getPerfectStreaks] no teams on today\'s ESPN slate — returning empty rows');
       return res.json({ success: true, data: { stat, window, rows: [] } });
     }
 

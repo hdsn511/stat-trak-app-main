@@ -538,6 +538,142 @@ def backtest_game_prop(
     }
 
 
+# ── Winner prop backtester (model self-accuracy) ─────────────────────────────────
+
+def backtest_winner(game_id: int, game_date: str) -> Optional[dict]:
+    """
+    Estimate the predictive reliability of the winner model for today's matchup
+    by replaying it over the home team's recent game history.
+
+    Unlike player props and spread/total backtests — which compare against
+    historical Kalshi lines — winner props have no usable historical lines.
+    Instead, this function uses **model self-accuracy** as a proxy: it re-runs
+    ``compute_game_strength`` + ``predict_winner`` for the last ``MIN_SAMPLE_SIZE``
+    completed games involving the home team and checks whether the model would
+    have called the correct winner each time.
+
+    The result's ``conditions_matched`` field is set to the string
+    ``"self_accuracy"`` (rather than an integer) to make clear to downstream
+    callers that this is a different kind of backtest — not a condition-matched
+    historical sample.
+
+    Args:
+        game_id:    Internal DB id (games.id) for today's game.
+        game_date:  ISO date string "YYYY-MM-DD" for today's game.
+
+    Returns:
+        dict with keys:
+            hit_rate            – float in [0,1]; fraction of replayed games
+                                  where the model predicted the correct winner.
+            sample_size         – int; number of games actually replayed (may be
+                                  less than MIN_SAMPLE_SIZE if strength data was
+                                  unavailable for some games).
+            conditions_matched  – the string ``"self_accuracy"``; marks this as a
+                                  model-accuracy proxy, not a true backtest.
+            total_conditions    – 1 (nominal; there is only one "condition": the
+                                  model's own output).
+            condition_breakdown – dict with a ``"note"`` key explaining the proxy.
+        None if:
+            - ``game_id`` is not found in the ``games`` table.
+            - Fewer than ``MIN_SAMPLE_SIZE`` prior completed games exist for the
+              home team.
+            - Fewer than ``MIN_SAMPLE_SIZE // 2`` games yielded valid strength
+              data (too many skips due to insufficient historical stats).
+    """
+    from analytics.engine.game_model import compute_game_strength, predict_winner, HOME_BUMP
+    from datetime import date as _date  # noqa: F401 (kept for potential future use)
+
+    # ── 1. Fetch today's game ────────────────────────────────────────────────
+    game_result = (
+        supabase.table("games")
+        .select("id,game_date,home_team_id,away_team_id")
+        .eq("id", game_id)
+        .limit(1)
+        .execute()
+    )
+    if not game_result.data:
+        print(f"  WARNING: game_id={game_id} not found in games table.")
+        return None
+
+    game_info = game_result.data[0]
+    home_id = game_info["home_team_id"]
+    away_id = game_info["away_team_id"]
+
+    # ── 2. Fetch recent completed games involving the home team ──────────────
+    # Fetch a larger window (MIN_SAMPLE_SIZE * 2) to account for skips due to
+    # missing strength data, then trim to the first MIN_SAMPLE_SIZE with scores.
+    fetch_limit = MIN_SAMPLE_SIZE * 2
+
+    hist_result = (
+        supabase.table("games")
+        .select("id,game_date,home_team_id,away_team_id,home_score,away_score")
+        .or_(f"home_team_id.eq.{home_id},away_team_id.eq.{home_id}")
+        .lt("game_date", game_date)
+        .order("game_date", desc=True)
+        .limit(fetch_limit)
+        .execute()
+    )
+    all_hist = hist_result.data or []
+
+    # Keep only rows that have final scores
+    completed = [g for g in all_hist if g.get("home_score") is not None]
+
+    if len(completed) < MIN_SAMPLE_SIZE:
+        print(
+            f"  INFO: only {len(completed)} completed games (with scores) found "
+            f"for home_team_id={home_id} before {game_date}. Need {MIN_SAMPLE_SIZE}. "
+            "Returning None."
+        )
+        return None
+
+    # ── 3. Replay the model over MIN_SAMPLE_SIZE historical games ────────────
+    correct = 0
+    total = 0
+
+    for hgame in completed[:MIN_SAMPLE_SIZE]:
+        gd = hgame["game_date"]
+        hhome = hgame["home_team_id"]
+        haway = hgame["away_team_id"]
+        h_score = hgame["home_score"]
+        a_score = hgame["away_score"]
+
+        home_str = compute_game_strength(hhome, gd)
+        away_str = compute_game_strength(haway, gd)
+
+        if home_str is None or away_str is None:
+            continue  # Insufficient data to run model for this game — skip
+
+        # Apply the same home advantage bump the live model uses
+        win_prob, _ = predict_winner(home_str + HOME_BUMP, away_str)
+
+        model_predicted_home = win_prob >= 0.5
+        actual_home_won = float(h_score) > float(a_score)
+
+        if model_predicted_home == actual_home_won:
+            correct += 1
+        total += 1
+
+    # ── 4. Guard against too many skips ─────────────────────────────────────
+    if total < MIN_SAMPLE_SIZE // 2:
+        print(
+            f"  INFO: only {total} games had valid strength data out of "
+            f"{MIN_SAMPLE_SIZE} candidates for home_team_id={home_id}. "
+            "Too many skips — returning None."
+        )
+        return None
+
+    # ── 5. Return result ─────────────────────────────────────────────────────
+    return {
+        "hit_rate": correct / total,
+        "sample_size": total,
+        "conditions_matched": "self_accuracy",
+        "total_conditions": 1,
+        "condition_breakdown": {
+            "note": "model self-accuracy, not a true historical backtest"
+        },
+    }
+
+
 # ── CLI ──────────────────────────────────────────────────────────────────────────
 
 def main() -> int:
@@ -548,6 +684,7 @@ def main() -> int:
 Examples:
   python -m analytics.engine.backtest --player-id 123 --stat pts --line 25.5 --date 2026-03-22
   python -m analytics.engine.backtest --game-id 456 --prop-type total --line 220.5 --date 2026-03-22
+  python -m analytics.engine.backtest --game-id 456 --prop-type winner --date 2026-03-22
         """,
     )
     parser.add_argument("--player-id", type=int, dest="player_id",
@@ -556,10 +693,10 @@ Examples:
                         help="Stat abbreviation (pts, reb, ast, fg3m)")
     parser.add_argument("--game-id", type=int, dest="game_id",
                         help="Internal game DB id (for game props)")
-    parser.add_argument("--prop-type", choices=["total", "spread"], dest="prop_type",
-                        help="Game prop type")
-    parser.add_argument("--line", type=float, required=True,
-                        help="The prop line to evaluate (e.g. 25.5)")
+    parser.add_argument("--prop-type", choices=["total", "spread", "winner"], dest="prop_type",
+                        help="Game prop type (total, spread, or winner)")
+    parser.add_argument("--line", type=float, required=False, default=None,
+                        help="The prop line to evaluate (e.g. 25.5); not required for --prop-type winner")
     parser.add_argument("--date", required=True,
                         help="Game date in YYYY-MM-DD format")
 
@@ -589,11 +726,18 @@ Examples:
         if not args.prop_type:
             print("ERROR: --prop-type is required with --game-id")
             return 1
-        result = backtest_game_prop(args.game_id, args.prop_type, args.line, args.date)
+        if args.prop_type == "winner":
+            result = backtest_winner(args.game_id, args.date)
+        else:
+            if args.line is None:
+                print("ERROR: --line is required for --prop-type total or spread")
+                return 1
+            result = backtest_game_prop(args.game_id, args.prop_type, args.line, args.date)
         if result is None:
             print("Result: None (insufficient data or conditions missing)")
         else:
-            print("Backtest result (game prop):")
+            label = "winner (model self-accuracy)" if args.prop_type == "winner" else "game prop"
+            print(f"Backtest result ({label}):")
             for k, v in result.items():
                 if isinstance(v, dict):
                     print(f"  {k}:")

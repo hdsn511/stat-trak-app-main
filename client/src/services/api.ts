@@ -71,6 +71,69 @@ export interface TodaysPicks {
   allPicks: Pick[]
 }
 
+export interface TopPickPlayer {
+  player_id: number
+  player_name: string | null
+  team: string | null
+  position: string | null
+  stat: string
+  stat_label: string
+  pick_type: 'safe' | 'value'
+  line: number
+  hit_rate: number
+  confidence: number
+  edge: number
+  sample_size: number
+  implied_prob: number
+}
+
+export interface TopPickGame {
+  game_id: number
+  prop_type: 'winner' | 'spread' | 'total'
+  home_team: string | null
+  away_team: string | null
+  pick_type: 'safe' | 'value'
+  line: number | null
+  hit_rate: number
+  confidence: number
+  edge: number
+  implied_prob: number | null
+  featured: 'ml' | 'spread' | 'total' | null
+}
+
+export interface TopPicksResponse {
+  game_date: string
+  player: TopPickPlayer[]
+  game: TopPickGame[]
+}
+
+export interface PlayerStreakRow {
+  player_id: number
+  player_name: string
+  team: string
+  position: string
+  season_avg: number
+  rolling_avg: number
+  streak_count: number
+  opponent: { team: string; league_rank: number | null } | null
+  todays_line: number
+  todays_implied_prob: number
+}
+
+export interface GameStreakRow {
+  team_id: number
+  team_abbr: string | null
+  team_name: string | null
+  streak_count: number
+  opponent: { team: string; team_name: string } | null
+}
+
+export interface PerfectStreaksResponse<T> {
+  stat: string
+  window: number
+  rows: T[]
+}
+
 async function get<T>(url: string): Promise<T> {
   const res = await fetch(url)
   const json = await res.json()
@@ -104,4 +167,19 @@ export const nbaApi = {
 
   getPlayerPicks: (playerId: number): Promise<Pick[]> =>
     get(`${BASE}/nba/picks/player/${playerId}`),
+
+  getTopPicks: (limit: number = 5): Promise<TopPicksResponse> =>
+    get(`${BASE}/nba/picks/top?limit=${limit}`),
+
+  getPlayerStreaks: (
+    stat: 'pts' | 'reb' | 'ast' | 'fg3m',
+    window: 3 | 5 | 10
+  ): Promise<PerfectStreaksResponse<PlayerStreakRow>> =>
+    get(`${BASE}/nba/streaks/perfect?type=player&stat=${stat}&window=${window}`),
+
+  getGameStreaks: (
+    stat: 'cover_spread' | 'over_total' | 'winner',
+    window: 3 | 5 | 10
+  ): Promise<PerfectStreaksResponse<GameStreakRow>> =>
+    get(`${BASE}/nba/streaks/perfect?type=game&stat=${stat}&window=${window}`),
 }

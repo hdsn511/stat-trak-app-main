@@ -4,6 +4,13 @@ const PICK_STAT_LABELS: Record<string, string> = {
   pts: 'PTS', reb: 'REB', ast: 'AST', fg3m: '3PM',
 };
 
+const STAT_TO_COLUMN: Record<string, { col: string; statId: number }> = {
+  pts: { col: 'points', statId: 0 },
+  reb: { col: 'rebounds', statId: 1 },
+  ast: { col: 'assists', statId: 2 },
+  fg3m: { col: 'three_points_made', statId: 3 },
+};
+
 // Resolve the nearest upcoming slate with picks.
 // Mirrors getTodaysPicks fallback in nbaController.ts (~lines 246-255).
 async function findNearestPickDate(today: string): Promise<string> {
@@ -154,7 +161,195 @@ export async function getTopPicks(req: any, res: any) {
   }
 }
 
-// Stubbed for Task 6.
-export async function getPerfectStreaks(_req: any, res: any) {
-  res.status(501).json({ success: false, error: 'not implemented yet' });
+export async function getPerfectStreaks(req: any, res: any) {
+  try {
+    const type = ((req.query.type as string) ?? 'player').toLowerCase();
+    const stat = ((req.query.stat as string) ?? 'pts').toLowerCase();
+    const parsedWindow = parseInt((req.query.window as string) ?? '5', 10);
+    const window = Number.isNaN(parsedWindow)
+      ? 5
+      : Math.max(3, Math.min(10, parsedWindow));
+
+    if (type !== 'player') {
+      return res.status(400).json({ success: false, error: `type=${type} not yet supported` });
+    }
+
+    const statCfg = STAT_TO_COLUMN[stat];
+    if (!statCfg) {
+      return res.status(400).json({ success: false, error: `invalid stat: ${stat}` });
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+
+    // ── A. Today's slate teams (ESPN)
+    const espn = await fetch('https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard')
+      .then((r) => (r.ok ? r.json() : null))
+      .catch(() => null);
+    const slateTeams = new Set<string>();
+    for (const ev of (((espn as any)?.events) ?? [])) {
+      for (const c of (ev.competitions?.[0]?.competitors ?? [])) {
+        const abbr = c.team?.abbreviation?.toUpperCase();
+        if (abbr) slateTeams.add(abbr);
+      }
+    }
+    if (slateTeams.size === 0) {
+      return res.json({ success: true, data: { stat, window, rows: [] } });
+    }
+
+    // ── B. Today's games + out players
+    const { data: games } = await supabaseAdmin
+      .from('games')
+      .select('id,home_team_id,away_team_id')
+      .eq('game_date', today)
+      .eq('league_id', 1);
+    const gameIds = (games ?? []).map((g: any) => g.id);
+
+    const outIds = new Set<number>();
+    if (gameIds.length > 0) {
+      const { data: outRows } = await supabaseAdmin
+        .from('player_availability')
+        .select('player_id')
+        .eq('status', 'out')
+        .in('game_id', gameIds);
+      for (const r of (outRows ?? [])) outIds.add(r.player_id);
+    }
+
+    // ── C. Candidates: today's lines ≤ 0.80 implied prob for this stat
+    const { data: lines } = await supabaseAdmin
+      .from('daily_lines')
+      .select('entity_id,stat,implied_prob,line')
+      .eq('game_date', today)
+      .eq('prop_type', 'player')
+      .eq('stat', stat)
+      .lte('implied_prob', 0.80);
+    const linesByPlayer = new Map<number, { line: number; implied_prob: number }>();
+    for (const l of (lines ?? [])) {
+      const existing = linesByPlayer.get(l.entity_id);
+      if (!existing || l.implied_prob < existing.implied_prob) {
+        linesByPlayer.set(l.entity_id, { line: l.line, implied_prob: l.implied_prob });
+      }
+    }
+    const candidateIds = [...linesByPlayer.keys()].filter((id) => !outIds.has(id));
+    if (candidateIds.length === 0) {
+      return res.json({ success: true, data: { stat, window, rows: [] } });
+    }
+
+    // ── D. Players meta — filter to teams on slate
+    const { data: players } = await supabaseAdmin
+      .from('players')
+      .select('id,name,team,position')
+      .in('id', candidateIds);
+    const candidates = (players ?? []).filter((p: any) =>
+      slateTeams.has((p.team ?? '').toUpperCase())
+    );
+    if (candidates.length === 0) {
+      return res.json({ success: true, data: { stat, window, rows: [] } });
+    }
+
+    // ── E. For each candidate: fetch last `window` games + season avg → keep if all hit
+    const rows = await Promise.all(candidates.map(async (p: any) => {
+      const { data: statRows } = await supabaseAdmin
+        .from('nba_player_stats')
+        .select(`game_date,${statCfg.col}`)
+        .eq('player_id', p.id)
+        .order('game_date', { ascending: false })
+        .limit(window);
+      if (!statRows || statRows.length < window) return null;
+
+      const { data: trend } = await supabaseAdmin
+        .from('nba_trends')
+        .select('season_avg')
+        .eq('player_id', p.id)
+        .eq('stat', statCfg.statId)
+        .eq('window_size', 10)
+        .limit(1)
+        .maybeSingle();
+      const seasonAvg: number | null = trend?.season_avg ?? null;
+      if (seasonAvg == null) return null;
+
+      const values: number[] = statRows
+        .map((r: any) => r[statCfg.col])
+        .filter((v: any) => v != null);
+      if (values.length < window) return null;
+
+      const threshold = stat === 'fg3m' ? Math.max(2, seasonAvg - 1) : seasonAvg;
+      const allHit = values.every((v: number) => v >= threshold);
+      if (!allHit) return null;
+
+      const rollingAvg = values.reduce((a: number, b: number) => a + b, 0) / values.length;
+      const line = linesByPlayer.get(p.id)!;
+
+      return {
+        player_id: p.id as number,
+        player_name: p.name as string,
+        team: p.team as string,
+        position: p.position as string,
+        season_avg: seasonAvg,
+        rolling_avg: rollingAvg,
+        streak_count: window,
+        todays_line: line.line,
+        todays_implied_prob: line.implied_prob,
+      };
+    }));
+
+    const filtered = rows.filter((r): r is NonNullable<typeof r> => r !== null);
+    if (filtered.length === 0) {
+      return res.json({ success: true, data: { stat, window, rows: [] } });
+    }
+
+    // ── F. Enrich with opponent + league_rank (position-based)
+    const { data: teamRows } = await supabaseAdmin.from('teams').select('id,abbreviation');
+    const abbrToId = new Map<string, number>();
+    const idToAbbr = new Map<number, string>();
+    for (const t of (teamRows ?? [])) {
+      abbrToId.set((t.abbreviation ?? '').toUpperCase(), t.id);
+      idToAbbr.set(t.id, t.abbreviation);
+    }
+
+    const opponentByTeamId = new Map<number, number>();
+    for (const g of (games ?? [])) {
+      opponentByTeamId.set(g.home_team_id, g.away_team_id);
+      opponentByTeamId.set(g.away_team_id, g.home_team_id);
+    }
+
+    const { data: oppDef } = await supabaseAdmin
+      .from('opponent_position_defense')
+      .select('team_id,position_group,league_rank,snapshot_date')
+      .order('snapshot_date', { ascending: false });
+    const latestOppDef = new Map<string, number>();
+    for (const row of (oppDef ?? [])) {
+      const key = `${row.team_id}-${row.position_group}`;
+      if (!latestOppDef.has(key)) latestOppDef.set(key, row.league_rank);
+    }
+
+    const enriched = filtered.map((r) => {
+      const teamAbbr = (r.team ?? '').toUpperCase();
+      const teamId = abbrToId.get(teamAbbr);
+      const opponentId = teamId != null ? opponentByTeamId.get(teamId) : undefined;
+      const opponentAbbr = opponentId != null ? (idToAbbr.get(opponentId) ?? null) : null;
+      const pos = (r.position ?? '').toUpperCase();
+      const positionGroup = pos.startsWith('G') ? 'G' : pos.startsWith('F') ? 'F' : 'C';
+      const leagueRank =
+        opponentId != null ? (latestOppDef.get(`${opponentId}-${positionGroup}`) ?? null) : null;
+      return {
+        ...r,
+        opponent: opponentAbbr ? { team: opponentAbbr, league_rank: leagueRank } : null,
+      };
+    });
+
+    // ── G. Sort by opponent league_rank DESC, then season_avg DESC, top 10
+    enriched.sort((a, b) => {
+      const ar = a.opponent?.league_rank ?? -1;
+      const br = b.opponent?.league_rank ?? -1;
+      if (br !== ar) return br - ar;
+      return (b.season_avg ?? 0) - (a.season_avg ?? 0);
+    });
+
+    res.json({
+      success: true,
+      data: { stat, window, rows: enriched.slice(0, 10) },
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 }

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { PlayerResultRow } from '../../services/sportqueryApi'
+import { Button } from '@/components/ui/button'
 import { CompactPlayerCard } from './CompactPlayerCard'
 
 type Props = { rows: PlayerResultRow[] }
@@ -19,13 +20,15 @@ export function ResultCardList({ rows }: Props) {
       {visible.map((r, i) => (
         <CompactPlayerCard key={(r.id as number) ?? i} row={r} />
       ))}
-      {more > 0 && !expanded && (
-        <button
-          className="text-[10px] font-condensed uppercase tracking-[0.2em] text-gray-500 hover:text-mint"
-          onClick={() => setExpanded(true)}
+      {more > 0 && (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setExpanded((prev) => !prev)}
+          className="w-full font-condensed uppercase tracking-[0.2em] text-xs text-gray-500 hover:text-mint hover:bg-transparent"
         >
-          See all {rows.length}
-        </button>
+          {expanded ? 'Show less' : `See all ${rows.length}`}
+        </Button>
       )}
     </div>
   )

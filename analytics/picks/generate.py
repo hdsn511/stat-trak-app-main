@@ -23,7 +23,9 @@ CLI:
 from __future__ import annotations
 
 import argparse
+import re
 import sys
+from datetime import date as _date
 from datetime import date, datetime, timedelta
 from typing import Optional
 
@@ -37,6 +39,29 @@ from analytics.screener.screen import screen_player_candidates, screen_game_cand
 
 MIN_CONFIDENCE = 70
 
+# ── Ticker date parsing ──────────────────────────────────────────────────────
+
+_TICKER_DATE_RE = re.compile(r'^KX[A-Z]+-(\d{2})([A-Z]{3})(\d{2})')
+_MONTH_MAP = {
+    "JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5,  "JUN": 6,
+    "JUL": 7, "AUG": 8, "SEP": 9, "OCT": 10, "NOV": 11, "DEC": 12,
+}
+
+
+def _parse_ticker_game_date(ticker: str, fallback: str) -> str:
+    """Parse '26APR21' from a Kalshi ticker prefix into an ISO date string.
+    Falls back to the provided string if the ticker doesn't match (e.g., mock data)."""
+    m = _TICKER_DATE_RE.match(ticker or "")
+    if not m:
+        return fallback
+    try:
+        yr = 2000 + int(m.group(1))
+        mo = _MONTH_MAP[m.group(2)]
+        dy = int(m.group(3))
+        return _date(yr, mo, dy).isoformat()
+    except (KeyError, ValueError):
+        return fallback
+
 
 # ── Helper: store daily lines ────────────────────────────────────────────────
 
@@ -46,6 +71,7 @@ def _store_daily_lines(
     game_props: dict,
     name_to_id: dict[str, int],
     event_key_to_game_id: dict[str, int],
+    abbr_to_team_id: dict[str, int],
 ) -> None:
     """Insert fetched Kalshi lines into the daily_lines table."""
     date_str = game_date.strftime("%Y-%m-%d")
@@ -55,7 +81,7 @@ def _store_daily_lines(
         entity_id = name_to_id.get(player_name)
         for entry in lines:
             rows.append({
-                "game_date": date_str,
+                "game_date": _parse_ticker_game_date(entry.get("ticker", ""), date_str),
                 "prop_type": "player",
                 "entity_id": entity_id,
                 "stat": stat,
@@ -69,10 +95,13 @@ def _store_daily_lines(
     for (event_key, prop_type), lines in game_props.items():
         game_id = event_key_to_game_id.get(event_key)
         for entry in lines:
+            team_abbr = entry.get("team_abbr")
+            team_id = abbr_to_team_id.get(team_abbr) if team_abbr else None
             rows.append({
-                "game_date": date_str,
+                "game_date": _parse_ticker_game_date(entry.get("ticker", ""), date_str),
                 "prop_type": prop_type,
                 "entity_id": game_id,
+                "team_id": team_id,
                 "stat": prop_type,
                 "line": entry["line"],
                 "kalshi_price": entry["price"],
@@ -274,6 +303,9 @@ def generate_picks(game_date: date, mock_kalshi: bool = False) -> list[dict]:
         for r in (team_abbr_rows.data or [])
         if r.get("abbreviation")
     }
+    abbr_to_team_id: dict[str, int] = {
+        v.upper(): k for k, v in team_id_to_abbr.items() if v
+    }
     event_key_to_game_id: dict[str, int] = {}
     for event_key, _prop_type in game_props:
         ek_upper = event_key.upper()
@@ -295,7 +327,7 @@ def generate_picks(game_date: date, mock_kalshi: bool = False) -> list[dict]:
         print(f"  WARN: {len(unmatched)} game-prop (event_key, prop_type) pairs had no game match: {preview}{tail}")
 
     # Store lines to daily_lines table
-    _store_daily_lines(game_date, player_props, game_props, name_to_id, event_key_to_game_id)
+    _store_daily_lines(game_date, player_props, game_props, name_to_id, event_key_to_game_id, abbr_to_team_id)
 
     # ── Steps 3+4: Backtest + Score Player Props ─────────────────────────────
     print("\n[Steps 3+4] Backtesting + scoring player props ...")

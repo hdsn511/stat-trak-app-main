@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { nbaApi, Pick } from '@/services/api'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Card, CardContent } from '@/components/ui/card'
 import { Flame, ArrowRight, TrendingUp } from 'lucide-react'
 
 export default function PickOfTheDay() {
@@ -41,9 +42,9 @@ export default function PickOfTheDay() {
   const edgePct       = Math.round(pick.edge * 100)
 
   return (
-    <button
+    <Card
       onClick={() => navigate(`/player/${pick.playerId}`)}
-      className="relative w-full overflow-hidden rounded-2xl border border-mint/20 text-left group transition-all hover:border-mint/40"
+      className="relative w-full overflow-hidden rounded-2xl border border-mint/20 text-left group transition-all hover:border-mint/40 cursor-pointer shadow-none bg-transparent"
       style={{ background: 'linear-gradient(135deg, #0D1F18 0%, #0A0A0A 55%, #0A0C14 100%)' }}
     >
       {/* Radial glow */}
@@ -66,7 +67,7 @@ export default function PickOfTheDay() {
         {pick.pickType.toUpperCase()}
       </div>
 
-      <div className="relative flex items-center gap-5 p-5 pr-4">
+      <CardContent className="relative flex items-center gap-5 p-5 pr-4">
         {/* ── Left column ── */}
         <div className="flex-1 min-w-0">
           {/* Section label */}
@@ -133,7 +134,7 @@ export default function PickOfTheDay() {
           size={15}
           className="flex-shrink-0 text-gray-700 group-hover:text-mint group-hover:translate-x-0.5 transition-all self-center ml-1"
         />
-      </div>
-    </button>
+      </CardContent>
+    </Card>
   )
 }

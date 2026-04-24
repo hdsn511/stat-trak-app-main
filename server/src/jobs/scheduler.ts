@@ -3,10 +3,21 @@ import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const REPO_ROOT = path.resolve(__dirname, '..', '..', '..', '..');
+// __dirname is server/src/jobs (tsx/ts-node) or server/dist/jobs (compiled).
+// Both sit three levels below the repo root.
+const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
 const LOG_DIR  = path.resolve(__dirname, '..', '..', 'logs');
 const LOG_FILE = path.join(LOG_DIR, 'cron.log');
-const PYTHON   = process.env.PYTHON_PATH || 'python';
+
+// Default to the repo's venv Python when PYTHON_PATH isn't set. The scheduler
+// shells out to `python -m analytics.<module>`, which requires the venv's
+// dependencies (nba_api, supabase, pandas). Using system `python` silently
+// fails on module-not-found.
+const VENV_PYTHON = process.platform === 'win32'
+  ? path.resolve(REPO_ROOT, 'venv', 'Scripts', 'python.exe')
+  : path.resolve(REPO_ROOT, 'venv', 'bin', 'python');
+const PYTHON = process.env.PYTHON_PATH
+  || (fs.existsSync(VENV_PYTHON) ? VENV_PYTHON : 'python');
 
 function ensureLogDir(): void {
   if (!fs.existsSync(LOG_DIR)) {
@@ -28,6 +39,12 @@ function todayStr(): string {
 function yesterdayStr(): string {
   const d = new Date();
   d.setDate(d.getDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+function dateOffsetStr(offsetDays: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
   return d.toISOString().slice(0, 10);
 }
 
@@ -65,6 +82,24 @@ export function startScheduler(): void {
     }
   });
 
+  // 2:30am — sync upcoming week's slate. Kalshi markets are listed ~7 days
+  // ahead of each game, but `games` rows are needed for entity_id join on
+  // daily_lines + for backtest history. Serially run nightly for each of
+  // the next 7 days to fetch/insert future slates via ScoreboardV2.
+  cron.schedule('30 2 * * *', async () => {
+    for (let offset = 1; offset <= 7; offset++) {
+      const dateStr = dateOffsetStr(offset);
+      try {
+        await runPython(
+          ['analytics.batch.nightly', '--date', dateStr],
+          `slate_day+${offset}`,
+        );
+      } catch (err) {
+        log(`[cron:error] slate day+${offset}: ${err}`);
+      }
+    }
+  });
+
   // 3:00am — generate picks (Kalshi lines + backtest + score)
   cron.schedule('0 3 * * *', async () => {
     try {
@@ -98,5 +133,5 @@ export function startScheduler(): void {
     }
   });
 
-  log('[cron] All 4 jobs registered.');
+  log(`[cron] Registered 5 jobs. PYTHON=${PYTHON}. REPO_ROOT=${REPO_ROOT}.`);
 }

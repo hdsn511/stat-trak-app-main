@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { nbaApi, TrendingPlayer } from '@/services/api'
+import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { TrendingUp } from 'lucide-react'
 
@@ -9,7 +10,6 @@ const STAT_LABELS: Record<string, string> = {
 }
 
 export default function TopTrending() {
-  const navigate = useNavigate()
   const [players, setPlayers] = useState<TrendingPlayer[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -36,49 +36,55 @@ export default function TopTrending() {
       )}
 
       {!loading && players.map((player, i) => (
-        <button
+        <Button
           key={`${player.playerId}-${player.statId}`}
-          onClick={() => navigate(`/player/${player.playerId}`, { state: { player } })}
-          className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-[#0F0F0F] border-b border-[#111] last:border-0 transition-colors text-left group rounded-lg"
+          asChild
+          variant="ghost"
+          className="w-full h-auto justify-start px-3 py-2.5 hover:bg-[#0F0F0F] border-b border-[#111] last:border-0 transition-colors text-left group rounded-lg"
         >
-          {/* Rank */}
-          <span className="text-[11px] font-black text-gray-800 font-condensed w-5 shrink-0 group-hover:text-mint transition-colors tabular-nums">
-            {i + 1}
-          </span>
+          <Link
+            to={`/player/${player.playerId}`}
+            state={{ player }}
+          >
+            {/* Rank */}
+            <span className="text-[11px] font-black text-gray-800 font-condensed w-5 shrink-0 group-hover:text-mint transition-colors tabular-nums">
+              {i + 1}
+            </span>
 
-          {/* Name + meta */}
-          <div className="flex-1 min-w-0">
-            <div className="text-[13px] font-semibold text-gray-400 group-hover:text-white transition-colors truncate leading-tight">
-              {player.playerName}
+            {/* Name + meta */}
+            <div className="flex-1 min-w-0">
+              <div className="text-[13px] font-semibold text-gray-400 group-hover:text-white transition-colors truncate leading-tight">
+                {player.playerName}
+              </div>
+              <div className="text-[10px] text-gray-700 font-condensed tracking-wide mt-0.5">
+                {player.team} · {STAT_LABELS[player.stat] ?? player.stat.toUpperCase()}
+                {player.seasonAvg != null && (
+                  <span className="text-gray-800 ml-1">
+                    · avg {player.seasonAvg.toFixed(1)}
+                  </span>
+                )}
+              </div>
             </div>
-            <div className="text-[10px] text-gray-700 font-condensed tracking-wide mt-0.5">
-              {player.team} · {STAT_LABELS[player.stat] ?? player.stat.toUpperCase()}
-              {player.seasonAvg != null && (
-                <span className="text-gray-800 ml-1">
-                  · avg {player.seasonAvg.toFixed(1)}
+
+            {/* Z-bar + rolling avg */}
+            <div className="flex items-center gap-2.5 shrink-0">
+              <div className="w-14 h-1 bg-[#1A1A1A] rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-mint/50 group-hover:bg-mint/80 rounded-full transition-all duration-300"
+                  style={{ width: `${Math.min((player.zScore / maxZ) * 100, 100)}%` }}
+                />
+              </div>
+              <div className="flex flex-col items-end w-12">
+                <span className="text-[13px] font-black text-mint font-condensed tabular-nums leading-none">
+                  {player.rollingAvg.toFixed(1)}
                 </span>
-              )}
+                <span className="text-[9px] text-gray-700 font-condensed tabular-nums leading-none mt-0.5">
+                  z{player.zScore.toFixed(1)}
+                </span>
+              </div>
             </div>
-          </div>
-
-          {/* Z-bar + rolling avg */}
-          <div className="flex items-center gap-2.5 shrink-0">
-            <div className="w-14 h-1 bg-[#1A1A1A] rounded-full overflow-hidden">
-              <div
-                className="h-full bg-mint/50 group-hover:bg-mint/80 rounded-full transition-all duration-300"
-                style={{ width: `${Math.min((player.zScore / maxZ) * 100, 100)}%` }}
-              />
-            </div>
-            <div className="flex flex-col items-end w-12">
-              <span className="text-[13px] font-black text-mint font-condensed tabular-nums leading-none">
-                {player.rollingAvg.toFixed(1)}
-              </span>
-              <span className="text-[9px] text-gray-700 font-condensed tabular-nums leading-none mt-0.5">
-                z{player.zScore.toFixed(1)}
-              </span>
-            </div>
-          </div>
-        </button>
+          </Link>
+        </Button>
       ))}
     </div>
   )

@@ -4,6 +4,8 @@ import { ArrowLeft } from 'lucide-react'
 import { nbaApi, PlayerProfile, GameStat } from '@/services/api'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 
 const STATS = ['points', 'rebounds', 'assists', 'threes'] as const
 type StatKey = typeof STATS[number]
@@ -115,14 +117,16 @@ export default function PlayerDetailView() {
           const statAvg = profile.rollingAvgs[stat]
           const isActive = activeStat === stat
           return (
-            <button
+            <Button
               key={stat}
+              variant="ghost"
               onClick={() => setActiveStat(stat)}
-              className={`p-3.5 rounded-2xl border transition-all text-left ${
+              className={cn(
+                'relative p-3.5 rounded-2xl border transition-all text-left h-auto flex-col items-start hover:bg-transparent',
                 isActive
-                  ? 'border-mint/30 bg-[#0D1A14]'
+                  ? 'border-mint/30 bg-[#0D1A14] hover:bg-[#0D1A14]'
                   : 'border-[#161616] bg-[#0D0D0D] hover:border-[#222]'
-              }`}
+              )}
             >
               <div className="text-[10px] text-gray-700 mb-2 font-condensed font-bold tracking-widest uppercase">
                 {STAT_LABELS[stat]}
@@ -133,7 +137,7 @@ export default function PlayerDetailView() {
               <div className={`text-[10px] mt-1.5 font-condensed font-bold ${isActive ? 'text-mint/60' : 'text-gray-700'}`}>
                 {z != null ? (z > 0 ? '+' : '') + z.toFixed(2) + 'σ' : '—'}
               </div>
-            </button>
+            </Button>
           )
         })}
       </div>

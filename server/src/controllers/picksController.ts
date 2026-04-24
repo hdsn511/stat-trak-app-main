@@ -83,31 +83,6 @@ export async function getTopPicks(req: any, res: any) {
       : { data: [] as any[] };
     const playerMap = new Map((players ?? []).map((p: any) => [p.id, p]));
 
-    // ── Season avg batch fetch for direction derivation
-    // Build a list of (player_id, stat_id) pairs for top picks
-    const statIdMap: Record<string, number> = { pts: 0, reb: 1, ast: 2, fg3m: 3 };
-    const trendFilters = topPlayerPicks
-      .map((p) => ({ player_id: p.entity_id, stat: statIdMap[p.stat as string] }))
-      .filter((f) => f.stat !== undefined);
-
-    // Fetch season_avg from nba_trends (window_size=10) for all relevant (player_id, stat) combos
-    const seasonAvgMap = new Map<string, number | null>(); // key = `${player_id}-${stat_str}`
-    if (trendFilters.length > 0) {
-      const uniquePlayerIds = [...new Set(trendFilters.map((f) => f.player_id))];
-      const uniqueStatIds = [...new Set(trendFilters.map((f) => f.stat))];
-      const { data: trendRows } = await supabaseAdmin
-        .from('nba_trends')
-        .select('player_id,stat,season_avg')
-        .in('player_id', uniquePlayerIds)
-        .in('stat', uniqueStatIds)
-        .eq('window_size', 10);
-      for (const row of (trendRows ?? [])) {
-        // stat is smallint; reverse-map to string key
-        const statStr = Object.entries(statIdMap).find(([, v]) => v === row.stat)?.[0];
-        if (statStr) seasonAvgMap.set(`${row.player_id}-${statStr}`, row.season_avg);
-      }
-    }
-
     // ── Opponent lookup for player picks (using pickDate's games + teams)
     // We need: player team abbr → game on pickDate → opponent team abbr + name
     const playerTeams = (players ?? []).map((p: any) => p.team).filter(Boolean) as string[];
@@ -201,16 +176,12 @@ export async function getTopPicks(req: any, res: any) {
     const playerPayload = topPlayerPicks.map((p) => {
       const pl: any = playerMap.get(p.entity_id) ?? { name: null, team: null, position: null };
 
-      // Derive direction: compare recommended_line vs season_avg proxy (nba_trends window=10)
-      const trendKey = `${p.entity_id}-${p.stat}`;
-      const seasonAvg = seasonAvgMap.has(trendKey) ? seasonAvgMap.get(trendKey) : undefined;
-      let direction: 'over' | 'under';
-      if (seasonAvg == null) {
-        console.warn(`[getTopPicks] no season_avg for player_id=${p.entity_id} stat=${p.stat} — defaulting direction to 'over'`);
-        direction = 'over';
-      } else {
-        direction = p.recommended_line < seasonAvg ? 'over' : 'under';
-      }
+      // Direction: Kalshi only offers OVER markets (YES/NO on "Will player X exceed line Y?").
+      // 'over' means we recommend betting YES (model expects the player to hit the OVER).
+      // 'under' means we recommend betting NO. Use hit_rate vs implied_prob as the signal:
+      // if model's hit_rate exceeds the market's implied probability, we like the OVER.
+      const direction: 'over' | 'under' =
+        (p.hit_rate ?? 0) >= (p.implied_prob ?? 0.5) ? 'over' : 'under';
 
       // Derive opponent from games on pickDate
       const teamAbbr = (pl.team ?? '').toUpperCase();
@@ -473,11 +444,11 @@ export async function getPerfectStreaks(req: any, res: any) {
   }
 }
 
-// cover_spread is intentionally excluded: daily_lines.line stores the unsigned
-// absolute spread value, and we don't capture which team the Kalshi market
-// asks about, so "did team X cover" can't be evaluated deterministically.
-// Re-add once the kalshi parser records the favored team per spread market.
-const GAME_STAT_CHOICES = new Set(['over_total', 'winner']);
+// cover_spread and over_total are both team-scoped:
+//   cover_spread: did the team win by more than its spread line? (daily_lines.prop_type='spread', team_id=teamId)
+//   over_total:   did the team's own score exceed its team-total line? (prop_type='total', team_id=teamId)
+// team_id is now populated on daily_lines for all team-bearing Kalshi game-prop rows.
+const GAME_STAT_CHOICES = new Set(['cover_spread', 'over_total', 'winner']);
 
 async function getGamePerfectStreaks(req: any, res: any, stat: string, window: number) {
   if (!GAME_STAT_CHOICES.has(stat)) {
@@ -528,19 +499,30 @@ async function getGamePerfectStreaks(req: any, res: any, stat: string, window: n
         const won = isHome ? g.home_score > g.away_score : g.away_score > g.home_score;
         if (!won) { allHit = false; break; }
       } else {
-        // over_total (cover_spread removed — see GAME_STAT_CHOICES comment)
+        // For both cover_spread and over_total, look up the team-scoped line
+        // for this historical game. team_id on daily_lines filters to the team's
+        // spread/teamtotal market specifically (not 1H/2H game-level totals).
+        const neededPropType = stat === 'cover_spread' ? 'spread' : 'total';
         const { data: lineRow } = await supabaseAdmin
           .from('daily_lines')
-          .select('line,prop_type')
+          .select('line')
           .eq('game_date', g.game_date)
           .eq('entity_id', g.id)
-          .eq('prop_type', 'total')
+          .eq('prop_type', neededPropType)
+          .eq('team_id', teamId)
           .limit(1)
           .maybeSingle();
         if (!lineRow) { allHit = false; break; }
 
-        const total = g.home_score + g.away_score;
-        if (!(total > lineRow.line)) { allHit = false; break; }
+        if (stat === 'cover_spread') {
+          // "Covered" means team won by more than the spread line
+          const margin = isHome ? (g.home_score - g.away_score) : (g.away_score - g.home_score);
+          if (!(margin > lineRow.line)) { allHit = false; break; }
+        } else {
+          // over_total (team-scoped): did the team's own score beat its team-total line?
+          const teamScore = isHome ? g.home_score : g.away_score;
+          if (!(teamScore > lineRow.line)) { allHit = false; break; }
+        }
       }
     }
     if (!allHit) return null;

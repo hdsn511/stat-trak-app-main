@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { nbaApi, TodaysGame } from '@/services/api'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Card, CardContent } from '@/components/ui/card'
 import { Calendar } from 'lucide-react'
 
 function isLive(status: string) {
@@ -41,51 +42,53 @@ export default function Sidebar() {
         {!loading && games.map(game => {
           const live = isLive(game.status)
           return (
-            <div
+            <Card
               key={game.gameId}
-              className="mb-2.5 p-3 bg-[#0D0D0D] rounded-xl border border-[#161616] hover:border-[#222] transition-colors"
+              className="mb-2.5 rounded-xl bg-[#0D0D0D] border-[#161616] shadow-none hover:border-[#222] transition-colors"
             >
-              {/* Status row */}
-              <div className="flex items-center gap-1.5 mb-2.5">
-                {live && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-mint animate-pulse-live flex-shrink-0" />
-                )}
-                <span className={`text-[10px] font-bold font-condensed tracking-widest uppercase ${live ? 'text-mint' : 'text-gray-700'}`}>
-                  {game.status}
-                </span>
-              </div>
-
-              {/* Away */}
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-[12px] font-semibold text-gray-300 font-condensed tracking-wide leading-none">
-                  {game.away.team}
-                </span>
-                {game.away.score != null && (
-                  <span className={`text-[13px] font-black font-condensed tabular-nums leading-none ${live ? 'text-white' : 'text-gray-500'}`}>
-                    {game.away.score}
+              <CardContent className="p-3">
+                {/* Status row */}
+                <div className="flex items-center gap-1.5 mb-2.5">
+                  {live && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-mint animate-pulse-live flex-shrink-0" />
+                  )}
+                  <span className={`text-[10px] font-bold font-condensed tracking-widest uppercase ${live ? 'text-mint' : 'text-gray-700'}`}>
+                    {game.status}
                   </span>
-                )}
-              </div>
+                </div>
 
-              {/* VS divider */}
-              <div className="flex items-center gap-2 my-1.5">
-                <div className="flex-1 h-px bg-[#1A1A1A]" />
-                <span className="text-[9px] text-gray-800 font-condensed font-bold">VS</span>
-                <div className="flex-1 h-px bg-[#1A1A1A]" />
-              </div>
-
-              {/* Home */}
-              <div className="flex items-center justify-between mt-1.5">
-                <span className="text-[12px] font-semibold text-gray-300 font-condensed tracking-wide leading-none">
-                  {game.home.team}
-                </span>
-                {game.home.score != null && (
-                  <span className={`text-[13px] font-black font-condensed tabular-nums leading-none ${live ? 'text-white' : 'text-gray-500'}`}>
-                    {game.home.score}
+                {/* Away */}
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[12px] font-semibold text-gray-300 font-condensed tracking-wide leading-none">
+                    {game.away.team}
                   </span>
-                )}
-              </div>
-            </div>
+                  {game.away.score != null && (
+                    <span className={`text-[13px] font-black font-condensed tabular-nums leading-none ${live ? 'text-white' : 'text-gray-500'}`}>
+                      {game.away.score}
+                    </span>
+                  )}
+                </div>
+
+                {/* VS divider */}
+                <div className="flex items-center gap-2 my-1.5">
+                  <div className="flex-1 h-px bg-[#1A1A1A]" />
+                  <span className="text-[9px] text-gray-800 font-condensed font-bold">VS</span>
+                  <div className="flex-1 h-px bg-[#1A1A1A]" />
+                </div>
+
+                {/* Home */}
+                <div className="flex items-center justify-between mt-1.5">
+                  <span className="text-[12px] font-semibold text-gray-300 font-condensed tracking-wide leading-none">
+                    {game.home.team}
+                  </span>
+                  {game.home.score != null && (
+                    <span className={`text-[13px] font-black font-condensed tabular-nums leading-none ${live ? 'text-white' : 'text-gray-500'}`}>
+                      {game.home.score}
+                    </span>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
           )
         })}
       </div>

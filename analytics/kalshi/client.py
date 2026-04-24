@@ -14,6 +14,7 @@ import json
 import re
 import time
 from pathlib import Path
+from typing import Optional
 
 import requests
 from cryptography.hazmat.backends import default_backend
@@ -86,6 +87,20 @@ HEADER_ACCESS_SIGNATURE = "KALSHI-ACCESS-SIGNATURE"
 
 # Prefix words stripped from extracted player names
 NAME_PREFIXES = {"will", "can", "does", "did"}
+
+# Regex to extract team abbreviation from team-bearing Kalshi game-prop tickers.
+# Matches: KX<STAT>-<DD><MMM><YY><TEAM1><TEAM2>-<TEAMABBR><LINE?>
+# e.g. KXNBASPREAD-26APR23NYKATL-ATL17 → 'ATL'
+#      KXNBAGAME-26APR21HOULAL-HOU     → 'HOU'
+# Does NOT match 1H/2H totals (no team abbr before optional digits in suffix).
+_GAME_TICKER_TEAM_RE = re.compile(r'^KX[A-Z]+-\d{2}[A-Z]{3}\d{2}[A-Z]{6}-([A-Z]{3})\d*$')
+
+
+def _extract_team_abbr(ticker: str) -> Optional[str]:
+    """Extract team abbreviation from a team-bearing Kalshi game-prop ticker.
+    Returns None for 1H/2H game-level totals and non-Kalshi/mock tickers."""
+    m = _GAME_TICKER_TEAM_RE.match(ticker)
+    return m.group(1) if m else None
 
 
 # ── Client ─────────────────────────────────────────────────────────────────────
@@ -538,6 +553,7 @@ class KalshiClient:
 
             event_key = self._extract_event_key(market)
             key = (event_key, prop_type)
+            team_abbr = _extract_team_abbr(ticker)
             entry = {
                 "line":          line,
                 "price":         price,
@@ -545,6 +561,7 @@ class KalshiClient:
                 "ticker":        ticker,
                 "is_first_half": self._is_first_half(title),
                 "title":         title,
+                "team_abbr":     team_abbr,
             }
             result.setdefault(key, []).append(entry)
 

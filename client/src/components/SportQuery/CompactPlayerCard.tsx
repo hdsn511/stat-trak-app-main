@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import type { PlayerResultRow } from '../../services/sportqueryApi'
+import { Card, CardContent } from '@/components/ui/card'
 
 type Props = { row: PlayerResultRow }
 
@@ -42,35 +43,37 @@ export function CompactPlayerCard({ row }: Props) {
   const barColor = z >= 0 ? 'bg-mint' : 'bg-under'
 
   const body = (
-    <div className="bg-[#0D0D0D] border border-[#161616] rounded-xl p-3 hover:border-mint/40 transition-colors">
-      <div className="flex items-center justify-between mb-1">
-        <div className="font-sans text-sm text-white truncate">{name}</div>
-        {stat && (
-          <div className="text-[10px] font-condensed uppercase tracking-[0.2em] text-mint">
-            {stat.value}
+    <Card className="bg-[#0D0D0D] border-[#161616] rounded-xl shadow-none hover:border-mint/40 transition-colors">
+      <CardContent className="p-3">
+        <div className="flex items-center justify-between mb-1">
+          <div className="font-sans text-sm text-white truncate">{name}</div>
+          {stat && (
+            <div className="text-[10px] font-condensed uppercase tracking-[0.2em] text-mint">
+              {stat.value}
+            </div>
+          )}
+        </div>
+        <div className="flex items-center justify-between">
+          <div className="text-[10px] font-condensed uppercase tracking-[0.2em] text-gray-500">
+            {team}
+            {position ? ` • ${position}` : ''}
+          </div>
+          {stat && (
+            <div className="text-[10px] font-condensed uppercase tracking-[0.2em] text-gray-600">
+              {stat.label}
+            </div>
+          )}
+        </div>
+        {zScore !== null && (
+          <div className="mt-2 h-0.5 bg-[#1a1a1a] rounded-full overflow-hidden">
+            <div
+              className={`h-full ${barColor}`}
+              style={{ width: `${barWidth}%` }}
+            />
           </div>
         )}
-      </div>
-      <div className="flex items-center justify-between">
-        <div className="text-[10px] font-condensed uppercase tracking-[0.2em] text-gray-500">
-          {team}
-          {position ? ` • ${position}` : ''}
-        </div>
-        {stat && (
-          <div className="text-[10px] font-condensed uppercase tracking-[0.2em] text-gray-600">
-            {stat.label}
-          </div>
-        )}
-      </div>
-      {zScore !== null && (
-        <div className="mt-2 h-0.5 bg-[#1a1a1a] rounded-full overflow-hidden">
-          <div
-            className={`h-full ${barColor}`}
-            style={{ width: `${barWidth}%` }}
-          />
-        </div>
-      )}
-    </div>
+      </CardContent>
+    </Card>
   )
 
   return id ? <Link to={`/player/${id}`}>{body}</Link> : body

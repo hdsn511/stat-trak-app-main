@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { nbaApi } from './api'
 
 const mockFetch = vi.fn()
-const global.fetch = mockFetch
+global.fetch = mockFetch
 
 beforeEach(() => {
   mockFetch.mockReset()

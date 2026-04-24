@@ -1,3 +1,5 @@
+import { Button } from '@/components/ui/button'
+
 type Props = { onPick: (prompt: string) => void }
 
 const PROMPTS = [
@@ -22,13 +24,14 @@ export function EmptyState({ onPick }: Props) {
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {PROMPTS.map((p) => (
-            <button
+            <Button
               key={p}
+              variant="outline"
+              className="h-auto justify-start text-left whitespace-normal p-4 bg-[#0D0D0D] border-[#161616] hover:border-mint/40 hover:bg-[#0D0D0D] rounded-xl font-sans text-sm text-gray-300 transition-colors"
               onClick={() => onPick(p)}
-              className="text-left px-4 py-3 bg-[#0D0D0D] border border-[#161616] rounded-xl hover:border-mint/40 transition-colors font-sans text-sm text-gray-300"
             >
               {p}
-            </button>
+            </Button>
           ))}
         </div>
       </div>

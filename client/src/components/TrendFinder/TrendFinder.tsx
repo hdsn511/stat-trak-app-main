@@ -3,6 +3,9 @@ import { useNavigate } from 'react-router-dom'
 import { nbaApi, TrendingPlayer } from '@/services/api'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { cn } from '@/lib/utils'
 import { SlidersHorizontal, ChevronRight } from 'lucide-react'
 
 const STATS = [
@@ -65,18 +68,21 @@ export default function TrendFinder() {
       {/* Stat tabs */}
       <div className="flex border-b border-[#161616]">
         {STATS.map(s => (
-          <button
+          <Button
             key={s.id}
+            variant="ghost"
+            size="sm"
             onClick={() => setStat(s.id)}
-            className={`relative px-5 py-2.5 text-[13px] font-bold font-condensed tracking-widest uppercase transition-colors ${
-              stat === s.id ? 'text-white' : 'text-gray-700 hover:text-gray-400'
-            }`}
+            className={cn(
+              'relative px-5 py-2.5 text-[13px] font-bold font-condensed tracking-widest uppercase rounded-none h-auto transition-colors hover:bg-transparent',
+              stat === s.id ? 'text-white hover:text-white' : 'text-gray-700 hover:text-gray-400'
+            )}
           >
             {s.label}
             {stat === s.id && (
               <span className="absolute bottom-0 left-1 right-1 h-0.5 bg-mint rounded-t-full" />
             )}
-          </button>
+          </Button>
         ))}
       </div>
 
@@ -84,12 +90,12 @@ export default function TrendFinder() {
       <div className="flex items-center gap-6 flex-wrap">
         <div className="flex items-center gap-2">
           <span className="text-[10px] text-gray-600 font-condensed tracking-widest uppercase">Line</span>
-          <input
+          <Input
             type="number"
             value={threshold}
             onChange={e => setThreshold(e.target.value)}
             placeholder="—"
-            className="w-20 bg-[#0D0D0D] border border-[#1E1E1E] rounded-xl px-3 py-1.5 text-sm text-white placeholder-gray-800 outline-none focus:border-mint/30 transition-colors text-center font-bold tabular-nums"
+            className="w-20 bg-[#0D0D0D] border-[#1E1E1E] rounded-xl px-3 py-1.5 text-sm text-white placeholder-gray-800 outline-none focus-visible:ring-0 focus-visible:border-mint/30 transition-colors text-center font-bold tabular-nums h-auto"
           />
           <span className="text-[11px] text-gray-700 font-condensed">+</span>
         </div>
@@ -97,17 +103,20 @@ export default function TrendFinder() {
         <div className="flex items-center gap-1.5">
           <span className="text-[10px] text-gray-600 font-condensed tracking-widest uppercase mr-1">Last</span>
           {WINDOWS.map(w => (
-            <button
+            <Button
               key={w}
+              variant="ghost"
+              size="sm"
               onClick={() => setWindow(w)}
-              className={`w-9 h-8 rounded-lg text-[13px] font-bold font-condensed tracking-wide transition-colors ${
+              className={cn(
+                'w-9 h-8 rounded-lg text-[13px] font-bold font-condensed tracking-wide transition-colors p-0',
                 window === w
-                  ? 'bg-mint text-black'
-                  : 'bg-[#0D0D0D] text-gray-600 hover:text-white border border-[#1E1E1E]'
-              }`}
+                  ? 'bg-mint text-black hover:bg-mint hover:text-black'
+                  : 'bg-[#0D0D0D] text-gray-600 hover:text-white border border-[#1E1E1E] hover:bg-[#0D0D0D]'
+              )}
             >
               {w}
-            </button>
+            </Button>
           ))}
         </div>
       </div>

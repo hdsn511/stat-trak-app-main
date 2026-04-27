@@ -197,8 +197,9 @@ export async function getPlayerGames(req: any, res: any) {
         .single(),
       supabaseAdmin
         .from('nba_player_stats')
-        .select('game_id, team_id, points, rebounds, assists, three_points_made, fouls, minutes_played, game_date')
+        .select('game_id, team_id, points, rebounds, assists, three_points_made, fouls, minutes_played, game_date, games!inner(game_type)')
         .eq('player_id', parseInt(id))
+        .eq('games.game_type', 'regular')
         .order('game_date', { ascending: false })
         .limit(20),
       supabaseAdmin

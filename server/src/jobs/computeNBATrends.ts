@@ -67,22 +67,6 @@ const STAT_CONFIGS = [
     minRollingAvg: 1,
     minAvgMinutes: 16,
   },
-  {
-    statId: 4,
-    name: "fouls",
-    selector: (g: PlayerGameStat) => g.fouls,
-    minSeasonStd: 0.5,
-    minRollingAvg: 1,
-    minAvgMinutes: 16,
-  },
-  {
-    statId: 5,
-    name: "minutes",
-    selector: (g: PlayerGameStat) => g.minutes_played,
-    minSeasonStd: 3,
-    minRollingAvg: 10,
-    minAvgMinutes: 0,
-  },
 ] as const;
 
 //ETL

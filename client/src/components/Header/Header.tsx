@@ -1,89 +1,103 @@
-import { useState, useCallback, useRef } from 'react'
-import { Link, useNavigate, useLocation } from 'react-router-dom'
-import { Search } from 'lucide-react'
-import { nbaApi, PlayerSearchResult } from '@/services/api'
-import { Input } from '@/components/ui/input'
-import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
-import { cn } from '@/lib/utils'
+import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
+import { nbaApi, PlayerSearchResult } from "@/services/api";
+import { Search } from "lucide-react";
+import { useCallback, useRef, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 
 const NAV_LINKS = [
-  { label: 'SPORTQUERY', href: '/sportquery' },
-  { label: 'NBA', href: '/nba' },
-  { label: 'NFL', href: '/nfl' },
-  { label: 'MLB', href: '/mlb' },
-  { label: 'NHL', href: '/nhl' },
-]
+  { label: "SPORTQUERY", href: "/sportquery" },
+  { label: "NBA", href: "/nba" },
+  { label: "NFL", href: "/nfl" },
+  { label: "MLB", href: "/mlb" },
+  { label: "NHL", href: "/nhl" },
+];
 
 export default function Header() {
-  const navigate = useNavigate()
-  const location = useLocation()
-  const [query, setQuery] = useState('')
-  const [suggestions, setSuggestions] = useState<PlayerSearchResult[]>([])
-  const [open, setOpen] = useState(false)
-  const [activeIdx, setActiveIdx] = useState(-1)
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>()
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [query, setQuery] = useState("");
+  const [suggestions, setSuggestions] = useState<PlayerSearchResult[]>([]);
+  const [open, setOpen] = useState(false);
+  const [activeIdx, setActiveIdx] = useState(-1);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value
-    setQuery(val)
-    setActiveIdx(-1)
-    clearTimeout(debounceRef.current)
+    const val = e.target.value;
+    setQuery(val);
+    setActiveIdx(-1);
+    clearTimeout(debounceRef.current);
     if (val.trim().length < 2) {
-      setSuggestions([])
-      setOpen(false)
-      return
+      setSuggestions([]);
+      setOpen(false);
+      return;
     }
     debounceRef.current = setTimeout(async () => {
       try {
-        const results = await nbaApi.searchPlayers(val)
-        setSuggestions(results)
-        setOpen(results.length > 0)
+        const results = await nbaApi.searchPlayers(val);
+        setSuggestions(results);
+        setOpen(results.length > 0);
       } catch {
-        setSuggestions([])
-        setOpen(false)
+        setSuggestions([]);
+        setOpen(false);
       }
-    }, 250)
-  }, [])
+    }, 250);
+  }, []);
 
-  const handleSelect = useCallback((player: PlayerSearchResult) => {
-    setQuery('')
-    setSuggestions([])
-    setOpen(false)
-    setActiveIdx(-1)
-    navigate(`/player/${player.id}`, { state: { player } })
-  }, [navigate])
+  const handleSelect = useCallback(
+    (player: PlayerSearchResult) => {
+      setQuery("");
+      setSuggestions([]);
+      setOpen(false);
+      setActiveIdx(-1);
+      navigate(`/player/${player.id}`, { state: { player } });
+    },
+    [navigate],
+  );
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (!open || suggestions.length === 0) return
-    if (e.key === 'ArrowDown') {
-      e.preventDefault()
-      setActiveIdx(i => Math.min(i + 1, suggestions.length - 1))
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault()
-      setActiveIdx(i => Math.max(i - 1, -1))
-    } else if (e.key === 'Enter') {
-      e.preventDefault()
-      const target = activeIdx >= 0 ? suggestions[activeIdx] : suggestions[0]
-      if (target) handleSelect(target)
-    } else if (e.key === 'Escape') {
-      setOpen(false)
-      setActiveIdx(-1)
-    }
-  }, [open, suggestions, activeIdx, handleSelect])
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (!open || suggestions.length === 0) return;
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setActiveIdx((i) => Math.min(i + 1, suggestions.length - 1));
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setActiveIdx((i) => Math.max(i - 1, -1));
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        const target = activeIdx >= 0 ? suggestions[activeIdx] : suggestions[0];
+        if (target) handleSelect(target);
+      } else if (e.key === "Escape") {
+        setOpen(false);
+        setActiveIdx(-1);
+      }
+    },
+    [open, suggestions, activeIdx, handleSelect],
+  );
 
   const handleBlur = useCallback(() => {
     setTimeout(() => {
-      setOpen(false)
-      setActiveIdx(-1)
-    }, 150)
-  }, [])
+      setOpen(false);
+      setActiveIdx(-1);
+    }, 150);
+  }, []);
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 h-16 bg-[#0A0A0A]/98 backdrop-blur-md border-b border-[#151515] flex items-center px-6 gap-6">
       {/* Logo */}
       <Link to="/" className="flex-shrink-0 flex items-center">
-        <span className="font-display text-[22px] font-black tracking-tight text-white leading-none">STAT</span>
-        <span className="font-display text-[22px] font-black tracking-tight text-mint leading-none">TRAK</span>
+        <span className="font-display text-[22px] font-black tracking-tight text-white leading-none">
+          STAT
+        </span>
+        <span className="font-display text-[22px] font-black tracking-tight text-mint leading-none">
+          TRAK
+        </span>
       </Link>
 
       {/* Divider */}
@@ -91,14 +105,14 @@ export default function Header() {
 
       {/* Nav */}
       <nav className="flex gap-0.5">
-        {NAV_LINKS.map(link => {
-          const isActive = location.pathname.startsWith(link.href)
+        {NAV_LINKS.map((link) => {
+          const isActive = location.pathname.startsWith(link.href);
           return (
             <Link
               key={link.href}
               to={link.href}
               className={`relative px-4 py-1.5 text-[13px] font-bold font-condensed tracking-widest uppercase transition-colors ${
-                isActive ? 'text-white' : 'text-gray-600 hover:text-gray-400'
+                isActive ? "text-white" : "text-gray-600 hover:text-gray-400"
               }`}
             >
               {link.label}
@@ -106,7 +120,7 @@ export default function Header() {
                 <span className="absolute bottom-0 left-2 right-2 h-0.5 bg-mint rounded-full" />
               )}
             </Link>
-          )
+          );
         })}
       </nav>
 
@@ -114,7 +128,7 @@ export default function Header() {
       <div className="relative ml-auto w-60">
         <Popover open={open}>
           <PopoverTrigger asChild>
-            <div className="flex items-center gap-2 bg-[#0F0F0F] border border-[#1E1E1E] rounded-xl px-3 py-2 focus-within:border-mint/30 focus-within:bg-[#111] transition-all">
+            <div className="flex items-center gap-2 bg-[#0F0F0F] border border-[#1E1E1E] rounded-xl px-3 py-1.5 focus-within:border-mint/30 focus-within:bg-[#111] transition-all">
               <Search size={13} className="text-gray-600 flex-shrink-0" />
               <Input
                 type="text"
@@ -124,13 +138,8 @@ export default function Header() {
                 onFocus={() => suggestions.length > 0 && setOpen(true)}
                 onKeyDown={handleKeyDown}
                 placeholder="Search players..."
-                className="bg-transparent text-sm text-white placeholder-gray-700 outline-none border-none shadow-none focus-visible:ring-0 p-0 h-auto w-full"
+                className="border-0 bg-transparent shadow-none focus-visible:ring-0 p-0 h-auto text-sm text-white placeholder:text-gray-700"
               />
-              {!query && (
-                <kbd className="text-[10px] text-gray-700 border border-[#222] rounded px-1.5 py-0.5 font-condensed flex-shrink-0 leading-4">
-                  ⌘K
-                </kbd>
-              )}
             </div>
           </PopoverTrigger>
           <PopoverContent
@@ -144,22 +153,29 @@ export default function Header() {
                 key={player.id}
                 onMouseDown={() => handleSelect(player)}
                 className={cn(
-                  'w-full text-left px-4 py-3 text-sm cursor-pointer flex items-center justify-between border-b border-[#161616] last:border-0 transition-colors rounded-lg',
-                  i === activeIdx ? 'bg-white/5' : 'hover:bg-white/5'
+                  "w-full text-left px-4 py-3 text-sm cursor-pointer flex items-center justify-between border-b border-[#161616] last:border-0 transition-colors rounded-lg",
+                  i === activeIdx ? "bg-white/5" : "hover:bg-white/5",
                 )}
               >
                 <div className="flex items-center gap-3">
                   <div className="w-7 h-7 rounded-lg bg-[#1A1A1A] flex items-center justify-center text-[10px] font-bold text-mint font-condensed flex-shrink-0">
-                    {player.name.split(' ').map((n: string) => n[0]).join('')}
+                    {player.name
+                      .split(" ")
+                      .map((n: string) => n[0])
+                      .join("")}
                   </div>
-                  <span className="text-gray-200 font-medium">{player.name}</span>
+                  <span className="text-gray-200 font-medium">
+                    {player.name}
+                  </span>
                 </div>
-                <span className="text-gray-600 text-xs font-condensed">{player.team} · {player.position}</span>
+                <span className="text-gray-600 text-xs font-condensed">
+                  {player.team} · {player.position}
+                </span>
               </button>
             ))}
           </PopoverContent>
         </Popover>
       </div>
     </header>
-  )
+  );
 }

@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
-import { SlidersHorizontal, ChevronRight } from 'lucide-react'
+import { SlidersHorizontal, ChevronRight, X } from 'lucide-react'
 
 const STATS = [
   { id: 'points', label: 'PTS' },
@@ -27,22 +27,32 @@ function zBadgeClass(z: number) {
 
 export default function TrendFinder() {
   const navigate = useNavigate()
-  const [stat, setStat] = useState<StatId>('points')
+  const [stat, setStat]           = useState<StatId>('points')
   const [threshold, setThreshold] = useState('')
-  const [window, setWindow] = useState<number>(10)
-  const [players, setPlayers] = useState<TrendingPlayer[]>([])
-  const [loading, setLoading] = useState(false)
+  const [window, setWindow]       = useState<number>(10)
+  const [players, setPlayers]     = useState<TrendingPlayer[]>([])
+  const [loading, setLoading]     = useState(false)
 
-  const fetchTrends = useCallback(async () => {
+  const isFiltered = threshold !== '' && parseFloat(threshold) > 0
+
+  const fetchTrending = useCallback(async () => {
+    setLoading(true)
+    try {
+      const results = await nbaApi.getTopTrending()
+      setPlayers(results.slice(0, 10))
+    } catch {
+      setPlayers([])
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  const fetchFiltered = useCallback(async () => {
     setLoading(true)
     try {
       const t = parseFloat(threshold)
-      const results = await nbaApi.getTrends({
-        stat,
-        window,
-        threshold: t > 0 ? t : undefined,
-      })
-      setPlayers(results)
+      const results = await nbaApi.getTrends({ stat, window, threshold: t > 0 ? t : undefined })
+      setPlayers(results.slice(0, 10))
     } catch {
       setPlayers([])
     } finally {
@@ -51,8 +61,14 @@ export default function TrendFinder() {
   }, [stat, window, threshold])
 
   useEffect(() => {
-    fetchTrends()
-  }, [fetchTrends])
+    if (isFiltered) {
+      fetchFiltered()
+    } else {
+      fetchTrending()
+    }
+  }, [isFiltered, fetchFiltered, fetchTrending])
+
+  const handleClear = () => setThreshold('')
 
   const statLabel = (statId: string) =>
     STATS.find(s => s.id === statId)?.label ?? statId.toUpperCase()
@@ -62,7 +78,9 @@ export default function TrendFinder() {
       {/* Header */}
       <div className="flex items-center gap-2">
         <SlidersHorizontal size={13} className="text-mint" />
-        <h2 className="text-[10px] font-bold text-gray-500 uppercase tracking-[0.15em] font-condensed">Trend Finder</h2>
+        <h2 className="text-[10px] font-bold text-gray-500 uppercase tracking-[0.15em] font-condensed">
+          {isFiltered ? 'Trend Finder' : 'Top Trending'}
+        </h2>
       </div>
 
       {/* Stat tabs */}
@@ -98,6 +116,16 @@ export default function TrendFinder() {
             className="w-20 bg-[#0D0D0D] border-[#1E1E1E] rounded-xl px-3 py-1.5 text-sm text-white placeholder-gray-800 outline-none focus-visible:ring-0 focus-visible:border-mint/30 transition-colors text-center font-bold tabular-nums h-auto"
           />
           <span className="text-[11px] text-gray-700 font-condensed">+</span>
+          {isFiltered && (
+            <button
+              onClick={handleClear}
+              className="flex items-center gap-1 text-[10px] text-gray-600 hover:text-white font-condensed uppercase tracking-wider transition-colors"
+              aria-label="Clear filter"
+            >
+              <X size={11} />
+              Clear
+            </button>
+          )}
         </div>
 
         <div className="flex items-center gap-1.5">
@@ -145,12 +173,9 @@ export default function TrendFinder() {
           onClick={() => navigate(`/player/${player.playerId}`, { state: { player } })}
           className="w-full flex items-center gap-4 px-4 py-3.5 bg-[#0D0D0D] border border-[#161616] rounded-xl hover:border-mint/25 hover:bg-[#0D1A14] transition-all text-left group"
         >
-          {/* Avatar */}
           <div className="w-9 h-9 rounded-xl bg-[#161616] flex items-center justify-center text-[11px] font-black text-mint flex-shrink-0 font-condensed group-hover:bg-mint/10 transition-colors">
             {player.playerName?.split(' ').map(n => n[0]).join('') ?? '?'}
           </div>
-
-          {/* Info */}
           <div className="flex-1 min-w-0">
             <div className="text-[14px] font-semibold text-gray-300 truncate group-hover:text-white transition-colors">
               {player.playerName}
@@ -159,8 +184,6 @@ export default function TrendFinder() {
               {player.team} · {player.position}
             </div>
           </div>
-
-          {/* Rolling avg */}
           <div className="text-right flex-shrink-0">
             <div className="text-[20px] font-black text-white font-mono tabular-nums leading-none">
               {player.rollingAvg.toFixed(1)}
@@ -169,12 +192,9 @@ export default function TrendFinder() {
               avg {statLabel(player.stat)}
             </div>
           </div>
-
-          {/* Z-score badge */}
           <Badge className={`flex-shrink-0 font-mono font-bold text-[11px] ${zBadgeClass(player.zScore)}`}>
             {player.zScore > 0 ? '+' : ''}{player.zScore.toFixed(2)}σ
           </Badge>
-
           <ChevronRight size={13} className="text-gray-800 group-hover:text-mint flex-shrink-0 transition-colors" />
         </button>
       ))}

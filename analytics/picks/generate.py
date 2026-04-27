@@ -437,6 +437,7 @@ def generate_picks(game_date: date, mock_kalshi: bool = False) -> list[dict]:
 
     for game_candidate in game_candidates:
         game_id = game_candidate["game_id"]
+        game_results_this_game = 0
 
         for (event_key, prop_type), lines in game_props.items():
             # Scope each game's loop to only that game's Kalshi lines.
@@ -502,6 +503,10 @@ def generate_picks(game_date: date, mock_kalshi: bool = False) -> list[dict]:
                     "alt_lines_tested": None,
                 })
                 game_results_count += 1
+                game_results_this_game += 1
+
+        if game_results_this_game == 0:
+            print(f"  game_id={game_id}: no game prop lines passed filters")
 
     print(f"  Game prop results passing filters: {game_results_count}")
 

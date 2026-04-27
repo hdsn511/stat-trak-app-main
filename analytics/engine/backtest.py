@@ -520,10 +520,6 @@ def backtest_game_prop(
     sample_size = len(matched_actuals)
 
     if sample_size < MIN_SAMPLE_SIZE:
-        print(
-            f"  INFO: only {sample_size} matching historical games for "
-            f"game_id={game_id} prop_type={prop_type}. Returning None."
-        )
         return None
 
     # ── 6. Compute hit rate ──────────────────────────────────────────────────

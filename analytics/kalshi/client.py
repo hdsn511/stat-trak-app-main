@@ -629,21 +629,47 @@ class KalshiClient:
         })
         ticker_seq += 1
 
-        # Add game total / spread markets
-        games = [
-            ("LAL-GSW", "Will the total points exceed 227.5?",     "227.5", "0.5100"),
-            ("LAL-GSW", "Will the Lakers cover the -3.5 spread?",   "3.5",  "0.4800"),
-            ("BOS-MIL", "Will the combined score exceed 220.5?",   "220.5", "0.5300"),
+        # Add game total / spread markets — use real series prefixes so parse_game_props
+        # doesn't filter them out (it checks series prefix against GAME_PROP_SERIES).
+        mock_games = [
+            {
+                "event_key": "LAL-GSW",
+                "ticker":    "KXNBAGAME-27APR26LALGSW-TOT",
+                "title":     "Will the total points exceed 227.5?",
+                "strike":    "227.5",
+                "price":     "0.5100",
+            },
+            {
+                "event_key": "LAL-GSW",
+                "ticker":    "KXNBASPREAD-27APR26LALGSW-LAL",
+                "title":     "Will the Lakers cover the -3.5 spread?",
+                "strike":    "3.5",
+                "price":     "0.4800",
+            },
+            {
+                "event_key": "BOS-MIL",
+                "ticker":    "KXNBAGAME-27APR26BOSMIL-TOT",
+                "title":     "Will the combined score exceed 220.5?",
+                "strike":    "220.5",
+                "price":     "0.5300",
+            },
+            {
+                "event_key": "LAL-GSW",
+                "ticker":    "KXNBAGAME-27APR26LALGSW-WIN",
+                "title":     "Will the Lakers win the game?",
+                "strike":    "0.5",
+                "price":     "0.4900",
+            },
         ]
-        for event_key, title, strike, price in games:
+        for mg in mock_games:
             markets.append({
-                "ticker":        f"NBA-MOCK-{ticker_seq:04d}",
-                "event_ticker":  event_key,
-                "series_ticker": "NBA",
-                "title":         title,
-                "floor_strike":  strike,
-                "yes_price":     price,
-                "last_price":    price,
+                "ticker":        mg["ticker"],
+                "event_ticker":  mg["event_key"],
+                "series_ticker": mg["ticker"].split("-")[0],
+                "title":         mg["title"],
+                "floor_strike":  mg["strike"],
+                "yes_price":     mg["price"],
+                "last_price":    mg["price"],
                 "status":        "open",
             })
             ticker_seq += 1

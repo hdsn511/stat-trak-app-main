@@ -69,6 +69,7 @@ export interface Pick {
 }
 
 export interface TodaysPicks {
+  gameDate: string | null
   topPick: Pick | null
   allPicks: Pick[]
 }

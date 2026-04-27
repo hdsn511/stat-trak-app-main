@@ -7,12 +7,16 @@ import { Flame, ArrowRight, TrendingUp } from 'lucide-react'
 
 export default function PickOfTheDay() {
   const navigate = useNavigate()
-  const [pick, setPick]     = useState<Pick | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [pick, setPick]       = useState<Pick | null>(null)
+  const [gameDate, setGameDate] = useState<string | null>(null)
+  const [loading, setLoading]  = useState(true)
 
   useEffect(() => {
     nbaApi.getTodaysPicks()
-      .then(({ topPick }) => setPick(topPick))
+      .then(({ topPick, gameDate }) => {
+        setPick(topPick)
+        setGameDate(gameDate)
+      })
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [])
@@ -21,7 +25,6 @@ export default function PickOfTheDay() {
     return <Skeleton className="h-44 w-full bg-[#0F0F0F] rounded-2xl" />
   }
 
-  // ── Empty state ───────────────────────────────────────────────────────────
   if (!pick) {
     return (
       <div className="relative w-full overflow-hidden rounded-2xl border border-[#1A1A1A] bg-[#0D0D0D] flex items-center justify-center h-44">
@@ -35,11 +38,14 @@ export default function PickOfTheDay() {
     )
   }
 
-  // ── Pick card ─────────────────────────────────────────────────────────────
   const confidenceInt = Math.round(pick.confidence)
   const hitPct        = Math.round(pick.hitRate * 100)
   const mktPct        = Math.round(pick.impliedProb * 100)
   const edgePct       = Math.round(pick.edge * 100)
+
+  const formattedDate = gameDate
+    ? new Date(gameDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    : null
 
   return (
     <Card
@@ -68,14 +74,17 @@ export default function PickOfTheDay() {
       </div>
 
       <CardContent className="relative flex items-center gap-5 p-5 pr-4">
-        {/* ── Left column ── */}
+        {/* Left column */}
         <div className="flex-1 min-w-0">
-          {/* Section label */}
+          {/* Section label + date */}
           <div className="flex items-center gap-1.5 mb-3">
             <Flame size={11} className="text-mint" />
             <span className="text-[10px] font-black text-mint uppercase tracking-[0.18em] font-condensed">
               Pick of the Day
             </span>
+            {formattedDate && (
+              <span className="text-[10px] text-gray-600 font-condensed ml-1">· {formattedDate}</span>
+            )}
           </div>
 
           {/* Player name */}
@@ -106,12 +115,7 @@ export default function PickOfTheDay() {
               </span>
             </div>
             <div className="relative h-1 bg-[#1A1A1A] rounded-full overflow-hidden">
-              {/* Market implied prob — gray base */}
-              <div
-                className="absolute inset-y-0 left-0 bg-gray-700/60 rounded-full"
-                style={{ width: `${mktPct}%` }}
-              />
-              {/* Our hit rate — mint overlay */}
+              <div className="absolute inset-y-0 left-0 bg-gray-700/60 rounded-full" style={{ width: `${mktPct}%` }} />
               <div
                 className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-mint/50 to-mint transition-all duration-700"
                 style={{ width: `${hitPct}%` }}
@@ -120,7 +124,7 @@ export default function PickOfTheDay() {
           </div>
         </div>
 
-        {/* ── Right column — confidence score ── */}
+        {/* Right column — confidence score */}
         <div className="flex-shrink-0 flex flex-col items-end">
           <div className="text-[76px] font-black text-mint font-display leading-none text-glow-mint tabular-nums">
             {confidenceInt}

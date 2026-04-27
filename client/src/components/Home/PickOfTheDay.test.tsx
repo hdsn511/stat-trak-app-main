@@ -2,26 +2,38 @@ import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import PickOfTheDay from './PickOfTheDay'
-import { nbaApi } from '@/services/api'
-
-const mockPick = {
-  playerId: 1,
-  playerName: 'LeBron James',
-  team: 'LAL',
-  position: 'SF',
-  stat: 'points',
-  statId: 0,
-  zScore: 2.1,
-  rollingAvg: 27.4,
-  windowSize: 10,
-}
 
 vi.mock('@/services/api', () => ({
-  nbaApi: { getTopTrending: vi.fn() }
+  nbaApi: { getTodaysPicks: vi.fn() },
 }))
 
+import { nbaApi } from '@/services/api'
+
+const mockResponse = {
+  gameDate: '2026-04-27',
+  topPick: {
+    pickId: 1,
+    playerId: 42,
+    playerName: 'LeBron James',
+    team: 'LAL',
+    position: 'SF',
+    stat: 'pts',
+    statLabel: 'PTS',
+    pickType: 'safe' as const,
+    recommendedLine: 25.5,
+    confidence: 82,
+    edge: 0.12,
+    hitRate: 0.87,
+    impliedProb: 0.75,
+    sampleSize: 18,
+    conditionsMatched: 4,
+    totalConditions: 5,
+  },
+  allPicks: [],
+}
+
 beforeEach(() => {
-  vi.mocked(nbaApi.getTopTrending).mockResolvedValue([mockPick])
+  vi.mocked(nbaApi.getTodaysPicks).mockResolvedValue(mockResponse)
 })
 
 describe('PickOfTheDay', () => {
@@ -35,8 +47,14 @@ describe('PickOfTheDay', () => {
     expect(await screen.findByText('LeBron James')).toBeInTheDocument()
   })
 
-  it('renders rolling avg', async () => {
+  it('renders formatted game date', async () => {
     render(<MemoryRouter><PickOfTheDay /></MemoryRouter>)
-    expect(await screen.findByText('27.4')).toBeInTheDocument()
+    expect(await screen.findByText('Apr 27')).toBeInTheDocument()
+  })
+
+  it('shows analyzing state when no pick', async () => {
+    vi.mocked(nbaApi.getTodaysPicks).mockResolvedValue({ gameDate: null, topPick: null, allPicks: [] })
+    render(<MemoryRouter><PickOfTheDay /></MemoryRouter>)
+    expect(await screen.findByText(/Analyzing today's slate/i)).toBeInTheDocument()
   })
 })

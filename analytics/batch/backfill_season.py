@@ -46,23 +46,41 @@ def _get_game_dates_in_range(since: date, until: date) -> list[str]:
     return sorted({r["game_date"] for r in (rows.data or [])})
 
 
-def _has_stats_for_date(date_str: str) -> bool:
-    """True if nba_player_stats has at least one row for this date."""
+def _games_on_date(date_str: str) -> int:
+    """Return the number of NBA games scheduled on this date."""
     result = (
-        supabase.table("nba_player_stats")
-        .select("player_id")
+        supabase.table("games")
+        .select("id")
         .eq("game_date", date_str)
-        .limit(1)
+        .eq("league_id", NBA_LEAGUE_ID)
         .execute()
     )
-    return bool(result.data)
+    return len(result.data or [])
+
+
+def _stats_games_on_date(date_str: str) -> int:
+    """Return distinct game_ids with stats on this date."""
+    result = (
+        supabase.table("nba_player_stats")
+        .select("game_id")
+        .eq("game_date", date_str)
+        .execute()
+    )
+    return len({r["game_id"] for r in (result.data or [])})
 
 
 def find_missing_dates(since: date, until: date) -> list[date]:
+    """
+    Return dates where nba_player_stats is missing coverage for at least
+    one scheduled game. A date is considered incomplete when the number of
+    distinct game_ids with stats is less than the number of scheduled games.
+    """
     game_dates = _get_game_dates_in_range(since, until)
     missing = []
     for date_str in game_dates:
-        if not _has_stats_for_date(date_str):
+        scheduled = _games_on_date(date_str)
+        covered = _stats_games_on_date(date_str)
+        if covered < scheduled:
             missing.append(_parse_date(date_str))
     return missing
 

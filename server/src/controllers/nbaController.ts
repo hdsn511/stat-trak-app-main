@@ -1,9 +1,11 @@
 import { supabaseAdmin } from '../config/supabaseAdmin';
 
 const STAT_NAMES: Record<number, string> = {
-  0: 'points', 1: 'rebounds', 2: 'assists',
-  3: 'threes', 4: 'fouls', 5: 'minutes'
+  0: 'points', 1: 'rebounds', 2: 'assists', 3: 'threes',
 };
+
+// stat IDs that are computed and displayed
+const VALID_STAT_IDS = [0, 1, 2, 3];
 
 const PICK_STAT_LABELS: Record<string, string> = {
   pts: 'PTS', reb: 'REB', ast: 'AST', fg3m: '3PM',
@@ -12,7 +14,6 @@ const PICK_STAT_LABELS: Record<string, string> = {
 export async function getTopTrending(req: any, res: any) {
   try {
     const today = new Date().toISOString().slice(0, 10);
-    const MINUTES_STAT_ID = 5;
 
     // Fetch trending rows, today's games, and player availability in parallel
     const [trendsResult, espnResult, gamesResult] = await Promise.all([
@@ -21,7 +22,7 @@ export async function getTopTrending(req: any, res: any) {
         .select('player_id, stat, window_size, trend_val, rolling_avg, season_avg, players(name, team, position)')
         .order('trend_val', { ascending: false })
         .eq('window_size', 10)
-        .neq('stat', MINUTES_STAT_ID)
+        .in('stat', VALID_STAT_IDS)
         .limit(80),
       fetch('https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard')
         .then(r => r.ok ? r.json() : null)
@@ -106,6 +107,7 @@ export async function getTrends(req: any, res: any) {
           .from('nba_trends')
           .select('player_id, stat, window_size, trend_val, rolling_avg, season_avg, players(name, team, position)')
           .eq('window_size', parseInt(window))
+          .in('stat', VALID_STAT_IDS)
           .order('trend_val', { ascending: false });
 
         if (stat !== undefined) {

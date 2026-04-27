@@ -334,6 +334,38 @@ def backtest_player(
     }
 
 
+# ── Shared data loaders (call once per run, pass to backtest_game_prop) ──────────
+
+def build_tgs_cache() -> dict:
+    """Load all team_game_stats into {game_id: {team_id: {pace, off_rating, def_rating}}}."""
+    result = (
+        supabase.table("team_game_stats")
+        .select("team_id,game_id,pace,off_rating,def_rating")
+        .execute()
+    )
+    cache: dict[int, dict[int, dict]] = {}
+    for row in (result.data or []):
+        cache.setdefault(row["game_id"], {})[row["team_id"]] = {
+            "pace": row.get("pace"),
+            "off_rating": row.get("off_rating"),
+            "def_rating": row.get("def_rating"),
+        }
+    return cache
+
+
+def load_completed_games(before_date: str) -> list:
+    """Load all completed games before a date."""
+    result = (
+        supabase.table("games")
+        .select("id,home_team_id,away_team_id,home_score,away_score,game_date")
+        .lt("game_date", before_date)
+        .not_.is_("home_score", "null")
+        .not_.is_("away_score", "null")
+        .execute()
+    )
+    return result.data or []
+
+
 # ── Game prop backtester ─────────────────────────────────────────────────────────
 
 def backtest_game_prop(
@@ -341,6 +373,8 @@ def backtest_game_prop(
     prop_type: str,
     line: float,
     game_date: str,
+    tgs_cache: Optional[dict] = None,
+    completed_games: Optional[list] = None,
 ) -> Optional[dict]:
     """
     Find historical games where both teams faced similar pace/rating conditions
@@ -350,10 +384,12 @@ def backtest_game_prop(
     "spread" (home_score - away_score).
 
     Args:
-        game_id:    Internal DB id (games.id) for today's game.
-        prop_type:  "total" or "spread".
-        line:       The line to beat.
-        game_date:  ISO date string "YYYY-MM-DD" for today's game.
+        game_id:         Internal DB id (games.id) for today's game.
+        prop_type:       "total" or "spread".
+        line:            The line to beat.
+        game_date:       ISO date string "YYYY-MM-DD" for today's game.
+        tgs_cache:       Pre-loaded {game_id: {team_id: stats}} dict. If None, loads from DB.
+        completed_games: Pre-loaded list of completed historical games. If None, loads from DB.
 
     Returns:
         dict with hit_rate, sample_size, conditions_matched, etc.
@@ -422,37 +458,11 @@ def backtest_game_prop(
     away_off_today = away_stats["off_rating"]
     home_def_today = home_stats["def_rating"]
 
-    # ── 3. Bulk-load ALL team_game_stats into memory ─────────────────────────
-    # Critical: we must avoid N+1 queries when scanning historical games.
-    # Load every team_game_stats row once and cache by (team_id, game_id).
-    print("  Loading all team_game_stats into memory ...")
-    all_tgs_result = (
-        supabase.table("team_game_stats")
-        .select("team_id,game_id,pace,off_rating,def_rating")
-        .execute()
-    )
-    # Cache: {game_id: {team_id: {pace, off_rating, def_rating}}}
-    tgs_cache: dict[int, dict[int, dict]] = {}
-    for row in (all_tgs_result.data or []):
-        gid = row["game_id"]
-        tid = row["team_id"]
-        tgs_cache.setdefault(gid, {})[tid] = {
-            "pace": row.get("pace"),
-            "off_rating": row.get("off_rating"),
-            "def_rating": row.get("def_rating"),
-        }
+    # ── 3. Bulk-load ALL team_game_stats into memory (once per run) ─────────────
+    _tgs = tgs_cache if tgs_cache is not None else build_tgs_cache()
 
-    # ── 4. Load all historical games ─────────────────────────────────────────
-    print("  Loading historical games ...")
-    hist_result = (
-        supabase.table("games")
-        .select("id,home_team_id,away_team_id,home_score,away_score,game_date")
-        .lt("game_date", game_date)
-        .not_.is_("home_score", "null")
-        .not_.is_("away_score", "null")
-        .execute()
-    )
-    historical_games = hist_result.data or []
+    # ── 4. Load all historical games (once per run) ───────────────────────────
+    historical_games = completed_games if completed_games is not None else load_completed_games(game_date)
 
     if not historical_games:
         print("  WARNING: no historical games with scores found.")
@@ -467,8 +477,8 @@ def backtest_game_prop(
         haway = hgame["away_team_id"]
 
         # Look up both teams' stats in the in-memory cache
-        home_row = tgs_cache.get(hgid, {}).get(hhome)
-        away_row = tgs_cache.get(hgid, {}).get(haway)
+        home_row = _tgs.get(hgid, {}).get(hhome)
+        away_row = _tgs.get(hgid, {}).get(haway)
 
         if home_row is None or away_row is None:
             continue  # No advanced stats for this game — skip

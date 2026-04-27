@@ -30,7 +30,7 @@ from datetime import date, datetime, timedelta
 from typing import Optional
 
 from analytics.db.connection import supabase
-from analytics.engine.backtest import backtest_player, backtest_game_prop, backtest_winner
+from analytics.engine.backtest import backtest_player, backtest_game_prop, backtest_winner, build_tgs_cache, load_completed_games
 from analytics.engine.scorer import score, MIN_HIT_RATE, MIN_EDGE
 from analytics.kalshi.client import KalshiClient
 from analytics.screener.screen import screen_player_candidates, screen_game_candidates
@@ -38,6 +38,14 @@ from analytics.screener.screen import screen_player_candidates, screen_game_cand
 # ── Constants ────────────────────────────────────────────────────────────────
 
 MIN_CONFIDENCE = 70
+
+# Minimum prop line per stat — filters out garbage low lines from Kalshi
+MIN_PROP_LINE: dict[str, float] = {
+    "pts":  10.0,
+    "reb":   3.5,
+    "ast":   1.5,
+    "fg3m":  1.5,
+}
 
 # ── Ticker date parsing ──────────────────────────────────────────────────────
 
@@ -361,6 +369,10 @@ def generate_picks(game_date: date, mock_kalshi: bool = False) -> list[dict]:
                 implied_prob = line_entry["implied_prob"]
                 is_first_half = line_entry.get("is_first_half", False)
 
+                # Skip garbage low lines (e.g. 1.5 REB, floor props)
+                if line_val < MIN_PROP_LINE.get(stat, 0):
+                    continue
+
                 # Backtest
                 bt = backtest_player(player_id, stat, line_val, date_str)
                 if bt is None:
@@ -419,6 +431,10 @@ def generate_picks(game_date: date, mock_kalshi: bool = False) -> list[dict]:
     print("\n[Step 3b] Backtesting + scoring game props ...")
     game_results_count = 0
 
+    # Pre-load expensive data once — shared across all game prop calls
+    _tgs_cache = build_tgs_cache()
+    _completed_games = load_completed_games(date_str)
+
     for game_candidate in game_candidates:
         game_id = game_candidate["game_id"]
 
@@ -435,7 +451,8 @@ def generate_picks(game_date: date, mock_kalshi: bool = False) -> list[dict]:
                 if prop_type == "winner":
                     bt = backtest_winner(game_id, date_str)
                 else:
-                    bt = backtest_game_prop(game_id, prop_type, line_val, date_str)
+                    bt = backtest_game_prop(game_id, prop_type, line_val, date_str,
+                                            tgs_cache=_tgs_cache, completed_games=_completed_games)
 
                 if bt is None:
                     continue

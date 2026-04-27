@@ -228,10 +228,10 @@ export async function computeTrends() {
   }
 
 
-  //upsert to DB
+  //replace table — truncate first so stale rows (players who dropped below
+  //quality thresholds) don't survive into the next cycle
   if (trendRows.length === 0) return;
 
-  await supabaseAdmin.from("nba_trends").upsert(trendRows, {
-    onConflict: "player_id,stat,window_size",
-  });
+  await supabaseAdmin.from("nba_trends").delete().neq("player_id", 0);
+  await supabaseAdmin.from("nba_trends").insert(trendRows);
 }

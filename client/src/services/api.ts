@@ -38,6 +38,8 @@ export interface PlayerProfile {
   games: GameStat[]
   zScores: Record<string, number>
   rollingAvgs: Record<string, number>
+  seasonAvgs: Record<string, number>
+  gamesPlayed: number
 }
 
 export interface TodaysGame {

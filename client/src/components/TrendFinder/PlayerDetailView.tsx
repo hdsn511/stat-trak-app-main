@@ -36,7 +36,7 @@ export default function PlayerDetailView() {
     nbaApi.getPlayerProfile(parseInt(id))
       .then(data => {
         setProfile(data)
-        const ptAvg = data.rollingAvgs?.points
+        const ptAvg = data.seasonAvgs?.points ?? data.rollingAvgs?.points
         if (ptAvg) setThreshold(Math.floor(ptAvg))
       })
       .catch(() => {})
@@ -133,11 +133,17 @@ export default function PlayerDetailView() {
             {STATS.map(stat => (
               <div key={stat} className="text-center">
                 <div className="text-[20px] font-black font-mono text-white tabular-nums leading-none">
-                  {profile.rollingAvgs[stat]?.toFixed(1) ?? '—'}
+                  {profile.seasonAvgs?.[stat]?.toFixed(1) ?? '—'}
                 </div>
                 <div className="text-[9px] text-gray-700 font-condensed uppercase tracking-widest mt-0.5">{STAT_LABELS[stat]}</div>
               </div>
             ))}
+            {profile.gamesPlayed > 0 && (
+              <div className="text-center self-end">
+                <div className="text-[11px] text-gray-700 font-mono tabular-nums leading-none">{profile.gamesPlayed}</div>
+                <div className="text-[9px] text-gray-700 font-condensed uppercase tracking-widest mt-0.5">GP</div>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -160,6 +166,7 @@ export default function PlayerDetailView() {
               <div className={cn('text-[15px] font-black font-mono tabular-nums leading-tight mt-0.5', isActive ? 'text-mint' : zColor(z))}>
                 {profile.rollingAvgs[stat]?.toFixed(1) ?? '—'}
               </div>
+              <div className={cn('text-[9px] font-condensed', isActive ? 'text-mint/40' : 'text-gray-800')}>L10</div>
               <div className={cn('text-[9px] font-mono', isActive ? 'text-mint/60' : 'text-gray-700')}>
                 {z != null ? (z > 0 ? '+' : '') + z.toFixed(2) + 'σ' : '—'}
               </div>

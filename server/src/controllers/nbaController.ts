@@ -183,7 +183,13 @@ export async function getPlayerGames(req: any, res: any) {
   try {
     const { id } = req.params;
 
-    const [playerResult, statsResult, trendsResult] = await Promise.all([
+    const seasonStart = (() => {
+      const today = new Date();
+      const year = today.getMonth() >= 9 ? today.getFullYear() : today.getFullYear() - 1;
+      return `${year}-10-01`;
+    })();
+
+    const [playerResult, statsResult, trendsResult, allSeasonStats] = await Promise.all([
       supabaseAdmin
         .from('players')
         .select('id, name, team, position')
@@ -200,6 +206,11 @@ export async function getPlayerGames(req: any, res: any) {
         .select('stat, trend_val, rolling_avg, window_size')
         .eq('player_id', parseInt(id))
         .eq('window_size', 10),
+      supabaseAdmin
+        .from('nba_player_stats')
+        .select('points, rebounds, assists, three_points_made')
+        .eq('player_id', parseInt(id))
+        .gte('game_date', seasonStart),
     ]);
 
     if (playerResult.error) throw playerResult.error;
@@ -214,6 +225,16 @@ export async function getPlayerGames(req: any, res: any) {
         zScores[statName] = t.trend_val;
         rollingAvgs[statName] = t.rolling_avg;
       }
+    }
+
+    const seasonRows = allSeasonStats.data || [];
+    const seasonAvgs: Record<string, number> = {};
+    if (seasonRows.length > 0) {
+      const sum = (key: string) => seasonRows.reduce((acc: number, r: any) => acc + (r[key] ?? 0), 0);
+      seasonAvgs['points']   = Math.round((sum('points')            / seasonRows.length) * 10) / 10;
+      seasonAvgs['rebounds'] = Math.round((sum('rebounds')          / seasonRows.length) * 10) / 10;
+      seasonAvgs['assists']  = Math.round((sum('assists')           / seasonRows.length) * 10) / 10;
+      seasonAvgs['threes']   = Math.round((sum('three_points_made') / seasonRows.length) * 10) / 10;
     }
 
     // Resolve opponent abbreviations for the recent games
@@ -268,6 +289,8 @@ export async function getPlayerGames(req: any, res: any) {
         })),
         zScores,
         rollingAvgs,
+        seasonAvgs,
+        gamesPlayed: seasonRows.length,
       },
     });
   } catch (err: any) {

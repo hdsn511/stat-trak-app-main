@@ -149,7 +149,7 @@ Update `client/src/index.css` font imports accordingly.
 - Endpoint: `GET /api/nba/streaks/perfect` (already exists)
 
 ### Sizing rule
-If a bucket has fewer than its max rows, render what exists — no placeholder rows.
+If a bucket has fewer than its max rows render it at the length of longest bucket but when less than 5, render at size of 5 with empty space.
 
 ---
 
@@ -164,13 +164,17 @@ If a bucket has fewer than its max rows, render what exists — no placeholder r
 │  Player header: avatar initials, name, team, pos    │
 │  Quick stats: season avgs for all 4 stats           │
 ├─────────────────────────────────────────────────────┤
-│  Stat selector: PTS | REB | AST | 3PM (tab bar)    │
+│  Stat selector: PTS | REB | AST | 3PM (tab bar) *show min somewhere but not a selector*   │
 ├─────────────────────────────────────────────────────┤
 │  Game log chart (bar chart, last N games)           │
 │  · Bars are CLICKABLE → navigate to /game/:id       │
 │  · Threshold line (adjustable)                      │
 │  · Game label shows opponent abbrev + date          │
-│  · Window selector: L5 | L10 | L15 | L20           │
+│  · Window selector: L5, L10, L20, szn, all time (if applicable)     
+|   * Filter by opp team, def rank, home/away, amount of rest (b2b, 2, 3 day rest), without x player active in a game, against x team without y player in game both if exists                  
+
+  show opp team rank in stat allowed to pos for respective player pos and \n
+   top 5 in same player pos against current opp team,           │
 ├─────────────────────────────────────────────────────┤
 │  Summary row: Hit Rate | L{N} Avg | Best Game       │
 ├─────────────────────────────────────────────────────┤
@@ -205,7 +209,14 @@ When user clicks a bar:
 ```
 ┌─────────────────────────────────────────────────────┐
 │  Game header: Away @ Home · Date · Status           │
-│  Venue, tip-off time                                │
+│  Venue, tip-off time        
+  center main picture taking up top the half and center 1/3 of frame
+  is the starting 5 split,listed in 5 rows of little player descriptions
+  w bar graph underlay of usage breakdown and avg pt contribution
+  then below w the optional add on for bench,
+  left and right spaces fill the other team stats and info
+
+                        │
 ├─────────────────────────────────────────────────────┤
 │  Starting 5 comparison (position-matched)          │
 │  Away starters ←→ Home starters                    │

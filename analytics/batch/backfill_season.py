@@ -41,6 +41,7 @@ def _get_game_dates_in_range(since: date, until: date) -> list[str]:
         .eq("league_id", NBA_LEAGUE_ID)
         .gte("game_date", since.isoformat())
         .lte("game_date", until.isoformat())
+        .limit(2000)  # season has ~1230+ games; default PostgREST cap is 1000
         .execute()
     )
     return sorted({r["game_date"] for r in (rows.data or [])})

@@ -266,16 +266,41 @@ export async function getTodaysGames(req: any, res: any) {
     if (!response.ok) throw new Error(`ESPN API error: ${response.status}`);
     const json = await response.json() as any;
 
+    const today = new Date().toISOString().slice(0, 10);
+    // Map abbreviation -> team_id
+    const { data: teamRows } = await supabaseAdmin
+      .from('teams')
+      .select('id, abbreviation');
+    const teamIdByAbbr: Record<string, number> = {};
+    (teamRows || []).forEach((t: any) => { teamIdByAbbr[t.abbreviation] = t.id; });
+
+    // Today's games for matching
+    const { data: dbGames } = await supabaseAdmin
+      .from('games')
+      .select('id, game_date, home_team_id, away_team_id')
+      .eq('game_date', today)
+      .eq('league_id', 1);
+    const dbGameByPair: Record<string, number> = {};
+    (dbGames || []).forEach((g: any) => {
+      dbGameByPair[`${g.home_team_id}-${g.away_team_id}`] = g.id;
+    });
+
     const games = (json.events || []).map((event: any) => {
       const comp = event.competitions?.[0];
       const home = comp?.competitors?.find((c: any) => c.homeAway === 'home');
       const away = comp?.competitors?.find((c: any) => c.homeAway === 'away');
+      const homeAbbr = home?.team?.abbreviation || '';
+      const awayAbbr = away?.team?.abbreviation || '';
+      const homeId = teamIdByAbbr[homeAbbr];
+      const awayId = teamIdByAbbr[awayAbbr];
+      const dbId = (homeId != null && awayId != null) ? dbGameByPair[`${homeId}-${awayId}`] : undefined;
       return {
         gameId: event.id,
+        dbId: dbId ?? null,
         time: comp?.date,
         status: event.status?.type?.shortDetail || 'Scheduled',
-        home: { team: home?.team?.abbreviation || '', score: home?.score || '' },
-        away: { team: away?.team?.abbreviation || '', score: away?.score || '' },
+        home: { team: homeAbbr, score: home?.score || '' },
+        away: { team: awayAbbr, score: away?.score || '' },
       };
     });
 

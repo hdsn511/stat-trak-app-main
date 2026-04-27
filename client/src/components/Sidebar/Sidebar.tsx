@@ -1,14 +1,17 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { nbaApi, TodaysGame } from '@/services/api'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Card, CardContent } from '@/components/ui/card'
 import { Calendar } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 function isLive(status: string) {
   return /Q\d|Half|OT/i.test(status)
 }
 
 export default function Sidebar() {
+  const navigate = useNavigate()
   const [games, setGames] = useState<TodaysGame[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -44,7 +47,11 @@ export default function Sidebar() {
           return (
             <Card
               key={game.gameId}
-              className="mb-2.5 rounded-xl bg-[#0D0D0D] border-[#161616] shadow-none hover:border-[#222] transition-colors"
+              onClick={() => game.dbId && navigate(`/game/${game.dbId}`)}
+              className={cn(
+                'mb-2.5 rounded-xl bg-[#0D0D0D] border-[#161616] shadow-none transition-colors',
+                game.dbId ? 'cursor-pointer hover:border-[#222]' : 'cursor-default'
+              )}
             >
               <CardContent className="p-3">
                 {/* Status row */}

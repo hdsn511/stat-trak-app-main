@@ -42,6 +42,7 @@ export interface PlayerProfile {
 
 export interface TodaysGame {
   gameId: string
+  dbId?: number | null
   time: string
   status: string
   home: { team: string; score: string }
@@ -137,6 +138,62 @@ export interface PerfectStreaksResponse<T> {
   rows: T[]
 }
 
+export interface GameDetail {
+  game: {
+    id: number
+    game_date: string
+    home_team: { id: number; abbreviation: string; name: string }
+    away_team: { id: number; abbreviation: string; name: string }
+    is_completed: boolean
+  }
+  player_stats: Array<{
+    player_id: number
+    team_id: number
+    game_date: string
+    points: number
+    rebounds: number
+    assists: number
+    three_points_made: number
+    minutes: number
+    players: { name: string; team: string; position: string } | null
+  }>
+  props: Array<{
+    market_ticker: string
+    line: number | null
+    implied_prob: number | null
+    prop_type: string
+    entity_id: number | null
+    team_id: number | null
+    source: string | null
+    stat: string | null
+  }>
+  picks: Array<{
+    entity_id: number
+    stat: string
+    recommended_line: number
+    hit_rate: number
+    confidence_score: number
+    implied_prob: number | null
+    edge: number
+    actual_result: number | null
+    did_hit: boolean | null
+    prop_type: string
+  }>
+}
+
+export interface TeamDetail {
+  team: { id: number; abbreviation: string; name: string }
+  games: Array<{
+    id: number
+    game_date: string
+    home_team: { id: number; abbreviation: string; name: string }
+    away_team: { id: number; abbreviation: string; name: string }
+    is_home: boolean
+  }>
+  roster: Array<{ id: number; name: string; position: string }>
+  recent_avg_points: number | null
+}
+
 async function get<T>(url: string): Promise<T> {
   const res = await fetch(url)
   const json = await res.json()
@@ -185,4 +242,10 @@ export const nbaApi = {
     window: 3 | 5 | 10
   ): Promise<PerfectStreaksResponse<GameStreakRow>> =>
     get(`${BASE}/nba/streaks/perfect?type=game&stat=${stat}&window=${window}`),
+
+  getGame: (id: number): Promise<GameDetail> =>
+    get(`${BASE}/nba/games/${id}`),
+
+  getTeam: (id: number): Promise<TeamDetail> =>
+    get(`${BASE}/nba/teams/${id}`),
 }

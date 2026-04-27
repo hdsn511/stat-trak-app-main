@@ -24,6 +24,19 @@ async function findNearestPickDate(today: string): Promise<string> {
   return data?.game_date ?? today;
 }
 
+// Resolve the nearest date with daily_lines rows. Used by streaks so an
+// un-run pipeline today doesn't produce empty results.
+async function findNearestLinesDate(today: string): Promise<string> {
+  const { data } = await supabaseAdmin
+    .from('daily_lines')
+    .select('game_date')
+    .gte('game_date', today)
+    .order('game_date', { ascending: true })
+    .limit(1)
+    .single();
+  return data?.game_date ?? today;
+}
+
 export async function getTopPicks(req: any, res: any) {
   try {
     const parsed = parseInt((req.query.limit as string) ?? '5', 10);
@@ -260,6 +273,7 @@ export async function getPerfectStreaks(req: any, res: any) {
     }
 
     const today = new Date().toISOString().slice(0, 10);
+    const linesDate = await findNearestLinesDate(today);
 
     // ── A. Today's slate teams (ESPN)
     const espn = await fetch('https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard')
@@ -304,11 +318,11 @@ export async function getPerfectStreaks(req: any, res: any) {
       for (const r of (outRows ?? [])) outIds.add(r.player_id);
     }
 
-    // ── C. Candidates: today's lines ≤ 0.80 implied prob for this stat
+    // ── C. Candidates: nearest lines date ≤ 0.80 implied prob for this stat
     const { data: lines } = await supabaseAdmin
       .from('daily_lines')
       .select('entity_id,stat,implied_prob,line')
-      .eq('game_date', today)
+      .eq('game_date', linesDate)
       .eq('prop_type', 'player')
       .eq('stat', stat)
       .lte('implied_prob', 0.80);

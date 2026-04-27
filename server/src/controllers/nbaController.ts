@@ -253,23 +253,6 @@ export async function getTodaysPicks(req: any, res: any) {
   try {
     const today = new Date().toISOString().slice(0, 10);
 
-    // Find the nearest upcoming game_date that has picks (today or future, max 7 days)
-    const sevenDaysOut = new Date();
-    sevenDaysOut.setDate(sevenDaysOut.getDate() + 7);
-    const ceiling = sevenDaysOut.toISOString().slice(0, 10);
-
-    const { data: dateRow } = await supabaseAdmin
-      .from('pick_results')
-      .select('game_date')
-      .gte('game_date', today)
-      .lte('game_date', ceiling)
-      .eq('prop_type', 'player')
-      .order('game_date', { ascending: true })
-      .limit(1)
-      .single();
-
-    const pickDate = dateRow?.game_date ?? today;
-
     const { data: pickRows, error } = await supabaseAdmin
       .from('pick_results')
       .select(
@@ -277,7 +260,7 @@ export async function getTodaysPicks(req: any, res: any) {
         'sample_size, confidence_score, implied_prob, edge, ' +
         'conditions_matched, total_conditions'
       )
-      .eq('game_date', pickDate)
+      .eq('game_date', today)
       .eq('prop_type', 'player')
       .order('confidence_score', { ascending: false });
 
@@ -299,7 +282,7 @@ export async function getTodaysPicks(req: any, res: any) {
     const { data: todayGames } = await supabaseAdmin
       .from('games')
       .select('id')
-      .eq('game_date', pickDate)
+      .eq('game_date', today)
       .eq('league_id', 1);
 
     const todayGameIds = (todayGames || []).map((g: any) => g.id);
@@ -342,7 +325,7 @@ export async function getTodaysPicks(req: any, res: any) {
     res.json({
       success: true,
       data: {
-        gameDate: pickDate,
+        gameDate: today,
         topPick: picks[0] ?? null,
         allPicks: picks,
       },

@@ -208,9 +208,10 @@ export async function getPlayerGames(req: any, res: any) {
         .eq('window_size', 10),
       supabaseAdmin
         .from('nba_player_stats')
-        .select('points, rebounds, assists, three_points_made')
+        .select('points, rebounds, assists, three_points_made, games!inner(game_type)')
         .eq('player_id', parseInt(id))
-        .gte('game_date', seasonStart),
+        .gte('game_date', seasonStart)
+        .eq('games.game_type', 'regular'),
     ]);
 
     if (playerResult.error) throw playerResult.error;

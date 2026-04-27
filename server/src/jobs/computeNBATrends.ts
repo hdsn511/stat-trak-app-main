@@ -106,15 +106,18 @@ async function loadPlayerStats(playerIds: number[]): Promise<PlayerGameStat[]> {
 
   for (let i = 0; i < playerIds.length; i += CHUNK_SIZE) {
     const chunk = playerIds.slice(i, i + CHUNK_SIZE);
+    // Inner join with games filters to regular-season rows only.
+    // Rows with no game_id (pre-API-era inserts) are excluded by the join.
     const { data, error } = await supabaseAdmin
       .from("nba_player_stats")
-      .select("*")
+      .select("game_id, player_id, team_id, points, rebounds, assists, three_points_made, fouls, minutes_played, game_date, games!inner(game_type)")
       .in("player_id", chunk)
       .gte("game_date", seasonStart)
+      .eq("games.game_type", "regular")
       .order("game_date", { ascending: false });
 
     if (error) throw error;
-    if (data) allStats.push(...(data as PlayerGameStat[]));
+    if (data) allStats.push(...(data as unknown as PlayerGameStat[]));
   }
 
   return allStats;

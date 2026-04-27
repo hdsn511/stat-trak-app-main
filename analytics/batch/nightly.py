@@ -239,6 +239,7 @@ def _fetch_and_insert_box_scores(
     game_map = {r["ext_id"]: r["id"] for r in (game_rows.data or [])}
 
     stat_buffer: list[dict] = []
+    position_updates: dict[int, str] = {}  # player_db_id -> position
 
     def _si(val, default=0):
         if val is None:
@@ -295,6 +296,11 @@ def _fetch_and_insert_box_scores(
                 "minutes_played": _parse_minutes(row.get("minutes")),
             })
 
+            # Update position from box score if present
+            pos = str(row.get("position") or "").strip()
+            if pos and p_db_id:
+                position_updates[p_db_id] = pos
+
     if stat_buffer:
         for i in range(0, len(stat_buffer), BATCH_SIZE):
             chunk = stat_buffer[i: i + BATCH_SIZE]
@@ -302,6 +308,15 @@ def _fetch_and_insert_box_scores(
         print(f"  Inserted {len(stat_buffer)} nba_player_stats rows for {date_str}.")
     else:
         print("  No box score rows to insert.")
+
+    # Flush position updates in batches
+    if position_updates:
+        pos_items = list(position_updates.items())
+        for i in range(0, len(pos_items), BATCH_SIZE):
+            chunk = pos_items[i: i + BATCH_SIZE]
+            for p_db_id, pos in chunk:
+                supabase.table("players").update({"position": pos}).eq("id", p_db_id).execute()
+        print(f"  Updated positions for {len(pos_items)} player(s).")
 
 
 # ── Step 0.5: Backfill Completed Games ───────────────────────────────────────

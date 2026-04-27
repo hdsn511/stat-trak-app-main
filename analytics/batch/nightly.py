@@ -171,14 +171,17 @@ def _fetch_and_insert_box_scores(
     game_ext_ids: Optional[list] = None,
 ) -> None:
     """
-    Fetch box scores for target_date via BoxScoreTraditionalV2 and insert rows
+    Fetch box scores for target_date via BoxScoreTraditionalV3 and insert rows
     into nba_player_stats.
 
     If game_ext_ids is provided (list of zero-padded strings from the DB), use
     them directly. Otherwise fall back to LeagueGameFinder.
+
+    Pre-season game IDs (prefix "001") are silently skipped — the NBA stats
+    API does not expose pre-season box scores via this endpoint.
     """
     try:
-        from nba_api.stats.endpoints import BoxScoreTraditionalV2, LeagueGameFinder
+        from nba_api.stats.endpoints import BoxScoreTraditionalV3, LeagueGameFinder
     except ImportError as exc:
         print(f"  ERROR: nba_api not installed: {exc}")
         return
@@ -206,11 +209,17 @@ def _fetch_and_insert_box_scores(
             print(f"  WARNING: could not parse LeagueGameFinder results: {exc}")
             return
 
-    if not game_ext_ids:
-        print(f"  No game IDs for {date_str}. Cannot fetch box scores.")
+    # Skip pre-season game IDs (001 prefix) — no box score data available
+    regular_ext_ids = [g for g in (game_ext_ids or []) if not g.startswith("001")]
+    skipped = len((game_ext_ids or [])) - len(regular_ext_ids)
+    if skipped:
+        print(f"  Skipping {skipped} pre-season game(s).")
+
+    if not regular_ext_ids:
+        print(f"  No regular-season game IDs for {date_str}. Cannot fetch box scores.")
         return
 
-    print(f"  Fetching box scores for {len(game_ext_ids)} game(s) on {date_str} ...")
+    print(f"  Fetching box scores for {len(regular_ext_ids)} game(s) on {date_str} ...")
 
     # Load player and team ID maps
     player_rows = supabase.table("players").select("id,ext_id").eq("league", "nba").execute()
@@ -224,30 +233,37 @@ def _fetch_and_insert_box_scores(
         supabase.table("games")
         .select("id,ext_id")
         .eq("league_id", NBA_LEAGUE_ID)
-        .in_("ext_id", game_ext_ids)
+        .in_("ext_id", regular_ext_ids)
         .execute()
     )
     game_map = {r["ext_id"]: r["id"] for r in (game_rows.data or [])}
 
     stat_buffer: list[dict] = []
 
-    for ext_id in game_ext_ids:
+    def _si(val, default=0):
+        if val is None:
+            return default
+        try:
+            return int(float(val))
+        except (ValueError, TypeError):
+            return default
+
+    for ext_id in regular_ext_ids:
         game_db_id = game_map.get(ext_id)
         if not game_db_id:
             print(f"  WARNING: game ext_id {ext_id!r} not found in game_map. Skipping.")
             continue
 
         def _trad(gid=ext_id):
-            return BoxScoreTraditionalV2(game_id=gid)
+            return BoxScoreTraditionalV3(game_id=gid)
 
-        result = api_call_with_retry(_trad, f"BoxScoreTraditionalV2 {ext_id}")
+        result = api_call_with_retry(_trad, f"BoxScoreTraditionalV3 {ext_id}")
         if result is None:
-            print(f"  WARNING: BoxScoreTraditionalV2 returned None for {ext_id}.")
+            print(f"  WARNING: BoxScoreTraditionalV3 returned None for {ext_id}.")
             continue
 
         try:
-            frames = result.get_data_frames()
-            player_df = frames[0]
+            player_df = result.get_data_frames()[0]
         except Exception as exc:
             print(f"  WARNING: parse error for game {ext_id}: {exc}")
             continue
@@ -256,8 +272,9 @@ def _fetch_and_insert_box_scores(
 
         for _, row in player_df.iterrows():
             try:
-                p_ext_id = str(int(float(row["PLAYER_ID"])))
-                t_ext_id = str(int(float(row["TEAM_ID"])))
+                # V3 returns integer IDs, not strings
+                p_ext_id = str(int(row["personId"]))
+                t_ext_id = str(int(row["teamId"]))
             except (ValueError, TypeError, KeyError):
                 continue
             p_db_id = player_map.get(p_ext_id)
@@ -265,27 +282,17 @@ def _fetch_and_insert_box_scores(
             if not p_db_id or not t_db_id:
                 continue
 
-            def _si(val, default=0):
-                if val is None:
-                    return default
-                try:
-                    return int(float(val))
-                except (ValueError, TypeError):
-                    return default
-
-            minutes = _parse_minutes(row.get("MIN"))
-
             stat_buffer.append({
                 "game_id": game_db_id,
                 "player_id": p_db_id,
                 "team_id": t_db_id,
                 "game_date": date_str,
-                "points": _si(row.get("PTS")),
-                "rebounds": _si(row.get("REB")),
-                "assists": _si(row.get("AST")),
-                "three_points_made": _si(row.get("FG3M")),
-                "fouls": _si(row.get("PF")),
-                "minutes_played": minutes,
+                "points": _si(row.get("points")),
+                "rebounds": _si(row.get("reboundsTotal")),
+                "assists": _si(row.get("assists")),
+                "three_points_made": _si(row.get("threePointersMade")),
+                "fouls": _si(row.get("foulsPersonal")),
+                "minutes_played": _parse_minutes(row.get("minutes")),
             })
 
     if stat_buffer:

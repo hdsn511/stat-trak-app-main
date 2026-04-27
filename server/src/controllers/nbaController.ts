@@ -100,28 +100,45 @@ export async function getTrends(req: any, res: any) {
   try {
     const { stat, window = '10', threshold = '0' } = req.query as Record<string, string>;
 
-    let query = supabaseAdmin
-      .from('nba_trends')
-      .select('player_id, stat, window_size, trend_val, rolling_avg, season_avg, players(name, team, position)')
-      .eq('window_size', parseInt(window))
-      .order('trend_val', { ascending: false });
+    const [trendsResult, espnResult] = await Promise.all([
+      (() => {
+        let query = supabaseAdmin
+          .from('nba_trends')
+          .select('player_id, stat, window_size, trend_val, rolling_avg, season_avg, players(name, team, position)')
+          .eq('window_size', parseInt(window))
+          .order('trend_val', { ascending: false });
 
-    if (stat !== undefined) {
-      const statEntry = Object.entries(STAT_NAMES).find(([, name]) => name === stat);
-      if (statEntry) {
-        query = query.eq('stat', parseInt(statEntry[0]));
+        if (stat !== undefined) {
+          const statEntry = Object.entries(STAT_NAMES).find(([, name]) => name === stat);
+          if (statEntry) query = query.eq('stat', parseInt(statEntry[0]));
+        }
+
+        const thresholdNum = parseFloat(threshold);
+        if (thresholdNum > 0) query = query.gte('rolling_avg', thresholdNum);
+
+        return query;
+      })(),
+      fetch('https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard')
+        .then(r => r.ok ? r.json() : null)
+        .catch(() => null),
+    ]);
+
+    if (trendsResult.error) throw trendsResult.error;
+
+    const todayTeams = new Set<string>();
+    for (const event of ((espnResult as any)?.events || [])) {
+      for (const c of (event.competitions?.[0]?.competitors || [])) {
+        const abbr = c.team?.abbreviation;
+        if (abbr) todayTeams.add(abbr.toUpperCase());
       }
     }
 
-    const thresholdNum = parseFloat(threshold);
-    if (thresholdNum > 0) {
-      query = query.gte('rolling_avg', thresholdNum);
-    }
+    const rows = (trendsResult.data || []) as any[];
+    const filtered = todayTeams.size > 0
+      ? rows.filter(row => todayTeams.has((row.players?.team || '').toUpperCase()))
+      : rows;
 
-    const { data, error } = await query;
-    if (error) throw error;
-
-    const result = (data || []).map((row: any) => ({
+    const result = filtered.map((row: any) => ({
       playerId: row.player_id,
       playerName: row.players?.name,
       team: row.players?.team,

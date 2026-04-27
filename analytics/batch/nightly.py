@@ -772,6 +772,7 @@ def compute_daily_conditions(games: list[dict], target_date: date) -> None:
             .select("game_date,usg_pct,pace")
             .eq("player_id", player_id)
             .lt("game_date", date_str)
+            .gt("pace", 0)  # exclude DNP rows where pace wasn't computed
             .order("game_date", desc=True)
             .limit(5)
             .execute()

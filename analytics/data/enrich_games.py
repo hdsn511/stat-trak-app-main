@@ -561,6 +561,9 @@ def enrich_games(
                         except (ValueError, TypeError):
                             return None
 
+                    mins = _parse_minutes(row.get("minutes"))
+                    if not mins or mins <= 0:
+                        continue  # skip DNPs — pace/usg meaningless without playing time
                     pgc_rows.append(
                         {
                             "player_id": p_db_id,
@@ -573,7 +576,7 @@ def enrich_games(
                             "home_away": home_away,
                             "days_rest": rest,
                             "opponent_team_id": opponent_db_id,
-                            "minutes_played": _parse_minutes(row.get("minutes")),
+                            "minutes_played": mins,
                         }
                     )
 

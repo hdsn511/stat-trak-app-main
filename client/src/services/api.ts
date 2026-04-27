@@ -34,6 +34,7 @@ export interface GameStat {
 
 export interface PlayerProfile {
   player: PlayerSearchResult
+  teamId?: number | null
   games: GameStat[]
   zScores: Record<string, number>
   rollingAvgs: Record<string, number>

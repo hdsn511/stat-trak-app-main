@@ -174,7 +174,7 @@ export async function getPlayerGames(req: any, res: any) {
         .single(),
       supabaseAdmin
         .from('nba_player_stats')
-        .select('game_id, points, rebounds, assists, three_points_made, fouls, minutes_played, game_date')
+        .select('game_id, team_id, points, rebounds, assists, three_points_made, fouls, minutes_played, game_date')
         .eq('player_id', parseInt(id))
         .order('game_date', { ascending: false })
         .limit(20),
@@ -199,13 +199,49 @@ export async function getPlayerGames(req: any, res: any) {
       }
     }
 
+    // Resolve opponent abbreviations for the recent games
+    const statsRows = statsResult.data || [];
+    const gameIds = [...new Set(statsRows.map((s: any) => s.game_id).filter((g: any) => g != null))];
+    const opponentByGameId: Record<number, string> = {};
+    let playerTeamId: number | null = null;
+    if (gameIds.length > 0) {
+      const { data: gameRows } = await supabaseAdmin
+        .from('games')
+        .select('id, home_team_id, away_team_id')
+        .in('id', gameIds as number[]);
+      const teamIds = new Set<number>();
+      (gameRows || []).forEach((g: any) => {
+        teamIds.add(g.home_team_id);
+        teamIds.add(g.away_team_id);
+      });
+      const { data: teamRows } = await supabaseAdmin
+        .from('teams')
+        .select('id, abbreviation')
+        .in('id', Array.from(teamIds));
+      const abbrById: Record<number, string> = {};
+      (teamRows || []).forEach((t: any) => { abbrById[t.id] = t.abbreviation; });
+      const gameById: Record<number, any> = {};
+      (gameRows || []).forEach((g: any) => { gameById[g.id] = g; });
+      for (const s of statsRows) {
+        const g = gameById[(s as any).game_id];
+        if (!g) continue;
+        const myTeamId = (s as any).team_id;
+        if (playerTeamId == null) playerTeamId = myTeamId;
+        const oppId = g.home_team_id === myTeamId ? g.away_team_id : g.home_team_id;
+        const abbr = abbrById[oppId];
+        if (abbr) opponentByGameId[(s as any).game_id] = abbr;
+      }
+    }
+
     res.json({
       success: true,
       data: {
         player: playerResult.data,
-        games: (statsResult.data || []).map((g: any) => ({
+        teamId: playerTeamId,
+        games: statsRows.map((g: any) => ({
           gameId: g.game_id,
           date: g.game_date,
+          opponent: opponentByGameId[g.game_id] ?? undefined,
           points: g.points,
           rebounds: g.rebounds,
           assists: g.assists,

@@ -1,5 +1,13 @@
 import { supabaseAdmin } from "../config/supabaseAdmin";
 
+// Season boundary: only use current season stats for averages and rolling windows.
+// Update each October when the new season starts.
+function currentSeasonStart(): string {
+  const today = new Date();
+  const year = today.getMonth() >= 9 ? today.getFullYear() : today.getFullYear() - 1;
+  return `${year}-10-01`;
+}
+
 //globals
 type PlayerGameStat = {
   game_id: number;
@@ -92,6 +100,7 @@ async function loadPlayers(): Promise<number[]> {
 async function loadPlayerStats(playerIds: number[]): Promise<PlayerGameStat[]> {
   if (playerIds.length === 0) return [];
 
+  const seasonStart = currentSeasonStart();
   const CHUNK_SIZE = 50;
   const allStats: PlayerGameStat[] = [];
 
@@ -101,6 +110,7 @@ async function loadPlayerStats(playerIds: number[]): Promise<PlayerGameStat[]> {
       .from("nba_player_stats")
       .select("*")
       .in("player_id", chunk)
+      .gte("game_date", seasonStart)
       .order("game_date", { ascending: false });
 
     if (error) throw error;

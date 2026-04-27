@@ -1,15 +1,69 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
-import { nbaApi, TeamDetail } from '@/services/api'
+import { nbaApi, TeamDetail, TeamGameEntry } from '@/services/api'
 import { Skeleton } from '@/components/ui/skeleton'
+import { cn } from '@/lib/utils'
+
+function RecordBadge({ w, l, label }: { w: number; l: number; label: string }) {
+  return (
+    <div className="text-center">
+      <div className="text-[15px] font-black font-mono text-white tabular-nums">
+        {w}<span className="text-gray-700 mx-0.5">-</span>{l}
+      </div>
+      <div className="text-[8px] text-gray-600 font-condensed uppercase tracking-widest mt-0.5">{label}</div>
+    </div>
+  )
+}
+
+function GameLogRow({ game, teamId, onClick }: { game: TeamGameEntry; teamId: number; onClick: () => void }) {
+  const opp = game.is_home ? game.away_team : game.home_team
+  const today = new Date().toISOString().slice(0, 10)
+  const isUpcoming = game.game_date >= today
+
+  return (
+    <div
+      onClick={onClick}
+      className="flex items-center justify-between px-4 py-3 border-b border-[#0F0F0F] last:border-0 cursor-pointer hover:bg-white/[0.02] transition-colors"
+    >
+      <div className="flex items-center gap-3 min-w-0">
+        <span className="text-[10px] text-gray-600 font-condensed w-5 flex-shrink-0">
+          {game.is_home ? 'vs' : '@'}
+        </span>
+        <span className="text-[13px] font-bold text-white font-condensed">{opp.abbreviation}</span>
+        {isUpcoming && (
+          <span className="text-[8px] font-bold text-mint font-condensed uppercase tracking-widest px-1.5 py-0.5 border border-mint/25 rounded flex-shrink-0">
+            Upcoming
+          </span>
+        )}
+      </div>
+      <div className="flex items-center gap-4 flex-shrink-0">
+        {!isUpcoming && game.team_score != null && game.opp_score != null ? (
+          <>
+            <span className="text-[12px] font-mono text-gray-400 tabular-nums">
+              {game.team_score}–{game.opp_score}
+            </span>
+            <span className={cn(
+              'text-[11px] font-black font-condensed w-5 text-center',
+              game.result === 'W' ? 'text-green-400' : 'text-red-400'
+            )}>
+              {game.result}
+            </span>
+          </>
+        ) : (
+          <span className="text-[10px] font-mono text-gray-700">{game.game_date}</span>
+        )}
+        <span className="text-[10px] font-mono text-gray-700 w-16 text-right">{game.game_date}</span>
+      </div>
+    </div>
+  )
+}
 
 export default function TeamView() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [data, setData] = useState<TeamDetail | null>(null)
   const [loading, setLoading] = useState(true)
-  const today = new Date().toISOString().slice(0, 10)
 
   useEffect(() => {
     if (!id) return
@@ -31,10 +85,7 @@ export default function TeamView() {
 
   if (!data) return <div className="p-6 text-gray-600 font-condensed">Team not found</div>
 
-  const completedGames = data.games.filter(g => g.game_date < today)
-  const upcomingGames  = data.games.filter(g => g.game_date >= today)
-  const homeGames      = completedGames.filter(g => g.is_home)
-  const awayGames      = completedGames.filter(g => !g.is_home)
+  const { record } = data
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-5">
@@ -52,20 +103,21 @@ export default function TeamView() {
         </div>
         <div className="flex-1">
           <h1 className="text-[28px] font-bold text-white font-condensed leading-none">{data.team.name}</h1>
-          <p className="text-[11px] text-gray-600 mt-1 font-condensed">
-            <span className="font-mono">{completedGames.length}</span> games played ·
-            {' '}<span className="font-mono">{homeGames.length}</span> home ·
-            {' '}<span className="font-mono">{awayGames.length}</span> away
+          <p className="text-[11px] text-gray-600 mt-1 font-condensed font-mono tabular-nums">
+            {record.overall.w}-{record.overall.l}
           </p>
         </div>
-        {data.recent_avg_points != null && (
-          <div className="text-center flex-shrink-0">
-            <div className="text-[20px] font-black font-mono text-white tabular-nums leading-none">
-              {data.recent_avg_points.toFixed(1)}
-            </div>
-            <div className="text-[9px] text-gray-700 font-condensed uppercase tracking-widest mt-0.5">Pts/Player L14</div>
-          </div>
-        )}
+      </div>
+
+      {/* Splits */}
+      <div className="bg-[#0D0D0D] border border-[#161616] rounded-2xl p-5">
+        <div className="text-[10px] font-bold text-gray-500 uppercase tracking-[0.15em] font-condensed mb-4">Record</div>
+        <div className="grid grid-cols-4 gap-4">
+          <RecordBadge w={record.overall.w} l={record.overall.l} label="Overall" />
+          <RecordBadge w={record.home.w}    l={record.home.l}    label="Home" />
+          <RecordBadge w={record.away.w}    l={record.away.l}    label="Away" />
+          <RecordBadge w={record.last10.w}  l={record.last10.l}  label="Last 10" />
+        </div>
       </div>
 
       {/* Game log */}
@@ -73,44 +125,17 @@ export default function TeamView() {
         <div className="px-4 py-3 border-b border-[#111]">
           <span className="text-[10px] font-bold text-gray-500 uppercase tracking-[0.15em] font-condensed">Game Log</span>
         </div>
-        {/* Upcoming */}
-        {upcomingGames.slice(0, 3).map(game => {
-          const opp = game.is_home ? game.away_team : game.home_team
-          return (
-            <div
-              key={game.id}
-              onClick={() => navigate(`/game/${game.id}`)}
-              className="flex items-center justify-between px-4 py-3 border-b border-[#0F0F0F] cursor-pointer hover:bg-white/[0.02] transition-colors"
-            >
-              <div className="text-[12px] font-condensed text-gray-400">
-                {game.is_home ? 'vs' : '@'} <span className="text-white font-semibold">{opp.abbreviation}</span>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="text-[10px] font-mono text-gray-600">{game.game_date}</span>
-                <span className="text-[9px] font-bold text-mint font-condensed uppercase tracking-widest px-1.5 py-0.5 border border-mint/25 rounded">Upcoming</span>
-              </div>
-            </div>
-          )
-        })}
-        {/* Completed */}
-        {completedGames.map(game => {
-          const opp = game.is_home ? game.away_team : game.home_team
-          return (
-            <div
-              key={game.id}
-              onClick={() => navigate(`/game/${game.id}`)}
-              className="flex items-center justify-between px-4 py-3 border-b border-[#0F0F0F] last:border-0 cursor-pointer hover:bg-white/[0.02] transition-colors"
-            >
-              <div className="text-[12px] font-condensed text-gray-400">
-                {game.is_home ? 'vs' : '@'} <span className="text-white font-semibold">{opp.abbreviation}</span>
-              </div>
-              <span className="text-[10px] font-mono text-gray-600">{game.game_date}</span>
-            </div>
-          )
-        })}
         {data.games.length === 0 && (
           <div className="px-4 py-8 text-center text-[11px] text-gray-700 font-condensed">No games found</div>
         )}
+        {data.games.map(game => (
+          <GameLogRow
+            key={game.id}
+            game={game}
+            teamId={data.team.id}
+            onClick={() => navigate(`/game/${game.id}`)}
+          />
+        ))}
       </div>
 
       {/* Roster */}
@@ -121,14 +146,14 @@ export default function TeamView() {
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3">
             {data.roster.map(player => (
-              <div
+              <button
                 key={player.id}
                 onClick={() => navigate(`/player/${player.id}`)}
-                className="flex items-center justify-between px-4 py-2.5 border-b border-r border-[#0F0F0F] cursor-pointer hover:bg-white/[0.02] transition-colors"
+                className="flex items-center justify-between px-4 py-2.5 border-b border-r border-[#0F0F0F] cursor-pointer hover:bg-white/[0.02] transition-colors text-left"
               >
                 <span className="text-[12px] font-semibold text-white font-condensed truncate">{player.name}</span>
                 <span className="text-[10px] text-gray-600 font-condensed flex-shrink-0 ml-2">{player.position}</span>
-              </div>
+              </button>
             ))}
           </div>
         </div>

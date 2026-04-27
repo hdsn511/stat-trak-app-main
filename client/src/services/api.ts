@@ -145,6 +145,8 @@ export interface GameDetail {
     game_date: string
     home_team: { id: number; abbreviation: string; name: string }
     away_team: { id: number; abbreviation: string; name: string }
+    home_score: number | null
+    away_score: number | null
     is_completed: boolean
   }
   player_stats: Array<{
@@ -167,6 +169,7 @@ export interface GameDetail {
     team_id: number | null
     source: string | null
     stat: string | null
+    player_name: string | null
   }>
   picks: Array<{
     entity_id: number
@@ -179,20 +182,33 @@ export interface GameDetail {
     actual_result: number | null
     did_hit: boolean | null
     prop_type: string
+    player_name: string | null
   }>
+}
+
+export interface TeamGameEntry {
+  id: number
+  game_date: string
+  home_team: { id: number; abbreviation: string; name: string }
+  away_team: { id: number; abbreviation: string; name: string }
+  home_score: number | null
+  away_score: number | null
+  is_home: boolean
+  team_score: number | null
+  opp_score: number | null
+  result: 'W' | 'L' | null
 }
 
 export interface TeamDetail {
   team: { id: number; abbreviation: string; name: string }
-  games: Array<{
-    id: number
-    game_date: string
-    home_team: { id: number; abbreviation: string; name: string }
-    away_team: { id: number; abbreviation: string; name: string }
-    is_home: boolean
-  }>
+  games: TeamGameEntry[]
   roster: Array<{ id: number; name: string; position: string }>
-  recent_avg_points: number | null
+  record: {
+    overall: { w: number; l: number }
+    home:    { w: number; l: number }
+    away:    { w: number; l: number }
+    last10:  { w: number; l: number }
+  }
 }
 
 async function get<T>(url: string): Promise<T> {

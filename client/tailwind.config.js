@@ -50,9 +50,10 @@ export default {
         ring: 'hsl(var(--ring))',
       },
       fontFamily: {
-        sans: ['IBM Plex Sans', 'system-ui', 'sans-serif'],
+        sans: ['Space Grotesk', 'system-ui', 'sans-serif'],
         display: ['Doto', 'sans-serif'],
-        condensed: ['Bebas Neue', 'sans-serif'],
+        condensed: ['Space Grotesk', 'sans-serif'],
+        mono: ['Space Mono', 'ui-monospace', 'monospace'],
       },
       borderRadius: {
         lg: 'var(--radius)',

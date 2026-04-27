@@ -35,7 +35,7 @@
     background-color: #0A0A0A;
     background-image: radial-gradient(ellipse 90% 40% at 50% 0%, rgba(255, 95, 46, 0.05) 0%, transparent 60%);
     color: hsl(var(--foreground));
-    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    font-family: 'Space Grotesk', system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
@@ -47,7 +47,7 @@
 }
 
 @layer utilities {
-  .font-condensed { font-family: 'Bebas Neue', sans-serif; letter-spacing: 0.04em; }
+  .font-condensed { font-family: 'Space Grotesk', sans-serif; font-weight: 700; letter-spacing: 0.04em; }
 
   .text-glow-mint {
     text-shadow: 0 0 30px rgba(255, 95, 46, 0.55), 0 0 60px rgba(255, 95, 46, 0.2);

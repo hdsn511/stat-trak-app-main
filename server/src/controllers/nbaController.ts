@@ -66,7 +66,18 @@ export async function getTopTrending(req: any, res: any) {
         })
       : rows.filter(row => !outIds.has(row.player_id));
 
-    const result = filtered.slice(0, 10).map((row: any) => ({
+    // Deduplicate: one entry per player, their highest-z_score stat
+    const topPerPlayer = new Map<number, any>();
+    for (const row of filtered) {
+      const existing = topPerPlayer.get(row.player_id);
+      if (!existing || row.trend_val > existing.trend_val) {
+        topPerPlayer.set(row.player_id, row);
+      }
+    }
+    const deduped = Array.from(topPerPlayer.values())
+      .sort((a, b) => b.trend_val - a.trend_val);
+
+    const result = deduped.slice(0, 10).map((row: any) => ({
       playerId: row.player_id,
       playerName: row.players?.name,
       team: row.players?.team,
@@ -242,11 +253,16 @@ export async function getTodaysPicks(req: any, res: any) {
   try {
     const today = new Date().toISOString().slice(0, 10);
 
-    // Find the nearest upcoming game_date that has picks (today or future)
+    // Find the nearest upcoming game_date that has picks (today or future, max 7 days)
+    const sevenDaysOut = new Date();
+    sevenDaysOut.setDate(sevenDaysOut.getDate() + 7);
+    const ceiling = sevenDaysOut.toISOString().slice(0, 10);
+
     const { data: dateRow } = await supabaseAdmin
       .from('pick_results')
       .select('game_date')
       .gte('game_date', today)
+      .lte('game_date', ceiling)
       .eq('prop_type', 'player')
       .order('game_date', { ascending: true })
       .limit(1)

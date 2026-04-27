@@ -47,7 +47,7 @@ export default function TopTrending() {
             state={{ player }}
           >
             {/* Rank */}
-            <span className="text-[11px] font-black text-gray-800 font-condensed w-5 shrink-0 group-hover:text-mint transition-colors tabular-nums">
+            <span className="text-[11px] font-black text-gray-800 font-mono w-5 shrink-0 group-hover:text-mint transition-colors tabular-nums">
               {i + 1}
             </span>
 
@@ -60,7 +60,7 @@ export default function TopTrending() {
                 {player.team} · {STAT_LABELS[player.stat] ?? player.stat.toUpperCase()}
                 {player.seasonAvg != null && (
                   <span className="text-gray-800 ml-1">
-                    · avg {player.seasonAvg.toFixed(1)}
+                    · avg <span className="font-mono">{player.seasonAvg.toFixed(1)}</span>
                   </span>
                 )}
               </div>
@@ -75,10 +75,10 @@ export default function TopTrending() {
                 />
               </div>
               <div className="flex flex-col items-end w-12">
-                <span className="text-[13px] font-black text-mint font-condensed tabular-nums leading-none">
+                <span className="text-[13px] font-black text-mint font-mono tabular-nums leading-none">
                   {player.rollingAvg.toFixed(1)}
                 </span>
-                <span className="text-[9px] text-gray-700 font-condensed tabular-nums leading-none mt-0.5">
+                <span className="text-[9px] text-gray-700 font-mono tabular-nums leading-none mt-0.5">
                   z{player.zScore.toFixed(1)}
                 </span>
               </div>

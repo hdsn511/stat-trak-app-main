@@ -162,7 +162,7 @@ export default function TrendFinder() {
 
           {/* Rolling avg */}
           <div className="text-right flex-shrink-0">
-            <div className="text-[20px] font-black text-white font-condensed tabular-nums leading-none">
+            <div className="text-[20px] font-black text-white font-mono tabular-nums leading-none">
               {player.rollingAvg.toFixed(1)}
             </div>
             <div className="text-[10px] text-gray-700 font-condensed mt-0.5">
@@ -171,7 +171,7 @@ export default function TrendFinder() {
           </div>
 
           {/* Z-score badge */}
-          <Badge className={`flex-shrink-0 font-condensed font-bold text-[11px] ${zBadgeClass(player.zScore)}`}>
+          <Badge className={`flex-shrink-0 font-mono font-bold text-[11px] ${zBadgeClass(player.zScore)}`}>
             {player.zScore > 0 ? '+' : ''}{player.zScore.toFixed(2)}σ
           </Badge>
 

@@ -98,11 +98,11 @@ export default function PickOfTheDay() {
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <span className="text-[9px] text-gray-600 font-condensed uppercase tracking-wider">
-                MKT {mktPct}%
+                MKT <span className="font-mono">{mktPct}%</span>
               </span>
               <span className="text-[9px] font-bold text-mint font-condensed">
-                HIT {hitPct}%{' '}
-                <span className="text-mint/50">+{edgePct}%</span>
+                HIT <span className="font-mono">{hitPct}%</span>{' '}
+                <span className="text-mint/50 font-mono">+{edgePct}%</span>
               </span>
             </div>
             <div className="relative h-1 bg-[#1A1A1A] rounded-full overflow-hidden">

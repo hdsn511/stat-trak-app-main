@@ -131,10 +131,10 @@ export default function PlayerDetailView() {
               <div className="text-[10px] text-gray-700 mb-2 font-condensed font-bold tracking-widest uppercase">
                 {STAT_LABELS[stat]}
               </div>
-              <div className={`text-2xl font-black font-condensed tabular-nums leading-none ${isActive ? 'text-mint' : zColor(z)}`}>
+              <div className={`text-2xl font-black font-mono tabular-nums leading-none ${isActive ? 'text-mint' : zColor(z)}`}>
                 {statAvg != null ? statAvg.toFixed(1) : '—'}
               </div>
-              <div className={`text-[10px] mt-1.5 font-condensed font-bold ${isActive ? 'text-mint/60' : 'text-gray-700'}`}>
+              <div className={`text-[10px] mt-1.5 font-mono font-bold ${isActive ? 'text-mint/60' : 'text-gray-700'}`}>
                 {z != null ? (z > 0 ? '+' : '') + z.toFixed(2) + 'σ' : '—'}
               </div>
             </Button>
@@ -213,7 +213,7 @@ export default function PlayerDetailView() {
                     />
                     {/* Tooltip */}
                     <div className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 hidden group-hover:block bg-[#1A1A1A] border border-[#2A2A2A] rounded-lg px-2.5 py-1.5 z-20 shadow-2xl whitespace-nowrap">
-                      <span className="text-[12px] font-black text-mint font-condensed">{val}</span>
+                      <span className="text-[12px] font-black text-mint font-mono">{val}</span>
                       <span className="text-[10px] text-gray-500 ml-1 font-condensed">{STAT_LABELS[activeStat]}</span>
                     </div>
                   </div>
@@ -256,7 +256,7 @@ export default function PlayerDetailView() {
           { label: 'Best Game', value: chartGames.length ? Math.max(...chartGames.map(g => getStatVal(g, activeStat))) : '—' },
         ].map(item => (
           <div key={item.label} className="bg-[#0D0D0D] border border-[#161616] rounded-2xl p-4 text-center">
-            <div className="text-3xl font-black text-white font-condensed tabular-nums">{item.value}</div>
+            <div className="text-3xl font-black text-white font-mono tabular-nums">{item.value}</div>
             <div className="text-[10px] text-gray-700 mt-1.5 font-condensed tracking-widest uppercase">{item.label}</div>
           </div>
         ))}

@@ -63,7 +63,7 @@ export default function Sidebar() {
                     {game.away.team}
                   </span>
                   {game.away.score != null && (
-                    <span className={`text-[13px] font-black font-condensed tabular-nums leading-none ${live ? 'text-white' : 'text-gray-500'}`}>
+                    <span className={`text-[13px] font-black font-mono tabular-nums leading-none ${live ? 'text-white' : 'text-gray-500'}`}>
                       {game.away.score}
                     </span>
                   )}
@@ -82,7 +82,7 @@ export default function Sidebar() {
                     {game.home.team}
                   </span>
                   {game.home.score != null && (
-                    <span className={`text-[13px] font-black font-condensed tabular-nums leading-none ${live ? 'text-white' : 'text-gray-500'}`}>
+                    <span className={`text-[13px] font-black font-mono tabular-nums leading-none ${live ? 'text-white' : 'text-gray-500'}`}>
                       {game.home.score}
                     </span>
                   )}

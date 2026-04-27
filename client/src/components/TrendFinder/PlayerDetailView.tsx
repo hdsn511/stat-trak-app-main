@@ -1,10 +1,9 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
-import { nbaApi, PlayerProfile, GameStat } from '@/services/api'
+import { nbaApi, PlayerProfile, GameStat, Pick } from '@/services/api'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 const STATS = ['points', 'rebounds', 'assists', 'threes'] as const
@@ -26,6 +25,7 @@ export default function PlayerDetailView() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [profile, setProfile] = useState<PlayerProfile | null>(null)
+  const [playerPicks, setPlayerPicks] = useState<Pick[]>([])
   const [loading, setLoading] = useState(true)
   const [activeStat, setActiveStat] = useState<StatKey>('points')
   const [threshold, setThreshold] = useState(20)
@@ -41,6 +41,13 @@ export default function PlayerDetailView() {
       })
       .catch(() => {})
       .finally(() => setLoading(false))
+  }, [id])
+
+  useEffect(() => {
+    if (!id) return
+    nbaApi.getPlayerPicks(parseInt(id))
+      .then(setPlayerPicks)
+      .catch(() => {})
   }, [id])
 
   const chartGames = useMemo(() => {
@@ -90,54 +97,72 @@ export default function PlayerDetailView() {
       <div>
         <button
           onClick={() => navigate(-1)}
-          className="flex items-center gap-1.5 text-[12px] text-gray-600 hover:text-white mb-5 transition-colors font-condensed tracking-wide"
+          className="flex items-center gap-1.5 text-[11px] text-gray-600 hover:text-white mb-4 transition-colors font-condensed tracking-wide uppercase"
         >
-          <ArrowLeft size={14} /> Back
+          <ArrowLeft size={12} /> Back
         </button>
 
-        <div className="flex items-center gap-4">
-          <div className="w-14 h-14 rounded-2xl bg-[#0F0F0F] border border-[#1A1A1A] flex items-center justify-center text-base font-black text-mint font-condensed">
+        <div className="bg-[#0D0D0D] border border-[#161616] rounded-2xl p-5 flex items-center gap-5">
+          {/* Avatar */}
+          <div className="w-16 h-16 rounded-2xl bg-[#141414] border border-[#222] flex items-center justify-center text-lg font-black text-mint font-condensed flex-shrink-0">
             {profile.player.name.split(' ').map(n => n[0]).join('')}
           </div>
-          <div>
-            <h1 className="text-3xl font-black text-white font-condensed tracking-tight leading-none">
+          {/* Name + meta */}
+          <div className="flex-1 min-w-0">
+            <h1 className="text-[28px] font-bold text-white font-condensed tracking-tight leading-none truncate">
               {profile.player.name}
             </h1>
-            <p className="text-[12px] text-gray-600 mt-1 font-condensed tracking-wide">
-              {profile.player.team} · {profile.player.position}
+            <p className="text-[11px] text-gray-600 mt-1 font-condensed tracking-wide">
+              {profile.teamId
+                ? (
+                  <button
+                    onClick={() => navigate(`/team/${profile.teamId}`)}
+                    className="hover:text-white transition-colors"
+                  >
+                    {profile.player.team}
+                  </button>
+                )
+                : profile.player.team}
+              {' · '}{profile.player.position}
             </p>
+          </div>
+          {/* Season avg quick stats */}
+          <div className="hidden sm:flex gap-5 flex-shrink-0">
+            {STATS.map(stat => (
+              <div key={stat} className="text-center">
+                <div className="text-[20px] font-black font-mono text-white tabular-nums leading-none">
+                  {profile.rollingAvgs[stat]?.toFixed(1) ?? '—'}
+                </div>
+                <div className="text-[9px] text-gray-700 font-condensed uppercase tracking-widest mt-0.5">{STAT_LABELS[stat]}</div>
+              </div>
+            ))}
           </div>
         </div>
       </div>
 
-      {/* Stat selector cards */}
-      <div className="grid grid-cols-4 gap-2.5">
+      {/* Stat selector — tab bar */}
+      <div className="flex border-b border-[#161616]">
         {STATS.map(stat => {
           const z = profile.zScores[stat] ?? 0
-          const statAvg = profile.rollingAvgs[stat]
           const isActive = activeStat === stat
           return (
-            <Button
+            <button
               key={stat}
-              variant="ghost"
               onClick={() => setActiveStat(stat)}
               className={cn(
-                'relative p-3.5 rounded-2xl border transition-all text-left h-auto flex-col items-start hover:bg-transparent',
-                isActive
-                  ? 'border-mint/30 bg-[#0D1A14] hover:bg-[#0D1A14]'
-                  : 'border-[#161616] bg-[#0D0D0D] hover:border-[#222]'
+                'flex-1 py-3 px-2 text-center relative transition-colors',
+                isActive ? 'text-white' : 'text-gray-600 hover:text-gray-400'
               )}
             >
-              <div className="text-[10px] text-gray-700 mb-2 font-condensed font-bold tracking-widest uppercase">
-                {STAT_LABELS[stat]}
+              <div className="text-[10px] font-bold font-condensed uppercase tracking-widest">{STAT_LABELS[stat]}</div>
+              <div className={cn('text-[15px] font-black font-mono tabular-nums leading-tight mt-0.5', isActive ? 'text-mint' : zColor(z))}>
+                {profile.rollingAvgs[stat]?.toFixed(1) ?? '—'}
               </div>
-              <div className={`text-2xl font-black font-mono tabular-nums leading-none ${isActive ? 'text-mint' : zColor(z)}`}>
-                {statAvg != null ? statAvg.toFixed(1) : '—'}
-              </div>
-              <div className={`text-[10px] mt-1.5 font-mono font-bold ${isActive ? 'text-mint/60' : 'text-gray-700'}`}>
+              <div className={cn('text-[9px] font-mono', isActive ? 'text-mint/60' : 'text-gray-700')}>
                 {z != null ? (z > 0 ? '+' : '') + z.toFixed(2) + 'σ' : '—'}
               </div>
-            </Button>
+              {isActive && <span className="absolute bottom-0 left-1 right-1 h-0.5 bg-mint rounded-t-full" />}
+            </button>
           )
         })}
       </div>
@@ -150,7 +175,7 @@ export default function PlayerDetailView() {
             type="number"
             value={threshold}
             onChange={e => setThreshold(Number(e.target.value))}
-            className="w-20 bg-[#0D0D0D] border border-[#1E1E1E] rounded-xl px-3 py-1.5 text-sm text-white outline-none focus:border-mint/30 transition-colors text-center font-bold tabular-nums"
+            className="w-20 bg-[#0D0D0D] border border-[#1E1E1E] rounded-xl px-3 py-1.5 text-sm text-white outline-none focus:border-mint/30 transition-colors text-center font-bold tabular-nums font-mono"
           />
           <span className="text-[11px] text-gray-700 font-condensed">+</span>
         </div>
@@ -160,7 +185,7 @@ export default function PlayerDetailView() {
             <button
               key={n}
               onClick={() => setGameWindow(n)}
-              className={`w-9 h-8 rounded-lg text-[13px] font-bold font-condensed transition-colors ${
+              className={`w-9 h-8 rounded-lg text-[13px] font-bold font-mono transition-colors ${
                 gameWindow === n
                   ? 'bg-mint text-black'
                   : 'bg-[#0D0D0D] text-gray-600 hover:text-white border border-[#1E1E1E]'
@@ -195,17 +220,23 @@ export default function PlayerDetailView() {
                 const val = getStatVal(game, activeStat)
                 const pct = (val / maxVal) * 100
                 const isOver = val >= threshold
+                const hasGameId = game.gameId != null
                 return (
                   <div
                     key={i}
-                    className="flex-1 h-full flex items-end group relative"
+                    onClick={() => hasGameId && navigate(`/game/${game.gameId}`)}
+                    className={cn(
+                      'flex-1 h-full flex items-end group relative',
+                      hasGameId ? 'cursor-pointer' : 'cursor-default'
+                    )}
                   >
                     <div
-                      className={`w-full rounded-t animate-bar-grow ${
+                      className={cn(
+                        'w-full rounded-t animate-bar-grow transition-opacity',
                         isOver
-                          ? 'bg-mint/60 hover:bg-mint/90'
-                          : 'bg-red-500/40 hover:bg-red-500/70'
-                      }`}
+                          ? 'bg-mint/60 group-hover:bg-mint/90'
+                          : 'bg-red-500/40 group-hover:bg-red-500/70'
+                      )}
                       style={{
                         height: `${Math.max(pct, 3)}%`,
                         animationDelay: `${i * 22}ms`,
@@ -215,6 +246,9 @@ export default function PlayerDetailView() {
                     <div className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 hidden group-hover:block bg-[#1A1A1A] border border-[#2A2A2A] rounded-lg px-2.5 py-1.5 z-20 shadow-2xl whitespace-nowrap">
                       <span className="text-[12px] font-black text-mint font-mono">{val}</span>
                       <span className="text-[10px] text-gray-500 ml-1 font-condensed">{STAT_LABELS[activeStat]}</span>
+                      {game.opponent && (
+                        <div className="text-[9px] text-gray-600 font-condensed mt-0.5">vs {game.opponent}</div>
+                      )}
                     </div>
                   </div>
                 )
@@ -224,9 +258,11 @@ export default function PlayerDetailView() {
 
           {/* Game labels */}
           <div className="flex gap-1 mb-3">
-            {chartGames.map((_, i) => (
-              <div key={i} className="flex-1 text-center text-[8px] text-gray-800 font-condensed font-bold">
-                G{i + 1}
+            {chartGames.map((game, i) => (
+              <div key={i} className="flex-1 text-center">
+                <div className="text-[8px] text-gray-700 font-condensed font-bold truncate">
+                  {game.opponent ?? `G${i + 1}`}
+                </div>
               </div>
             ))}
           </div>
@@ -241,7 +277,7 @@ export default function PlayerDetailView() {
               <div className="w-2.5 h-2.5 rounded-sm bg-red-500/40" />
               <span className="text-[10px] text-gray-600 font-condensed">Under</span>
             </div>
-            <Badge className="ml-auto bg-mint/10 text-mint border-mint/20 font-condensed font-bold text-[11px]">
+            <Badge className="ml-auto bg-mint/10 text-mint border-mint/20 font-mono font-bold text-[11px]">
               {hitRate}% hit rate
             </Badge>
           </div>
@@ -261,6 +297,37 @@ export default function PlayerDetailView() {
           </div>
         ))}
       </div>
+
+      {/* Today's props */}
+      {playerPicks.length > 0 && (
+        <div className="bg-[#0D0D0D] border border-[#161616] rounded-2xl overflow-hidden">
+          <div className="px-4 py-3 border-b border-[#111]">
+            <span className="text-[10px] font-bold text-gray-500 uppercase tracking-[0.15em] font-condensed">
+              Today's Props
+            </span>
+          </div>
+          {playerPicks.map((pick, i) => (
+            <div key={i} className="flex items-center justify-between px-4 py-3 border-b border-[#0F0F0F] last:border-0">
+              <div>
+                <span className="text-[12px] font-bold text-white font-condensed">
+                  {pick.statLabel} {pick.recommendedLine}+
+                </span>
+              </div>
+              <div className="flex items-center gap-4">
+                <span className="text-[11px] text-gray-500 font-condensed">
+                  Mkt <span className="font-mono">{Math.round(pick.impliedProb * 100)}%</span>
+                </span>
+                <span className="text-[11px] text-gray-400 font-condensed">
+                  Hit <span className="font-mono">{Math.round(pick.hitRate * 100)}%</span>
+                </span>
+                <span className="text-[11px] font-bold text-mint font-condensed">
+                  Edge <span className="font-mono">+{Math.round(pick.edge * 100)}%</span>
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

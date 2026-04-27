@@ -98,6 +98,7 @@ async function loadPlayerStats(playerIds: number[]): Promise<PlayerGameStat[]> {
       .in("player_id", chunk)
       .gte("game_date", seasonStart)
       .eq("games.game_type", "regular")
+      .gt("minutes_played", 0)
       .order("game_date", { ascending: false });
 
     if (error) throw error;

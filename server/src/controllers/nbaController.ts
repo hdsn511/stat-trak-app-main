@@ -200,6 +200,7 @@ export async function getPlayerGames(req: any, res: any) {
         .select('game_id, team_id, points, rebounds, assists, three_points_made, fouls, minutes_played, game_date, games!inner(game_type)')
         .eq('player_id', parseInt(id))
         .eq('games.game_type', 'regular')
+        .gt('minutes_played', 0)
         .order('game_date', { ascending: false })
         .limit(20),
       supabaseAdmin
@@ -212,7 +213,8 @@ export async function getPlayerGames(req: any, res: any) {
         .select('points, rebounds, assists, three_points_made, games!inner(game_type)')
         .eq('player_id', parseInt(id))
         .gte('game_date', seasonStart)
-        .eq('games.game_type', 'regular'),
+        .eq('games.game_type', 'regular')
+        .gt('minutes_played', 0),
     ]);
 
     if (playerResult.error) throw playerResult.error;

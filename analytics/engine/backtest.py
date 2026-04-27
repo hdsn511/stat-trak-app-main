@@ -292,6 +292,7 @@ def backtest_player(
         .select(f"{stat_col}")
         .eq("player_id", player_id)
         .in_("game_id", filtered_game_ids)
+        .gt("minutes_played", 0)
         .execute()
     )
     stat_rows = stats_result.data or []

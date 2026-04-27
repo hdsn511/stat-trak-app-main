@@ -24,7 +24,7 @@ export default function Sidebar() {
       <div className="p-3.5">
         <div className="flex items-center gap-2 mb-4 pb-3 border-b border-[#141414]">
           <Calendar size={12} className="text-mint" />
-          <span className="text-[10px] font-bold text-gray-600 uppercase tracking-[0.2em] font-condensed">Today's Games</span>
+          <span className="text-[10px] font-bold text-gray-500 uppercase tracking-[0.15em] font-condensed">Today's Games</span>
         </div>
 
         {loading && (

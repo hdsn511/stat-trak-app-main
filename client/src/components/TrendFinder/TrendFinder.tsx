@@ -62,7 +62,7 @@ export default function TrendFinder() {
       {/* Header */}
       <div className="flex items-center gap-2">
         <SlidersHorizontal size={13} className="text-mint" />
-        <h2 className="text-[10px] font-bold text-gray-600 uppercase tracking-[0.2em] font-condensed">Trend Finder</h2>
+        <h2 className="text-[10px] font-bold text-gray-500 uppercase tracking-[0.15em] font-condensed">Trend Finder</h2>
       </div>
 
       {/* Stat tabs */}

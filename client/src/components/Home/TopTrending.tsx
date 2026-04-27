@@ -26,7 +26,7 @@ export default function TopTrending() {
     <div>
       <div className="flex items-center gap-2 mb-3">
         <TrendingUp size={13} className="text-mint" />
-        <h2 className="text-[10px] font-bold text-gray-600 uppercase tracking-[0.2em] font-condensed">Top Trending</h2>
+        <h2 className="text-[10px] font-bold text-gray-500 uppercase tracking-[0.15em] font-condensed">Top Trending</h2>
       </div>
 
       {loading && (

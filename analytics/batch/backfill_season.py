@@ -34,17 +34,30 @@ def _parse_date(s: str) -> date:
 
 
 def _get_game_dates_in_range(since: date, until: date) -> list[str]:
-    """All distinct game dates in [since, until] that exist in the games table."""
-    rows = (
-        supabase.table("games")
-        .select("game_date")
-        .eq("league_id", NBA_LEAGUE_ID)
-        .gte("game_date", since.isoformat())
-        .lte("game_date", until.isoformat())
-        .limit(2000)  # season has ~1230+ games; default PostgREST cap is 1000
-        .execute()
-    )
-    return sorted({r["game_date"] for r in (rows.data or [])})
+    """All distinct game dates in [since, until] that exist in the games table.
+
+    Paginates in 1000-row batches because Supabase enforces a server-side
+    max-rows cap that ignores client-supplied limit values.
+    """
+    all_dates: set[str] = set()
+    batch = 1000
+    offset = 0
+    while True:
+        rows = (
+            supabase.table("games")
+            .select("game_date")
+            .eq("league_id", NBA_LEAGUE_ID)
+            .gte("game_date", since.isoformat())
+            .lte("game_date", until.isoformat())
+            .range(offset, offset + batch - 1)
+            .execute()
+        )
+        chunk = rows.data or []
+        all_dates.update(r["game_date"] for r in chunk)
+        if len(chunk) < batch:
+            break
+        offset += batch
+    return sorted(all_dates)
 
 
 def _games_on_date(date_str: str) -> int:

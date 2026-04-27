@@ -1,28 +1,29 @@
-import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { nbaApi, Pick } from '@/services/api'
-import { Skeleton } from '@/components/ui/skeleton'
-import { Card, CardContent } from '@/components/ui/card'
-import { Flame, ArrowRight, TrendingUp } from 'lucide-react'
+import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { nbaApi, Pick } from "@/services/api";
+import { ArrowRight, Flame, TrendingUp } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 export default function PickOfTheDay() {
-  const navigate = useNavigate()
-  const [pick, setPick]       = useState<Pick | null>(null)
-  const [gameDate, setGameDate] = useState<string | null>(null)
-  const [loading, setLoading]  = useState(true)
+  const navigate = useNavigate();
+  const [pick, setPick] = useState<Pick | null>(null);
+  const [gameDate, setGameDate] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    nbaApi.getTodaysPicks()
+    nbaApi
+      .getTodaysPicks()
       .then(({ topPick, gameDate }) => {
-        setPick(topPick)
-        setGameDate(gameDate)
+        setPick(topPick);
+        setGameDate(gameDate);
       })
       .catch(() => {})
-      .finally(() => setLoading(false))
-  }, [])
+      .finally(() => setLoading(false));
+  }, []);
 
   if (loading) {
-    return <Skeleton className="h-44 w-full bg-[#0F0F0F] rounded-2xl" />
+    return <Skeleton className="h-44 w-full bg-[#0F0F0F] rounded-2xl" />;
   }
 
   if (!pick) {
@@ -35,39 +36,45 @@ export default function PickOfTheDay() {
           </span>
         </div>
       </div>
-    )
+    );
   }
 
-  const confidenceInt = Math.round(pick.confidence)
-  const hitPct        = Math.round(pick.hitRate * 100)
-  const mktPct        = Math.round(pick.impliedProb * 100)
-  const edgePct       = Math.round(pick.edge * 100)
+  const confidenceInt = Math.round(pick.confidence);
+  const hitPct = Math.round(pick.hitRate * 100);
+  const mktPct = Math.round(pick.impliedProb * 100);
+  const edgePct = Math.round(pick.edge * 100);
 
   const formattedDate = gameDate
-    ? new Date(gameDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-    : null
+    ? new Date(gameDate + "T12:00:00").toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+      })
+    : null;
 
   return (
     <Card
       onClick={() => navigate(`/player/${pick.playerId}`)}
       className="relative w-full overflow-hidden rounded-2xl border border-mint/20 text-left group transition-all hover:border-mint/40 cursor-pointer shadow-none bg-transparent"
-      style={{ background: 'linear-gradient(135deg, #0D1F18 0%, #0A0A0A 55%, #0A0C14 100%)' }}
+      style={{
+        background:
+          "linear-gradient(135deg, #0D1F18 0%, #0A0A0A 55%, #0A0C14 100%)",
+      }}
     >
       {/* Radial glow */}
       <div
         className="absolute inset-0 pointer-events-none opacity-60"
         style={{
           background:
-            'radial-gradient(ellipse 55% 90% at 88% 50%, rgba(42,255,200,0.12) 0%, transparent 70%)',
+            "radial-gradient(ellipse 55% 90% at 88% 50%, rgba(42,255,200,0.12) 0%, transparent 70%)",
         }}
       />
 
       {/* Pick type badge — top right */}
       <div
         className={`absolute top-3 right-10 text-[9px] font-black font-condensed tracking-widest px-1.5 py-0.5 rounded ${
-          pick.pickType === 'safe'
-            ? 'bg-mint/10 text-mint border border-mint/20'
-            : 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20'
+          pick.pickType === "safe"
+            ? "bg-mint/10 text-mint border border-mint/20"
+            : "bg-yellow-500/10 text-yellow-400 border border-yellow-500/20"
         }`}
       >
         {pick.pickType.toUpperCase()}
@@ -83,7 +90,9 @@ export default function PickOfTheDay() {
               Pick of the Day
             </span>
             {formattedDate && (
-              <span className="text-[10px] text-gray-600 font-condensed ml-1">· {formattedDate}</span>
+              <span className="text-[10px] text-gray-600 font-condensed ml-1">
+                {formattedDate}
+              </span>
             )}
           </div>
 
@@ -110,12 +119,15 @@ export default function PickOfTheDay() {
                 MKT <span className="font-mono">{mktPct}%</span>
               </span>
               <span className="text-[9px] font-bold text-mint font-condensed">
-                HIT <span className="font-mono">{hitPct}%</span>{' '}
+                HIT <span className="font-mono">{hitPct}%</span>{" "}
                 <span className="text-mint/50 font-mono">+{edgePct}%</span>
               </span>
             </div>
             <div className="relative h-1 bg-[#1A1A1A] rounded-full overflow-hidden">
-              <div className="absolute inset-y-0 left-0 bg-gray-700/60 rounded-full" style={{ width: `${mktPct}%` }} />
+              <div
+                className="absolute inset-y-0 left-0 bg-gray-700/60 rounded-full"
+                style={{ width: `${mktPct}%` }}
+              />
               <div
                 className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-mint/50 to-mint transition-all duration-700"
                 style={{ width: `${hitPct}%` }}
@@ -140,5 +152,5 @@ export default function PickOfTheDay() {
         />
       </CardContent>
     </Card>
-  )
+  );
 }

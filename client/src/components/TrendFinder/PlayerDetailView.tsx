@@ -55,6 +55,8 @@ export default function PlayerDetailView() {
     return profile.games.slice(0, gameWindow)
   }, [profile, gameWindow])
 
+  const displayGames = useMemo(() => [...chartGames].reverse(), [chartGames])
+
   const getStatVal = (game: GameStat, stat: StatKey): number =>
     game[stat as keyof GameStat] as number
 
@@ -216,7 +218,7 @@ export default function PlayerDetailView() {
 
             {/* Bars */}
             <div className="absolute inset-0 flex items-end gap-1">
-              {chartGames.map((game, i) => {
+              {displayGames.map((game, i) => {
                 const val = getStatVal(game, activeStat)
                 const pct = (val / maxVal) * 100
                 const isOver = val >= threshold
@@ -234,8 +236,8 @@ export default function PlayerDetailView() {
                       className={cn(
                         'w-full rounded-t animate-bar-grow transition-opacity',
                         isOver
-                          ? 'bg-mint/60 group-hover:bg-mint/90'
-                          : 'bg-red-500/40 group-hover:bg-red-500/70'
+                          ? 'bg-green-500/80 group-hover:bg-green-500/100'
+                          : 'bg-red-500/80 group-hover:bg-red-500/100'
                       )}
                       style={{
                         height: `${Math.max(pct, 3)}%`,
@@ -258,11 +260,16 @@ export default function PlayerDetailView() {
 
           {/* Game labels */}
           <div className="flex gap-1 mb-3">
-            {chartGames.map((game, i) => (
+            {displayGames.map((game, i) => (
               <div key={i} className="flex-1 text-center">
                 <div className="text-[8px] text-gray-700 font-condensed font-bold truncate">
                   {game.opponent ?? `G${i + 1}`}
                 </div>
+                {game.date && (
+                  <div className="text-[7px] text-gray-800 font-condensed truncate">
+                    {new Date(game.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -270,11 +277,11 @@ export default function PlayerDetailView() {
           {/* Legend */}
           <div className="flex items-center gap-4 pt-2 border-t border-[#141414]">
             <div className="flex items-center gap-1.5">
-              <div className="w-2.5 h-2.5 rounded-sm bg-mint/60" />
+              <div className="w-2.5 h-2.5 rounded-sm bg-green-500/80" />
               <span className="text-[10px] text-gray-600 font-condensed">Over {threshold}+</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <div className="w-2.5 h-2.5 rounded-sm bg-red-500/40" />
+              <div className="w-2.5 h-2.5 rounded-sm bg-red-500/80" />
               <span className="text-[10px] text-gray-600 font-condensed">Under</span>
             </div>
             <Badge className="ml-auto bg-mint/10 text-mint border-mint/20 font-mono font-bold text-[11px]">

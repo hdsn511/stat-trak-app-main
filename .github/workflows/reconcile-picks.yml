@@ -31,4 +31,4 @@ jobs:
         run: pip install -r analytics/requirements.txt
 
       - name: Reconcile picks
-        run: python -m analytics.batch.nightly --date "$(date -u -d '-1 day' +%Y-%m-%d)"
+        run: python -m analytics.batch.nightly --date "$(date -u +%Y-%m-%d)"

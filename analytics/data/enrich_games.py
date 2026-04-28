@@ -923,33 +923,42 @@ def backfill_opp_defense(snapshot_date: str | None = None):
     )
     current_season = latest_game.data[0]["season"] if latest_game.data else 2024
 
-    # Load all games for the current season
-    games_resp = (
-        supabase.table("games")
-        .select("id,home_team_id,away_team_id")
-        .eq("season", current_season)
-        .limit(2000)
-        .execute()
+    # Load all games for the current season — _fetch_all paginates past the 1000-row cap
+    game_rows_list = _fetch_all(
+        "games",
+        "id,home_team_id,away_team_id",
+        [("eq", "season", current_season), ("eq", "league_id", NBA_LEAGUE_ID)],
     )
-    games = {g["id"]: g for g in (games_resp.data or [])}
+    games = {g["id"]: g for g in game_rows_list}
 
-    # Load all stats for those games — paginate since there could be many
+    # Load all stats for those games.
+    # Use chunks of 40 game IDs: 40 games × ~26 rows/game ≈ 1040 rows/chunk which
+    # stays within PostgREST's 1000-row default cap when rows per game avg < 25.
+    # For any chunk that still hits the cap, paginate with a row-range loop.
     game_ids = list(games.keys())
     all_stats: list[dict] = []
-    for i in range(0, len(game_ids), 200):
-        chunk = game_ids[i:i + 200]
-        sr = (
-            supabase.table("nba_player_stats")
-            .select("player_id,team_id,game_id,points,rebounds,assists")
-            .in_("game_id", chunk)
-            .limit(5000)
-            .execute()
-        )
-        all_stats.extend(sr.data or [])
+    STAT_CHUNK = 40
+    for i in range(0, len(game_ids), STAT_CHUNK):
+        chunk = game_ids[i:i + STAT_CHUNK]
+        page, page_size = 0, 1000
+        while True:
+            start = page * page_size
+            sr = (
+                supabase.table("nba_player_stats")
+                .select("player_id,team_id,game_id,points,rebounds,assists,three_points_made")
+                .in_("game_id", chunk)
+                .range(start, start + page_size - 1)
+                .execute()
+            )
+            batch = sr.data or []
+            all_stats.extend(batch)
+            if len(batch) < page_size:
+                break
+            page += 1
 
     print(f"  Loaded {len(all_stats)} stat rows for season {current_season}")
 
-    # Accumulate: for each defending_team + position_group, sum pts/reb/ast allowed
+    # Accumulate: for each defending_team + position_group, sum stats allowed
     # "allowed" = stats by opponents playing AGAINST the team
     from collections import defaultdict
     accum: dict[tuple[int, str], list[dict]] = defaultdict(list)
@@ -974,9 +983,10 @@ def backfill_opp_defense(snapshot_date: str | None = None):
             continue
 
         accum[(defending_team, pos_group)].append({
-            "pts": stat.get("points", 0) or 0,
-            "reb": stat.get("rebounds", 0) or 0,
-            "ast": stat.get("assists", 0) or 0,
+            "pts":  stat.get("points", 0) or 0,
+            "reb":  stat.get("rebounds", 0) or 0,
+            "ast":  stat.get("assists", 0) or 0,
+            "fg3m": stat.get("three_points_made", 0) or 0,
         })
 
     # Compute averages per (team, position_group)
@@ -986,34 +996,44 @@ def backfill_opp_defense(snapshot_date: str | None = None):
         if n == 0:
             continue
         avgs[key] = {
-            "pts_allowed_pg": sum(s["pts"] for s in stats_list) / n,
-            "reb_allowed_pg": sum(s["reb"] for s in stats_list) / n,
-            "ast_allowed_pg": sum(s["ast"] for s in stats_list) / n,
+            "pts_allowed_pg":  sum(s["pts"]  for s in stats_list) / n,
+            "reb_allowed_pg":  sum(s["reb"]  for s in stats_list) / n,
+            "ast_allowed_pg":  sum(s["ast"]  for s in stats_list) / n,
+            "fg3m_allowed_pg": sum(s["fg3m"] for s in stats_list) / n,
         }
 
-    # Rank by pts_allowed_pg within each position_group (1 = fewest allowed = best D)
+    # Rank each stat within each position_group (1 = fewest allowed = best defense)
     for pos_group in ("G", "F", "C"):
         group_entries = [
             (team_id, data)
             for (team_id, pg), data in avgs.items()
             if pg == pos_group
         ]
-        # Sort ascending by pts_allowed (fewest = rank 1)
-        group_entries.sort(key=lambda x: x[1]["pts_allowed_pg"])
-        for rank, (team_id, data) in enumerate(group_entries, 1):
-            avgs[(team_id, pos_group)]["league_rank"] = rank
+        for stat_key, rank_key in (
+            ("pts_allowed_pg",  "league_rank"),  # backward-compat name
+            ("reb_allowed_pg",  "reb_rank"),
+            ("ast_allowed_pg",  "ast_rank"),
+            ("fg3m_allowed_pg", "fg3m_rank"),
+        ):
+            group_entries.sort(key=lambda x: x[1][stat_key])
+            for rank, (team_id, data) in enumerate(group_entries, 1):
+                avgs[(team_id, pos_group)][rank_key] = rank
 
     # Upsert into opponent_position_defense
     rows = []
     for (team_id, pos_group), data in avgs.items():
         rows.append({
-            "team_id": team_id,
-            "position_group": pos_group,
-            "snapshot_date": snapshot_date,
-            "pts_allowed_pg": round(data["pts_allowed_pg"], 2),
-            "reb_allowed_pg": round(data["reb_allowed_pg"], 2),
-            "ast_allowed_pg": round(data["ast_allowed_pg"], 2),
-            "league_rank": data.get("league_rank"),
+            "team_id":         team_id,
+            "position_group":  pos_group,
+            "snapshot_date":   snapshot_date,
+            "pts_allowed_pg":  round(data["pts_allowed_pg"],  2),
+            "reb_allowed_pg":  round(data["reb_allowed_pg"],  2),
+            "ast_allowed_pg":  round(data["ast_allowed_pg"],  2),
+            "fg3m_allowed_pg": round(data["fg3m_allowed_pg"], 2),
+            "league_rank":     data.get("league_rank"),
+            "reb_rank":        data.get("reb_rank"),
+            "ast_rank":        data.get("ast_rank"),
+            "fg3m_rank":       data.get("fg3m_rank"),
         })
 
     if not rows:

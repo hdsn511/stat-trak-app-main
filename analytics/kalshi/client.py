@@ -43,9 +43,10 @@ GAME_PROP_SERIES = [
     "KXNBASPREAD",     # spread markets
     "KXNBAPLAYOFF",    # playoff game markets
     "KXNBAMATCHUP",    # per-game matchup markets
-    "KXNBATEAMTOTAL",  # team totals
-    "KXNBA1HTOTAL",    # first-half totals
-    "KXNBA2HTOTAL",    # second-half totals
+    # KXNBATEAMTOTAL excluded: these are single-team score markets, not combined totals.
+    # Our backtest computes home_score + away_score, so team total lines (97–120) would
+    # always hit with 100% rate against a combined score of 200+. Misleading output.
+    # KXNBA1HTOTAL, KXNBA2HTOTAL excluded for the same reason (half-score markets).
 ]
 
 TARGET_NBA_SERIES = PLAYER_PROP_SERIES + GAME_PROP_SERIES
@@ -478,7 +479,23 @@ class KalshiClient:
             }
             result.setdefault(key, []).append(entry)
 
-        return result
+        # Deduplicate by line: for each (player, stat, line) group keep the
+        # entry with the highest implied_prob. Kalshi may return multiple markets
+        # for the same player/stat with the same floor_strike — range bracket
+        # markets ("scores exactly 20-24") alongside cumulative over markets
+        # ("scores 20+"). The cumulative over market always has the highest YES
+        # price for lines below the player's expected value, which is the
+        # implied probability we want for "over X" prop evaluation.
+        deduped: dict[tuple[str, str], list[dict]] = {}
+        for key, entries in result.items():
+            best_by_line: dict[float, dict] = {}
+            for e in entries:
+                ln = e["line"]
+                if ln not in best_by_line or e["implied_prob"] > best_by_line[ln]["implied_prob"]:
+                    best_by_line[ln] = e
+            deduped[key] = list(best_by_line.values())
+
+        return deduped
 
     # ── Parsing: Game Props ────────────────────────────────────────────────────
 

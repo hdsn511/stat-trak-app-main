@@ -11,30 +11,46 @@ const STAT_TO_COLUMN: Record<string, { col: string; statId: number }> = {
   fg3m: { col: 'three_points_made', statId: 3 },
 };
 
-// Resolve the nearest upcoming slate with picks.
-// Mirrors getTodaysPicks fallback in nbaController.ts (~lines 246-255).
+// Resolve the nearest slate date with picks — upcoming first, then most recent past.
 async function findNearestPickDate(today: string): Promise<string> {
-  const { data } = await supabaseAdmin
+  const { data: upcoming } = await supabaseAdmin
     .from('pick_results')
     .select('game_date')
     .gte('game_date', today)
     .order('game_date', { ascending: true })
     .limit(1)
-    .single();
-  return data?.game_date ?? today;
+    .maybeSingle();
+  if (upcoming?.game_date) return upcoming.game_date;
+
+  const { data: past } = await supabaseAdmin
+    .from('pick_results')
+    .select('game_date')
+    .lt('game_date', today)
+    .order('game_date', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return past?.game_date ?? today;
 }
 
-// Resolve the nearest date with daily_lines rows. Used by streaks so an
-// un-run pipeline today doesn't produce empty results.
+// Resolve the nearest date with daily_lines — upcoming first, then most recent past.
 async function findNearestLinesDate(today: string): Promise<string> {
-  const { data } = await supabaseAdmin
+  const { data: upcoming } = await supabaseAdmin
     .from('daily_lines')
     .select('game_date')
     .gte('game_date', today)
     .order('game_date', { ascending: true })
     .limit(1)
-    .single();
-  return data?.game_date ?? today;
+    .maybeSingle();
+  if (upcoming?.game_date) return upcoming.game_date;
+
+  const { data: past } = await supabaseAdmin
+    .from('daily_lines')
+    .select('game_date')
+    .lt('game_date', today)
+    .order('game_date', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return past?.game_date ?? today;
 }
 
 export async function getTopPicks(req: any, res: any) {
@@ -273,7 +289,10 @@ export async function getPerfectStreaks(req: any, res: any) {
     }
 
     const today = new Date().toISOString().slice(0, 10);
-    const linesDate = await findNearestLinesDate(today);
+    // Use pick date as the reference for lines — picks are only generated for actual game days
+    // (never pre-populated for future dates), so this correctly handles the UTC/ET midnight gap
+    // where Kalshi pre-loads tomorrow's lines before midnight ET.
+    const linesDate = await findNearestPickDate(today);
 
     // ── A. Today's slate teams (ESPN)
     const espn = await fetch('https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard')
@@ -300,11 +319,11 @@ export async function getPerfectStreaks(req: any, res: any) {
       return res.json({ success: true, data: { stat, window, rows: [] } });
     }
 
-    // ── B. Today's games + out players
+    // ── B. Today's games + out players (use linesDate to handle UTC/ET midnight gap)
     const { data: games } = await supabaseAdmin
       .from('games')
       .select('id,home_team_id,away_team_id')
-      .eq('game_date', today)
+      .eq('game_date', linesDate)
       .eq('league_id', 1);
     const gameIds = (games ?? []).map((g: any) => g.id);
 
@@ -318,18 +337,22 @@ export async function getPerfectStreaks(req: any, res: any) {
       for (const r of (outRows ?? [])) outIds.add(r.player_id);
     }
 
-    // ── C. Candidates: nearest lines date ≤ 0.80 implied prob for this stat
+    // ── C. Candidates: lines in 50–85% implied_prob range for this stat.
+    // Keep the highest-confidence line per player (closest to the market's primary expectation).
     const { data: lines } = await supabaseAdmin
       .from('daily_lines')
       .select('entity_id,stat,implied_prob,line')
       .eq('game_date', linesDate)
       .eq('prop_type', 'player')
       .eq('stat', stat)
-      .lte('implied_prob', 0.80);
+      .gte('implied_prob', 0.50)
+      .lte('implied_prob', 0.85);
     const linesByPlayer = new Map<number, { line: number; implied_prob: number }>();
     for (const l of (lines ?? [])) {
+      if (l.entity_id == null) continue; // skip unmatched Kalshi props
       const existing = linesByPlayer.get(l.entity_id);
-      if (!existing || l.implied_prob < existing.implied_prob) {
+      // Keep the highest implied_prob line — that's the market's most confident/primary line
+      if (!existing || l.implied_prob > existing.implied_prob) {
         linesByPlayer.set(l.entity_id, { line: l.line, implied_prob: l.implied_prob });
       }
     }
@@ -350,7 +373,7 @@ export async function getPerfectStreaks(req: any, res: any) {
       return res.json({ success: true, data: { stat, window, rows: [] } });
     }
 
-    // ── E. For each candidate: fetch last `window` games + season avg → keep if all hit
+    // ── E. For each candidate: fetch last `window` games, count consecutive streak vs today's line
     const rows = await Promise.all(candidates.map(async (p: any) => {
       const { data: statRows } = await supabaseAdmin
         .from('nba_player_stats')
@@ -358,7 +381,7 @@ export async function getPerfectStreaks(req: any, res: any) {
         .eq('player_id', p.id)
         .order('game_date', { ascending: false })
         .limit(window);
-      if (!statRows || statRows.length < window) return null;
+      if (!statRows || statRows.length === 0) return null;
 
       const { data: trend } = await supabaseAdmin
         .from('nba_trends')
@@ -369,19 +392,23 @@ export async function getPerfectStreaks(req: any, res: any) {
         .limit(1)
         .maybeSingle();
       const seasonAvg: number | null = trend?.season_avg ?? null;
-      if (seasonAvg == null) return null;
 
       const values: number[] = statRows
         .map((r: any) => r[statCfg.col])
         .filter((v: any) => v != null);
-      if (values.length < window) return null;
+      if (values.length === 0) return null;
 
-      const threshold = stat === 'fg3m' ? Math.max(2, seasonAvg - 1) : seasonAvg;
-      const allHit = values.every((v: number) => v >= threshold);
-      if (!allHit) return null;
+      const line = linesByPlayer.get(p.id)!;
+      // Threshold is today's Kalshi line — streak = consecutive recent games beating the market
+      const threshold = stat === 'fg3m' ? Math.max(1, line.line - 0.5) : line.line;
+      let streakCount = 0;
+      for (const v of values) {
+        if (v >= threshold) streakCount++;
+        else break;
+      }
+      if (streakCount < 2) return null;
 
       const rollingAvg = values.reduce((a: number, b: number) => a + b, 0) / values.length;
-      const line = linesByPlayer.get(p.id)!;
 
       return {
         player_id: p.id as number,
@@ -390,7 +417,7 @@ export async function getPerfectStreaks(req: any, res: any) {
         position: p.position as string,
         season_avg: seasonAvg,
         rolling_avg: rollingAvg,
-        streak_count: window,
+        streak_count: streakCount,
         todays_line: line.line,
         todays_implied_prob: line.implied_prob,
       };
@@ -441,12 +468,12 @@ export async function getPerfectStreaks(req: any, res: any) {
       };
     });
 
-    // ── G. Sort by opponent league_rank DESC, then season_avg DESC, top 10
+    // ── G. Sort by streak_count DESC, then by opponent league_rank DESC as tiebreaker
     enriched.sort((a, b) => {
+      if (b.streak_count !== a.streak_count) return b.streak_count - a.streak_count;
       const ar = a.opponent?.league_rank ?? -1;
       const br = b.opponent?.league_rank ?? -1;
-      if (br !== ar) return br - ar;
-      return (b.season_avg ?? 0) - (a.season_avg ?? 0);
+      return br - ar;
     });
 
     res.json({

@@ -15,15 +15,8 @@ export async function getTopTrending(req: any, res: any) {
   try {
     const today = new Date().toISOString().slice(0, 10);
 
-    // Fetch trending rows, today's games, and player availability in parallel
-    const [trendsResult, espnResult, gamesResult] = await Promise.all([
-      supabaseAdmin
-        .from('nba_trends')
-        .select('player_id, stat, window_size, trend_val, rolling_avg, season_avg, players(name, team, position)')
-        .order('trend_val', { ascending: false })
-        .eq('window_size', 10)
-        .in('stat', VALID_STAT_IDS)
-        .limit(80),
+    // Step 1: get today's slate teams from ESPN + game ids in parallel
+    const [espnResult, gamesResult] = await Promise.all([
       fetch('https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard')
         .then(r => r.ok ? r.json() : null)
         .catch(() => null),
@@ -34,14 +27,9 @@ export async function getTopTrending(req: any, res: any) {
         .eq('league_id', 1),
     ]);
 
-    if (trendsResult.error) throw trendsResult.error;
-
-    // Build set of teams playing today from ESPN
     const todayTeams = new Set<string>();
-    const espnEvents = (espnResult as any)?.events || [];
-    for (const event of espnEvents) {
-      const comp = event.competitions?.[0];
-      for (const c of (comp?.competitors || [])) {
+    for (const event of ((espnResult as any)?.events || [])) {
+      for (const c of (event.competitions?.[0]?.competitors || [])) {
         const abbr = c.team?.abbreviation;
         if (abbr) todayTeams.add(abbr.toUpperCase());
       }
@@ -59,13 +47,26 @@ export async function getTopTrending(req: any, res: any) {
       for (const r of (outRows || [])) outIds.add(r.player_id);
     }
 
+    // Step 2: query trends pre-filtered to today's teams so the global top-N
+    // limit doesn't crowd out players from teams that happen to be lower-ranked
+    // overall (e.g. playoff teams after a quieter regular-season close).
+    let trendsQuery = supabaseAdmin
+      .from('nba_trends')
+      .select('player_id, stat, window_size, trend_val, rolling_avg, season_avg, players!inner(name, team, position)')
+      .order('trend_val', { ascending: false })
+      .eq('window_size', 10)
+      .in('stat', VALID_STAT_IDS)
+      .limit(300);
+
+    if (todayTeams.size > 0) {
+      trendsQuery = trendsQuery.in('players.team', [...todayTeams]);
+    }
+
+    const trendsResult = await trendsQuery;
+    if (trendsResult.error) throw trendsResult.error;
+
     const rows = (trendsResult.data || []) as any[];
-    const filtered = todayTeams.size > 0
-      ? rows.filter(row => {
-          const team = (row.players?.team || '').toUpperCase();
-          return todayTeams.has(team) && !outIds.has(row.player_id);
-        })
-      : rows.filter(row => !outIds.has(row.player_id));
+    const filtered = rows.filter(row => !outIds.has(row.player_id));
 
     // Deduplicate: one entry per player, their highest-z_score stat
     const topPerPlayer = new Map<number, any>();
@@ -360,6 +361,29 @@ export async function getTodaysPicks(req: any, res: any) {
   try {
     const today = new Date().toISOString().slice(0, 10);
 
+    // Find nearest upcoming date that has picks, so a late-night UTC rollover
+    // doesn't blank the card when the pipeline ran for the previous calendar day.
+    const { data: nearestRow } = await supabaseAdmin
+      .from('pick_results')
+      .select('game_date')
+      .gte('game_date', today)
+      .order('game_date', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    // Fall back to the most recent past date if nothing upcoming
+    const { data: pastRow } = !nearestRow
+      ? await supabaseAdmin
+          .from('pick_results')
+          .select('game_date')
+          .lt('game_date', today)
+          .order('game_date', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+      : { data: null };
+
+    const pickDate = nearestRow?.game_date ?? pastRow?.game_date ?? today;
+
     const { data: pickRows, error } = await supabaseAdmin
       .from('pick_results')
       .select(
@@ -367,14 +391,14 @@ export async function getTodaysPicks(req: any, res: any) {
         'sample_size, confidence_score, implied_prob, edge, ' +
         'conditions_matched, total_conditions'
       )
-      .eq('game_date', today)
+      .eq('game_date', pickDate)
       .eq('prop_type', 'player')
       .order('confidence_score', { ascending: false });
 
     if (error) throw error;
 
     if (!pickRows || pickRows.length === 0) {
-      return res.json({ success: true, data: { topPick: null, allPicks: [] } });
+      return res.json({ success: true, data: { topPick: null, allPicks: [], gameDate: pickDate } });
     }
 
     const playerIds = [...new Set((pickRows as any[]).map((r) => r.entity_id))];
@@ -432,7 +456,7 @@ export async function getTodaysPicks(req: any, res: any) {
     res.json({
       success: true,
       data: {
-        gameDate: today,
+        gameDate: pickDate,
         topPick: picks[0] ?? null,
         allPicks: picks,
       },

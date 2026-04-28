@@ -31,13 +31,17 @@ from typing import Optional
 
 from analytics.db.connection import supabase
 from analytics.engine.backtest import backtest_player, backtest_game_prop, backtest_winner, build_tgs_cache, load_completed_games
-from analytics.engine.scorer import score, MIN_HIT_RATE, MIN_EDGE
+from analytics.engine.scorer import score, MIN_HIT_RATE, MIN_EDGE, MAX_IMPLIED_PROB
 from analytics.kalshi.client import KalshiClient
 from analytics.screener.screen import screen_player_candidates, screen_game_candidates
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
-MIN_CONFIDENCE = 70
+MIN_CONFIDENCE = 55
+
+# Minimum implied probability — excludes long-shot bracket markets (e.g. 1%)
+# where the market assigns near-zero probability, making edge estimates meaningless.
+MIN_IMPLIED_PROB = 0.40
 
 # Minimum prop line per stat — filters out garbage low lines from Kalshi
 MIN_PROP_LINE: dict[str, float] = {
@@ -372,6 +376,10 @@ def generate_picks(game_date: date, mock_kalshi: bool = False) -> list[dict]:
                 if line_val < MIN_PROP_LINE.get(stat, 0):
                     continue
 
+                # Skip long-shot bracket markets where market probability is near zero
+                if implied_prob < MIN_IMPLIED_PROB:
+                    continue
+
                 # Backtest
                 bt = backtest_player(player_id, stat, line_val, date_str)
                 if bt is None:
@@ -447,6 +455,10 @@ def generate_picks(game_date: date, mock_kalshi: bool = False) -> list[dict]:
                 line_val = line_entry["line"]
                 implied_prob = line_entry["implied_prob"]
                 is_first_half = line_entry.get("is_first_half", False)
+
+                # Skip long-shot bracket markets
+                if implied_prob < MIN_IMPLIED_PROB:
+                    continue
 
                 if prop_type == "winner":
                     bt = backtest_winner(game_id, date_str)

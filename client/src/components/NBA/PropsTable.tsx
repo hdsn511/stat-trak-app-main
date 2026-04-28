@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { cn } from '@/lib/utils'
 import { TopPickPlayer, TopPickGame, TopPicksResponse } from '@/services/api'
 
@@ -24,7 +24,16 @@ interface PropsTableProps {
 
 export default function PropsTable({ picks }: PropsTableProps) {
   const [propTab, setPropTab] = useState<PropTab>('player')
-  const [bucket, setBucket] = useState<BucketTab>(50)
+  const [bucket, setBucket] = useState<BucketTab>(70)
+
+  // Auto-select the first bucket that has picks when data loads
+  useEffect(() => {
+    if (!picks?.player?.length) return
+    const probs = picks.player.map(p => p.implied_prob)
+    for (const b of [70, 80, 60, 90, 50] as BucketTab[]) {
+      if (probs.some(prob => inBucket(prob, b))) { setBucket(b); return }
+    }
+  }, [picks])
 
   const playerRows: TopPickPlayer[] = (picks?.player ?? [])
     .filter(p => inBucket(p.implied_prob, bucket))

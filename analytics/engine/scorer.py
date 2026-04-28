@@ -23,18 +23,25 @@ from analytics.db.connection import supabase  # noqa: F401 — available for fut
 
 # ── Tunable constants ────────────────────────────────────────────────────────────
 
-MIN_HIT_RATE = 0.82
+MIN_HIT_RATE = 0.75
 # Hard floor for historical hit rate (before any adjustment).
-# Below 82% we decline to recommend the pick regardless of edge or sample.
+# Below 75% we decline to recommend the pick regardless of edge or sample.
 # Raise this to be more selective; lower it to generate more picks at higher risk.
 
-MIN_EDGE = 0.08
+MIN_EDGE = 0.05
 # Minimum edge in percentage points (hit_rate_adjusted - implied_prob).
-# 8 points means we need at least 8% more probability than the market implies.
+# 5 points means we need at least 5% more probability than the market implies.
 # This ensures we only recommend plays where the market is meaningfully mispriced.
 # Raise to require larger mispricings; lower to capture tighter edges.
 
-MIN_SAMPLE_SIZE = 10
+MAX_IMPLIED_PROB = 0.88
+# Hard ceiling on Kalshi implied probability. Props above this are already
+# efficiently priced "locks" — the market has priced in the likely outcome and
+# there is no exploitable information edge. This prevents 90%+ priced props from
+# ever becoming Pick of the Day, even if the historical hit rate is exceptional.
+# Lower to be more conservative; raise (max 1.0) to allow higher-odds props.
+
+MIN_SAMPLE_SIZE = 8
 # Hard floor for number of historical games in the backtest.
 # Below 10 samples, any hit rate is statistically unreliable.
 # Should match (or be >= to) analytics.engine.backtest.MIN_SAMPLE_SIZE.
@@ -50,6 +57,26 @@ CONDITION_BONUS_MAX = 8
 # Scales linearly: 3/5 conditions = 3/5 * 8 = 4.8 bonus points.
 # Rewards picks that were matched under tight, highly-comparable conditions.
 # Increase to favour context-rich picks more strongly.
+
+EDGE_BONUS_SCALE = 150
+# Multiplier applied to the raw edge (adjusted_rate - implied_prob) to produce
+# a confidence bonus. Rewards larger mispricings so POTD selection gravitates
+# toward high-value plays rather than just high hit-rate plays.
+# e.g. 10% edge → 15 bonus points (capped at EDGE_BONUS_CAP).
+
+EDGE_BONUS_CAP = 10
+# Maximum bonus points from the edge component. Caps outsized bonuses when
+# edge is very large (which could otherwise dominate the confidence score).
+
+IMPLIED_PROB_PENALTY_THRESHOLD = 0.65
+# Implied probabilities above this value incur a confidence penalty.
+# Picks above 65% implied probability begin to lose bonus points so
+# POTD selection prefers the mid-range sweet spot (55–75% implied).
+
+IMPLIED_PROB_PENALTY_SCALE = 30
+# Penalty points per unit of implied_prob above the threshold.
+# e.g. implied=0.75 → (0.75-0.65)*30 = 3pt penalty
+#      implied=0.82 → (0.82-0.65)*30 = 5.1pt penalty (near hard cap)
 
 B2B_PENALTY_STATS = ("pts",)
 # Stats that receive a downward adjustment when the player is on a
@@ -108,6 +135,12 @@ def score(
     if hit_rate < MIN_HIT_RATE:
         return {"confidence": 0, "edge": 0, "reason": "low_hit_rate"}
 
+    # ── Hard disqualifier: market-efficient props ─────────────────────────────
+    # Props priced above MAX_IMPLIED_PROB are already "locked in" by the market.
+    # Recommending them offers no exploitable edge regardless of hit rate.
+    if implied_prob > MAX_IMPLIED_PROB:
+        return {"confidence": 0, "edge": 0, "reason": "high_implied_prob"}
+
     # ── B2B penalty ──────────────────────────────────────────────────────────
     adjusted_rate = hit_rate
     if days_rest == 0 and stat in B2B_PENALTY_STATS:
@@ -128,9 +161,13 @@ def score(
     sample_weight = min(1.0, sample_size / SAMPLE_WEIGHT_TARGET)
     # Condition bonus: proportional to how many conditions were active.
     condition_bonus = (conditions_matched / total_conditions) * CONDITION_BONUS_MAX
+    # Edge bonus: rewards larger market mispricings so POTD favours value plays.
+    edge_bonus = min(edge * EDGE_BONUS_SCALE, float(EDGE_BONUS_CAP))
+    # Implied-probability penalty: discounts picks near the market-efficient ceiling.
+    ip_penalty = max(0.0, implied_prob - IMPLIED_PROB_PENALTY_THRESHOLD) * IMPLIED_PROB_PENALTY_SCALE
 
-    confidence = (base * sample_weight) + condition_bonus
-    confidence = min(confidence, 100.0)
+    confidence = (base * sample_weight) + condition_bonus + edge_bonus - ip_penalty
+    confidence = max(0.0, min(confidence, 100.0))
 
     # ── First-half cap ───────────────────────────────────────────────────────
     if is_first_half:
@@ -184,9 +221,9 @@ def _run_self_test() -> None:
             "expect": "FAIL insufficient_sample",
         },
         {
-            "label": "Case 3: B2B penalty -- 84% hit, 25 games, 0 rest, pts",
+            "label": "Case 3: B2B penalty -- 78% hit, 25 games, 0 rest, pts",
             "kwargs": dict(
-                hit_rate=0.84,
+                hit_rate=0.78,
                 sample_size=25,
                 conditions_matched=4,
                 total_conditions=5,
@@ -195,7 +232,7 @@ def _run_self_test() -> None:
                 stat="pts",
                 is_first_half=False,
             ),
-            # 0.84 * 0.93 = 0.7812 < MIN_HIT_RATE 0.82 -> FAIL
+            # 0.78 * 0.93 = 0.7254 < MIN_HIT_RATE 0.75 -> FAIL
             "expect": "FAIL low_hit_rate after B2B penalty",
         },
         {
@@ -205,13 +242,43 @@ def _run_self_test() -> None:
                 sample_size=20,
                 conditions_matched=5,
                 total_conditions=5,
-                implied_prob=0.80,
+                implied_prob=0.81,
                 days_rest=2,
                 stat="pts",
                 is_first_half=False,
             ),
-            # edge = 0.85 - 0.80 = 0.05 < MIN_EDGE 0.08
+            # edge = 0.85 - 0.81 = 0.04 < MIN_EDGE 0.05 -> FAIL
             "expect": "FAIL insufficient_edge",
+        },
+        {
+            "label": "Case 5: High implied prob 90% (should FAIL high_implied_prob)",
+            "kwargs": dict(
+                hit_rate=0.98,
+                sample_size=25,
+                conditions_matched=5,
+                total_conditions=5,
+                implied_prob=0.90,
+                days_rest=2,
+                stat="pts",
+                is_first_half=False,
+            ),
+            # implied_prob 0.90 > MAX_IMPLIED_PROB 0.82 -> FAIL
+            "expect": "FAIL high_implied_prob",
+        },
+        {
+            "label": "Case 6: Value pick vs safe pick -- edge bonus lifts confidence",
+            "kwargs": dict(
+                hit_rate=0.85,
+                sample_size=25,
+                conditions_matched=4,
+                total_conditions=5,
+                implied_prob=0.60,
+                days_rest=2,
+                stat="pts",
+                is_first_half=False,
+            ),
+            # edge = 0.25 -> edge_bonus = min(0.25*150, 10) = 10
+            "expect": "PASS with high edge bonus",
         },
     ]
 

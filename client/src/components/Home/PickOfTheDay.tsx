@@ -43,6 +43,9 @@ export default function PickOfTheDay() {
   const hitPct = Math.round(pick.hitRate * 100);
   const mktPct = Math.round(pick.impliedProb * 100);
   const edgePct = Math.round(pick.edge * 100);
+  const condStr = pick.conditionsMatched != null && pick.totalConditions != null
+    ? `${pick.conditionsMatched}/${pick.totalConditions} ctx`
+    : null;
 
   const formattedDate = gameDate
     ? new Date(gameDate + "T12:00:00").toLocaleDateString("en-US", {
@@ -116,11 +119,11 @@ export default function PickOfTheDay() {
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <span className="text-[9px] text-gray-600 font-condensed uppercase tracking-wider">
-                MKT <span className="font-mono">{mktPct}%</span>
+                MARKET <span className="font-mono text-gray-500">{mktPct}%</span>
               </span>
               <span className="text-[9px] font-bold text-mint font-condensed">
-                HIT <span className="font-mono">{hitPct}%</span>{" "}
-                <span className="text-mint/50 font-mono">+{edgePct}%</span>
+                HIT RATE <span className="font-mono">{hitPct}%</span>{" "}
+                <span className="text-mint/60 font-mono">+{edgePct}%</span>
               </span>
             </div>
             <div className="relative h-1 bg-[#1A1A1A] rounded-full overflow-hidden">
@@ -133,6 +136,17 @@ export default function PickOfTheDay() {
                 style={{ width: `${hitPct}%` }}
               />
             </div>
+            {/* Context line */}
+            <div className="flex items-center justify-between pt-0.5">
+              <span className="text-[9px] text-gray-700 font-condensed">
+                {pick.sampleSize != null ? `${pick.sampleSize} similar games` : ""}
+              </span>
+              {condStr && (
+                <span className="text-[9px] text-gray-700 font-condensed">
+                  {condStr} matched
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
@@ -141,8 +155,11 @@ export default function PickOfTheDay() {
           <div className="text-[76px] font-black text-mint font-display leading-none text-glow-mint tabular-nums">
             {confidenceInt}
           </div>
-          <div className="text-[11px] text-gray-600 mt-0.5 font-condensed tracking-wide text-right">
+          <div className="text-[10px] text-gray-600 mt-0.5 font-condensed tracking-wide text-right">
             CONF
+          </div>
+          <div className="text-[8px] text-gray-700 font-condensed text-right leading-tight max-w-[72px] mt-0.5">
+            hit rate · depth · context
           </div>
         </div>
 

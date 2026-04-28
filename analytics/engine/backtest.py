@@ -27,38 +27,60 @@ from analytics.db.connection import supabase, POSITION_GROUP_MAP  # noqa: F401
 
 # ── Tunable constants ────────────────────────────────────────────────────────────
 
-USG_BUCKET_WIDTH = 0.03
+USG_BUCKET_WIDTH = 0.06
 # +/- usage rate bucket applied when filtering historical games.
 # Wider = more matching samples but noisier comparison (less context-alike).
-# Tighter = fewer samples but purer context match. 0.03 ~ 3 percentage points.
+# Tighter = fewer samples but purer context match.
+# 0.06 (6pp) reflects that today's condition is a 5-game rolling average while
+# historical player_game_conditions stores single-game usg_pct, which has ~5-8pp
+# game-to-game std dev. A ±3pp window was too tight for this rolling-vs-single mismatch.
 
-PACE_BUCKET_WIDTH = 3.0
+PACE_BUCKET_WIDTH = 5.0
 # +/- pace bucket (possessions per 48 min).
-# 3.0 covers roughly one standard deviation of game-to-game pace variation.
+# Widened from 3.0 to 5.0 for the same rolling-vs-single-game mismatch reason as USG.
+# Single-game pace has ~5-7 possession std dev; rolling avg is smoother.
 
-OFF_RATING_BUCKET_WIDTH = 3.0
+OFF_RATING_BUCKET_WIDTH = 10.0
 # +/- offensive rating bucket used when matching team conditions for game props.
-# Tighter values isolate high/low-offense environments more strictly.
+# Widened to 10.0 because during the playoffs the team pool is small and unique
+# rolling stats would yield zero matches at ±3.0 across four conditions at once.
 
-DEF_RATING_BUCKET_WIDTH = 3.0
+DEF_RATING_BUCKET_WIDTH = 10.0
 # +/- defensive rating bucket for game props.
 # Mirrors OFF_RATING_BUCKET_WIDTH; tune together for consistent strictness.
 
-COMBINED_PACE_BUCKET_WIDTH = 5.0
+COMBINED_PACE_BUCKET_WIDTH = 8.0
 # +/- combined pace (home_pace + away_pace) bucket for game-level props.
 # Wider than per-team because combined pace has higher natural variance.
 
-MIN_SAMPLE_SIZE = 10
+MATCHUP_RANK_WINDOW = 12
+# Opponent defensive rank window for player prop matchup filtering.
+# Historical games are included only when |today_rank - hist_rank| <= this value.
+# Replaces the previous 3-tier (tough/mid/soft) system which had hard cliffs at
+# rank 10 and 20 boundaries. A window of 12 gives broader coverage during the
+# playoffs when sample sizes are thin.
+# Raise for more coverage; lower for stricter matching.
+
+MAX_DAYS_REST = 10
+# Historical games with days_rest > this value are excluded from the sample.
+# Values above 10 indicate cross-season rows (first game back from summer break,
+# 100-300+ days) which are meaningless context comparisons against mid-season rest.
+# These account for ~66% of player_game_conditions rows and pollute the "extended"
+# rest bucket, causing the rest filter to discard nearly all valid candidates.
+
+MIN_SAMPLE_SIZE = 8
 # Hard floor. If fewer than this many matching historical games are found,
 # we return None rather than report an unreliable hit rate.
 # Increase to be more conservative; decrease to get more coverage at the
 # cost of statistical reliability.
 
-CONDITION_DROP_ORDER = ["home_away", "matchup_tier", "rest"]
+CONDITION_DROP_ORDER = ["home_away", "matchup_rank", "rest"]
 # When the sample is too small, we relax conditions in this order.
 # Items earlier in the list are considered less predictive and are dropped first.
 # "home_away" is least predictive; "rest" affects fatigue most directly.
 # Never touches usg_pct or pace — those are the core context signals.
+# Note: "rest" is 3rd but is effectively never reached because n_active hits
+# MIN_CONDITIONS_ACTIVE=3 before it can be dropped — rest is always active.
 
 MIN_CONDITIONS_ACTIVE = 3
 # We never loosen below this many active conditions.
@@ -66,48 +88,61 @@ MIN_CONDITIONS_ACTIVE = 3
 # similar to today's context, and the hit rate would be noise.
 
 STAT_COLUMN_MAP = {
-    "pts": "points",
-    "reb": "rebounds",
-    "ast": "assists",
+    "pts":  "points",
+    "reb":  "rebounds",
+    "ast":  "assists",
     "fg3m": "three_points_made",
 }
 # Maps API-facing stat abbreviations to the actual column names in nba_player_stats.
 # Add entries here as new stat types are supported by the pipeline.
+
+STAT_OPP_RANK_COL = {
+    "pts":  "opp_def_rank_position",
+    "reb":  "opp_reb_rank_position",
+    "ast":  "opp_ast_rank_position",
+    "fg3m": "opp_fg3m_rank_position",
+}
+# Maps stat abbreviations to the daily_conditions column holding the opponent's
+# position-defense rank for that specific stat. Using a stat-specific rank
+# means a guard's fg3m backtest matches games where the opponent was also a
+# good/bad 3PT defender, not just a good overall G-position defender.
 
 
 # ── Helper functions ─────────────────────────────────────────────────────────────
 
 def _rest_category(days_rest: int) -> str:
     """
-    Bucket days of rest into three qualitative categories.
+    Bucket days of rest into four qualitative categories.
 
-    0  days -> "b2b"    (back-to-back; highest fatigue)
-    1  day  -> "short"  (minimal recovery)
-    2+ days -> "normal" (standard rest)
+    0    days -> "b2b"      (back-to-back; highest fatigue)
+    1    day  -> "short"    (minimal recovery)
+    2-3  days -> "normal"   (standard rest between games)
+    4+   days -> "extended" (extra recovery after long breaks)
     """
     if days_rest == 0:
         return "b2b"
     if days_rest == 1:
         return "short"
-    return "normal"
+    if days_rest <= 3:
+        return "normal"
+    return "extended"
 
 
-def _matchup_tier(opp_rank: Optional[int]) -> str:
+def _matchup_rank_close(today_rank: Optional[int], hist_rank: Optional[int]) -> bool:
     """
-    Convert an opponent defensive rank (1=best, 30=worst) into a tier label.
+    Return True when the historical opponent's defensive rank is within
+    MATCHUP_RANK_WINDOW positions of today's opponent.
 
-    1-10  -> "tough"   (top-10 defense by position)
-    11-20 -> "mid"     (middle-of-the-road defense)
-    21-30 -> "soft"    (bottom-10 defense, favorable matchup)
-    None  -> "unknown" (rank data unavailable)
+    Replaces the old 3-tier (tough/mid/soft) approach, which created hard
+    context cliffs at ranks 10 and 20. A continuous window eliminates the
+    cliff effect: rank-10 vs rank-11 opponents are now correctly treated as
+    similar contexts rather than different tiers.
+
+    Returns False when either rank is None (data unavailable).
     """
-    if opp_rank is None:
-        return "unknown"
-    if 1 <= opp_rank <= 10:
-        return "tough"
-    if 11 <= opp_rank <= 20:
-        return "mid"
-    return "soft"
+    if today_rank is None or hist_rank is None:
+        return False
+    return abs(today_rank - hist_rank) <= MATCHUP_RANK_WINDOW
 
 
 # ── Player prop backtester ───────────────────────────────────────────────────────
@@ -142,7 +177,8 @@ def backtest_player(
         supabase.table("daily_conditions")
         .select(
             "rolling_usg_5g,rolling_pace_5g,days_rest,home_away,"
-            "opp_def_rank_position,game_id"
+            "opp_def_rank_position,opp_reb_rank_position,"
+            "opp_ast_rank_position,opp_fg3m_rank_position,game_id"
         )
         .eq("player_id", player_id)
         .eq("game_date", game_date)
@@ -162,8 +198,12 @@ def backtest_player(
     today_pace = dc.get("rolling_pace_5g")
     today_rest = dc.get("days_rest")
     today_home_away = dc.get("home_away")
-    today_opp_rank = dc.get("opp_def_rank_position")
     today_game_id = dc.get("game_id")
+
+    # Use stat-specific opponent defense rank for matchup filtering.
+    # Falls back to the pts-based rank if the specific column is missing/null.
+    rank_col = STAT_OPP_RANK_COL.get(stat, "opp_def_rank_position")
+    today_opp_rank = dc.get(rank_col) or dc.get("opp_def_rank_position")
 
     # Usage and pace are the core numeric anchors — bail without them.
     if today_usg is None or today_pace is None:
@@ -183,13 +223,12 @@ def backtest_player(
     pace_lo = today_pace - PACE_BUCKET_WIDTH
     pace_hi = today_pace + PACE_BUCKET_WIDTH
     today_rest_cat = _rest_category(today_rest)
-    today_matchup_tier = _matchup_tier(today_opp_rank)
 
     # Condition state: 5 total. usg_pct and pace are always active.
     # The droppable conditions start active and may be removed.
     droppable = {
         "home_away": True,
-        "matchup_tier": True,
+        "matchup_rank": True,
         "rest": True,
     }
 
@@ -209,6 +248,7 @@ def backtest_player(
             .lte("usg_pct", usg_hi)
             .gte("pace", pace_lo)
             .lte("pace", pace_hi)
+            .lte("days_rest", MAX_DAYS_REST)  # exclude cross-season openers
         )
 
         # Exclude today's game (we don't know the result yet)
@@ -218,7 +258,7 @@ def backtest_player(
         pgc_result = q.execute()
         candidate_rows = pgc_result.data or []
 
-        # ── Filter rest and matchup_tier in Python ───────────────────────────
+        # ── Filter rest and home_away in Python ──────────────────────────────
         # (Supabase doesn't natively support enum-bucket comparisons.)
         filtered_game_ids: list[int] = []
         for row in candidate_rows:
@@ -233,34 +273,32 @@ def backtest_player(
                 if row.get("home_away") != today_home_away:
                     continue
 
-            # Matchup tier: requires a daily_conditions lookup per game to get
-            # the opponent's defensive rank at that time. To avoid N+1 queries
-            # we batch-fetch the opp team ids and resolve tier via the
-            # opponent_position_defense table at game_date granularity.
-            # For now, we resolve tier via a pre-joined approach using
-            # the opponent_team_id stored in player_game_conditions and
-            # the daily_conditions.opp_def_rank_position at each game date.
-            # (Full multi-game batch lookup handled below.)
             filtered_game_ids.append(row["game_id"])
 
-        # ── Matchup tier filtering (batch) ───────────────────────────────────
-        if droppable["matchup_tier"] and filtered_game_ids and today_matchup_tier != "unknown":
-            # Fetch opp_def_rank_position for this player at each candidate game
-            tier_result = (
+        # ── Matchup rank filtering (batch) ────────────────────────────────────
+        # Uses a ±MATCHUP_RANK_WINDOW window instead of the old 3-tier system.
+        # Only runs when today's rank is known and the condition is active.
+        if droppable["matchup_rank"] and filtered_game_ids and today_opp_rank is not None:
+            # Batch-fetch stat-specific opp rank for this player at each candidate game.
+            # rank_col is the same stat-specific column used for today's rank so both
+            # sides of the comparison use the same defensive metric.
+            rank_result = (
                 supabase.table("daily_conditions")
-                .select("game_id,opp_def_rank_position")
+                .select(
+                    "game_id,opp_def_rank_position,"
+                    "opp_reb_rank_position,opp_ast_rank_position,opp_fg3m_rank_position"
+                )
                 .eq("player_id", player_id)
                 .in_("game_id", filtered_game_ids)
                 .execute()
             )
-            tier_map: dict[int, str] = {}
-            for tr in (tier_result.data or []):
-                gid = tr["game_id"]
-                tier_map[gid] = _matchup_tier(tr.get("opp_def_rank_position"))
-
+            rank_map: dict[int, Optional[int]] = {
+                tr["game_id"]: (tr.get(rank_col) or tr.get("opp_def_rank_position"))
+                for tr in (rank_result.data or [])
+            }
             filtered_game_ids = [
                 gid for gid in filtered_game_ids
-                if tier_map.get(gid, "unknown") == today_matchup_tier
+                if _matchup_rank_close(today_opp_rank, rank_map.get(gid))
             ]
 
         sample_size = len(filtered_game_ids)
@@ -320,7 +358,7 @@ def backtest_player(
         "usg_pct": "active",
         "pace": "active",
         "home_away": "active" if droppable["home_away"] else "dropped",
-        "matchup_tier": "active" if droppable["matchup_tier"] else "dropped",
+        "matchup_rank": "active" if droppable["matchup_rank"] else "dropped",
         "rest": "active" if droppable["rest"] else "dropped",
     }
 
@@ -337,38 +375,63 @@ def backtest_player(
 # ── Shared data loaders (call once per run, pass to backtest_game_prop) ──────────
 
 def build_tgs_cache() -> dict:
-    """Load all team_game_stats into {game_id: {team_id: {pace, off_rating, def_rating}}}."""
-    result = (
-        supabase.table("team_game_stats")
-        .select("team_id,game_id,pace,off_rating,def_rating")
-        .execute()
-    )
+    """Load all team_game_stats into {game_id: {team_id: {pace, off_rating, def_rating}}}.
+
+    Uses manual pagination to bypass PostgREST's 1000-row default cap.
+    """
     cache: dict[int, dict[int, dict]] = {}
-    for row in (result.data or []):
-        cache.setdefault(row["game_id"], {})[row["team_id"]] = {
-            "pace": row.get("pace"),
-            "off_rating": row.get("off_rating"),
-            "def_rating": row.get("def_rating"),
-        }
+    page, page_size = 0, 1000
+    while True:
+        start = page * page_size
+        result = (
+            supabase.table("team_game_stats")
+            .select("team_id,game_id,pace,off_rating,def_rating")
+            .range(start, start + page_size - 1)
+            .execute()
+        )
+        batch = result.data or []
+        for row in batch:
+            cache.setdefault(row["game_id"], {})[row["team_id"]] = {
+                "pace": row.get("pace"),
+                "off_rating": row.get("off_rating"),
+                "def_rating": row.get("def_rating"),
+            }
+        if len(batch) < page_size:
+            break
+        page += 1
     return cache
 
 
 def load_completed_games(before_date: str) -> list:
-    """Load all completed regular-season games before a date.
+    """Load all completed games (regular season + playoffs) before a date.
 
-    Excludes playoff/preseason games so they don't pollute historical
-    backtest baselines (different pace, rotations, intensity).
+    Excludes preseason games only. Including playoff history is necessary
+    during the postseason so that game prop backtests have any data at all —
+    the pace/rating condition filters will naturally select contextually
+    similar games regardless of game_type.
+
+    Uses manual pagination to bypass PostgREST's 1000-row default cap.
     """
-    result = (
-        supabase.table("games")
-        .select("id,home_team_id,away_team_id,home_score,away_score,game_date,game_type")
-        .lt("game_date", before_date)
-        .eq("game_type", "regular")
-        .not_.is_("home_score", "null")
-        .not_.is_("away_score", "null")
-        .execute()
-    )
-    return result.data or []
+    rows: list[dict] = []
+    page, page_size = 0, 1000
+    while True:
+        start = page * page_size
+        result = (
+            supabase.table("games")
+            .select("id,home_team_id,away_team_id,home_score,away_score,game_date,game_type")
+            .lt("game_date", before_date)
+            .neq("game_type", "preseason")
+            .not_.is_("home_score", "null")
+            .not_.is_("away_score", "null")
+            .range(start, start + page_size - 1)
+            .execute()
+        )
+        batch = result.data or []
+        rows.extend(batch)
+        if len(batch) < page_size:
+            break
+        page += 1
+    return rows
 
 
 # ── Game prop backtester ─────────────────────────────────────────────────────────
@@ -462,6 +525,7 @@ def backtest_game_prop(
     home_off_today = home_stats["off_rating"]
     away_off_today = away_stats["off_rating"]
     home_def_today = home_stats["def_rating"]
+    away_def_today = away_stats["def_rating"]
 
     # ── 3. Bulk-load ALL team_game_stats into memory (once per run) ─────────────
     _tgs = tgs_cache if tgs_cache is not None else build_tgs_cache()
@@ -489,7 +553,7 @@ def backtest_game_prop(
             continue  # No advanced stats for this game — skip
         if None in (home_row["pace"], away_row["pace"],
                     home_row["off_rating"], away_row["off_rating"],
-                    home_row["def_rating"]):
+                    home_row["def_rating"], away_row["def_rating"]):
             continue  # Incomplete stats
 
         h_pace = home_row["pace"]
@@ -498,6 +562,7 @@ def backtest_game_prop(
         h_off = home_row["off_rating"]
         a_off = away_row["off_rating"]
         h_def = home_row["def_rating"]
+        a_def = away_row["def_rating"]
 
         # Apply condition buckets
         if abs(combined_pace - combined_pace_today) > COMBINED_PACE_BUCKET_WIDTH:
@@ -507,6 +572,8 @@ def backtest_game_prop(
         if abs(a_off - away_off_today) > OFF_RATING_BUCKET_WIDTH:
             continue
         if abs(h_def - home_def_today) > DEF_RATING_BUCKET_WIDTH:
+            continue
+        if abs(a_def - away_def_today) > DEF_RATING_BUCKET_WIDTH:
             continue
 
         # Compute the actual prop value for this historical game
@@ -531,20 +598,21 @@ def backtest_game_prop(
     hits = sum(1 for v in matched_actuals if v > line)
     hit_rate = hits / sample_size
 
-    # Game props use 4 conditions (combined_pace, home_off, away_off, home_def)
-    conditions_matched = 4
+    # Game props use 5 conditions (combined_pace, home_off, away_off, home_def, away_def)
+    conditions_matched = 5
     condition_breakdown = {
         "combined_pace": "active",
         "home_off_rating": "active",
         "away_off_rating": "active",
         "home_def_rating": "active",
+        "away_def_rating": "active",
     }
 
     return {
         "hit_rate": hit_rate,
         "sample_size": sample_size,
         "conditions_matched": conditions_matched,
-        "total_conditions": 4,
+        "total_conditions": 5,
         "games_queried": len(historical_games),
         "condition_breakdown": condition_breakdown,
     }

@@ -95,11 +95,16 @@ def reconcile_picks(yesterday: date) -> None:
 
     # ── Resolve player props ─────────────────────────────────────────────────
     PROP_STAT_MAP = {
-        "points": "points",
-        "rebounds": "rebounds",
-        "assists": "assists",
-        "three_points_made": "three_points_made",
+        # Short-form keys (stored in pick_results.stat by generate.py)
+        "pts":  "points",
+        "reb":  "rebounds",
+        "ast":  "assists",
         "fg3m": "three_points_made",
+        # Long-form aliases for forward compatibility
+        "points":            "points",
+        "rebounds":          "rebounds",
+        "assists":           "assists",
+        "three_points_made": "three_points_made",
     }
 
     # ── Resolve game props ───────────────────────────────────────────────────
@@ -726,20 +731,25 @@ def compute_daily_conditions(games: list[dict], target_date: date) -> None:
         print("  No players to process. Skipping.")
         return
 
-    # Load latest opponent_position_defense snapshot
+    # Load latest opponent_position_defense snapshot (all 4 stat-specific ranks)
     opd_rows = (
         supabase.table("opponent_position_defense")
-        .select("team_id,position_group,league_rank,snapshot_date")
+        .select("team_id,position_group,league_rank,reb_rank,ast_rank,fg3m_rank,snapshot_date")
         .order("snapshot_date", desc=True)
         .execute()
     )
     # Keep only the latest snapshot per (team_id, position_group)
-    opd_map: dict[tuple[int, str], int] = {}
+    opd_map: dict[tuple[int, str], dict] = {}
     seen_opd: set[tuple[int, str]] = set()
     for row in (opd_rows.data or []):
         key = (row["team_id"], row["position_group"])
         if key not in seen_opd:
-            opd_map[key] = row["league_rank"]
+            opd_map[key] = {
+                "pts_rank":  row.get("league_rank"),
+                "reb_rank":  row.get("reb_rank"),
+                "ast_rank":  row.get("ast_rank"),
+                "fg3m_rank": row.get("fg3m_rank"),
+            }
             seen_opd.add(key)
 
     daily_rows: list[dict] = []
@@ -827,10 +837,10 @@ def compute_daily_conditions(games: list[dict], target_date: date) -> None:
         season_usg_vals = [r.get("usg_pct") for r in (season_usg_res.data or [])]
         season_avg_usg = _safe_avg(season_usg_vals)
 
-        # ── Opponent defense rank ─────────────────────────────────────
-        opp_def_rank: Optional[int] = None
+        # ── Opponent defense ranks (stat-specific) ───────────────────────
+        opd_data: dict = {}
         if pos_group:
-            opp_def_rank = opd_map.get((opp_team_id, pos_group))
+            opd_data = opd_map.get((opp_team_id, pos_group)) or {}
 
         daily_rows.append({
             "player_id": player_id,
@@ -848,7 +858,10 @@ def compute_daily_conditions(games: list[dict], target_date: date) -> None:
             "rolling_usg_5g": rolling_usg,
             "rolling_pace_5g": rolling_pace,
             "season_avg_usg": season_avg_usg,
-            "opp_def_rank_position": opp_def_rank,
+            "opp_def_rank_position":  opd_data.get("pts_rank"),
+            "opp_reb_rank_position":  opd_data.get("reb_rank"),
+            "opp_ast_rank_position":  opd_data.get("ast_rank"),
+            "opp_fg3m_rank_position": opd_data.get("fg3m_rank"),
         })
 
     if daily_rows:

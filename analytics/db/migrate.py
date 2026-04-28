@@ -45,7 +45,8 @@ CREATE_TABLES = [
         id BIGSERIAL PRIMARY KEY, team_id BIGINT REFERENCES teams(id),
         position_group VARCHAR(1), snapshot_date DATE NOT NULL,
         pts_allowed_pg REAL, reb_allowed_pg REAL, ast_allowed_pg REAL,
-        league_rank INTEGER,
+        fg3m_allowed_pg REAL,
+        league_rank INTEGER, reb_rank INTEGER, ast_rank INTEGER, fg3m_rank INTEGER,
         UNIQUE(team_id, position_group, snapshot_date)
     );
     """,
@@ -64,7 +65,9 @@ CREATE_TABLES = [
         rolling_ast_5g REAL, rolling_fg3m_5g REAL, rolling_min_5g REAL,
         rolling_pace_5g REAL, season_avg_usg REAL, days_rest INTEGER,
         home_away VARCHAR(4), opponent_team_id BIGINT REFERENCES teams(id),
-        opp_def_rank_position INTEGER, position_group VARCHAR(1),
+        opp_def_rank_position INTEGER, opp_reb_rank_position INTEGER,
+        opp_ast_rank_position INTEGER, opp_fg3m_rank_position INTEGER,
+        position_group VARCHAR(1),
         UNIQUE(player_id, game_date)
     );
     """,

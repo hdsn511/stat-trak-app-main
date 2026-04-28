@@ -231,15 +231,17 @@ def _fetch_and_insert_box_scores(
     # Query only the specific games we need — avoids PostgREST 1000-row default cap
     game_rows = (
         supabase.table("games")
-        .select("id,ext_id")
+        .select("id,ext_id,home_team_id,away_team_id")
         .eq("league_id", NBA_LEAGUE_ID)
         .in_("ext_id", regular_ext_ids)
         .execute()
     )
     game_map = {r["ext_id"]: r["id"] for r in (game_rows.data or [])}
+    game_teams = {r["id"]: (r["home_team_id"], r["away_team_id"]) for r in (game_rows.data or [])}
 
     stat_buffer: list[dict] = []
     position_updates: dict[int, str] = {}  # player_db_id -> position
+    score_updates: dict[int, dict] = {}
 
     def _si(val, default=0):
         if val is None:
@@ -268,6 +270,22 @@ def _fetch_and_insert_box_scores(
         except Exception as exc:
             print(f"  WARNING: parse error for game {ext_id}: {exc}")
             continue
+
+        try:
+            team_df = result.get_data_frames()[1]
+            team_pts: dict[str, int] = {}
+            for _, tr in team_df.iterrows():
+                t_ext = str(int(tr["teamId"]))
+                team_pts[t_ext] = int(tr.get("points") or 0)
+            if team_pts and game_db_id in game_teams:
+                home_db_t, away_db_t = game_teams[game_db_id]
+                pts_by_db = {team_map.get(ext): pts for ext, pts in team_pts.items()}
+                hs = pts_by_db.get(home_db_t)
+                aws = pts_by_db.get(away_db_t)
+                if hs is not None and aws is not None:
+                    score_updates[game_db_id] = {"home_score": hs, "away_score": aws}
+        except Exception:
+            pass
 
         print(f"    {ext_id}: {len(player_df)} player rows")
 
@@ -308,6 +326,11 @@ def _fetch_and_insert_box_scores(
         print(f"  Inserted {len(stat_buffer)} nba_player_stats rows for {date_str}.")
     else:
         print("  No box score rows to insert.")
+
+    if score_updates:
+        for gid, scores in score_updates.items():
+            supabase.table("games").update(scores).eq("id", gid).execute()
+        print(f"  Updated scores for {len(score_updates)} game(s).")
 
     # Flush position updates in batches
     if position_updates:
@@ -440,27 +463,38 @@ def backfill_completed_games(up_to: date) -> None:
                 print(f"  {date_str}: inserted {len(games_to_insert)} game(s).")
                 total_games += len(games_to_insert)
 
-        # Check whether box scores are already in nba_player_stats for this date
-        stats_exist = (
-            supabase.table("nba_player_stats")
-            .select("player_id")
+        # Per-game self-heal: only skip games that already have box scores
+        date_game_rows = (
+            supabase.table("games")
+            .select("id,ext_id")
             .eq("game_date", date_str)
-            .limit(1)
+            .eq("league_id", NBA_LEAGUE_ID)
             .execute()
         )
-        if stats_exist.data:
-            print(f"  {date_str}: box scores already present. Skipping fetch.")
-        else:
-            # Fetch game ext_ids for this date directly from DB (avoids format guessing)
-            date_game_rows = (
-                supabase.table("games")
-                .select("ext_id")
-                .eq("game_date", date_str)
-                .eq("league_id", NBA_LEAGUE_ID)
+        date_ext_ids = [r["ext_id"] for r in (date_game_rows.data or [])]
+        date_game_id_map = {r["ext_id"]: r["id"] for r in (date_game_rows.data or [])}
+
+        if not date_ext_ids:
+            current += timedelta(days=1)
+            continue
+
+        stats_game_ids: set[int] = set()
+        if date_game_id_map:
+            stats_res = (
+                supabase.table("nba_player_stats")
+                .select("game_id")
+                .in_("game_id", list(date_game_id_map.values()))
+                .limit(500)
                 .execute()
             )
-            date_ext_ids = [r["ext_id"] for r in (date_game_rows.data or [])]
-            _fetch_and_insert_box_scores(current, game_ext_ids=date_ext_ids)
+            stats_game_ids = {r["game_id"] for r in (stats_res.data or [])}
+
+        missing_ext_ids = [eid for eid in date_ext_ids if date_game_id_map.get(eid) not in stats_game_ids]
+        if not missing_ext_ids:
+            print(f"  {date_str}: all {len(date_ext_ids)} game(s) have box scores. Skipping.")
+        else:
+            print(f"  {date_str}: fetching box scores for {len(missing_ext_ids)}/{len(date_ext_ids)} game(s).")
+            _fetch_and_insert_box_scores(current, game_ext_ids=missing_ext_ids)
 
         current += timedelta(days=1)
         time.sleep(API_DELAY_SECONDS)

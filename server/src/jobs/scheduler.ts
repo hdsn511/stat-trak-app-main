@@ -69,6 +69,27 @@ function runPython(moduleArgs: string[], label: string): Promise<void> {
   });
 }
 
+function runNode(scriptArgs: string[], label: string): Promise<void> {
+  return new Promise((resolve) => {
+    log(`[cron:start] ${label}`);
+    const child = spawn('node', ['--env-file=.env', '--require', 'tsx/cjs', ...scriptArgs], {
+      cwd: path.resolve(REPO_ROOT, 'server'),
+      env: { ...process.env },
+    });
+    child.stdout.on('data', (d: Buffer) =>
+      log(`[${label}] ${d.toString().trimEnd()}`));
+    child.stderr.on('data', (d: Buffer) =>
+      log(`[${label}:err] ${d.toString().trimEnd()}`));
+    child.on('close', (code: number | null) =>
+      log(`[cron:done] ${label} (exit ${code ?? '?'})`));
+    child.on('error', (err: Error) => {
+      log(`[cron:spawn-error] ${label}: ${err.message}`);
+      resolve();
+    });
+    child.on('close', () => resolve());
+  });
+}
+
 export function startScheduler(): void {
   ensureLogDir();
   log('[cron] Scheduler starting — registering jobs...');
@@ -97,6 +118,15 @@ export function startScheduler(): void {
       } catch (err) {
         log(`[cron:error] slate day+${offset}: ${err}`);
       }
+    }
+  });
+
+  // 2:45am — recompute NBA trends (z-scores + rolling averages)
+  cron.schedule('45 2 * * *', async () => {
+    try {
+      await runNode(['src/scripts/runSync.ts'], 'computeTrends');
+    } catch (err) {
+      log(`[cron:error] computeTrends: ${err}`);
     }
   });
 
@@ -133,5 +163,5 @@ export function startScheduler(): void {
     }
   });
 
-  log(`[cron] Registered 5 jobs. PYTHON=${PYTHON}. REPO_ROOT=${REPO_ROOT}.`);
+  log(`[cron] Registered 6 jobs. PYTHON=${PYTHON}. REPO_ROOT=${REPO_ROOT}.`);
 }

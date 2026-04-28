@@ -1,0 +1,67 @@
+name: Nightly NBA Pipeline
+
+# Runs every night at 2:00am ET (6:00am UTC during EDT, 7:00am during EST).
+# Adjust the cron hour when daylight saving ends in November.
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  pipeline:
+    name: Nightly Pipeline
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      KALSHI_API_KEY: ${{ secrets.KALSHI_API_KEY }}
+      KALSHI_PRIVATE_KEY_PATH: ./kalshi_key.pem
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: analytics/requirements.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          pip install -r analytics/requirements.txt
+          npm ci --prefix server
+
+      - name: Write Kalshi PEM key
+        run: printf '%s' "$KEY" > server/kalshi_key.pem
+        env:
+          KEY: ${{ secrets.KALSHI_PRIVATE_KEY }}
+
+      # Step 1 — backfill any missed dates + fetch today's box scores + compute daily_conditions
+      - name: Nightly batch
+        run: python -m analytics.batch.nightly --date "$(date -u +%Y-%m-%d)"
+
+      # Step 2 — insert game rows for the next 7 days so Kalshi tickers can match
+      - name: Slate sync (next 7 days)
+        run: |
+          for i in 1 2 3 4 5 6 7; do
+            d=$(date -u -d "+${i} days" +%Y-%m-%d)
+            echo "--- Syncing slate for $d ---"
+            python -m analytics.batch.nightly --date "$d" || echo "WARN: slate sync failed for $d"
+          done
+
+      # Step 3 — recompute z-scores and rolling averages with fresh stats
+      - name: Compute NBA trends
+        working-directory: server
+        run: npm run sync-data
+
+      # Step 4 — fetch Kalshi lines + backtest + store picks
+      - name: Generate picks
+        run: python -m analytics.picks.generate --date "$(date -u +%Y-%m-%d)"

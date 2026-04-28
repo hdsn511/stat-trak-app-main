@@ -354,11 +354,16 @@ def build_tgs_cache() -> dict:
 
 
 def load_completed_games(before_date: str) -> list:
-    """Load all completed games before a date."""
+    """Load all completed regular-season games before a date.
+
+    Excludes playoff/preseason games so they don't pollute historical
+    backtest baselines (different pace, rotations, intensity).
+    """
     result = (
         supabase.table("games")
-        .select("id,home_team_id,away_team_id,home_score,away_score,game_date")
+        .select("id,home_team_id,away_team_id,home_score,away_score,game_date,game_type")
         .lt("game_date", before_date)
+        .eq("game_type", "regular")
         .not_.is_("home_score", "null")
         .not_.is_("away_score", "null")
         .execute()

@@ -47,7 +47,7 @@ from analytics.db.connection import (
 BREAK_EVERY_N_GAMES = 50       # Pause enrichment loop every N games
 BREAK_DURATION_SECONDS = 30    # How long to pause (rate-limit courtesy)
 TEST_GAME_LIMIT = 5            # Number of games to process in --test mode
-CURRENT_SEASON_STR = "2024-25" # Season string used for CommonTeamRoster
+CURRENT_SEASON_STR = "2025-26" # Season string used for CommonTeamRoster
 DAYS_REST_DEFAULT = 3          # Days rest assumed when no prior game found
 MINUTES_DEFAULT = 0            # Fallback minutes when parsing fails
 

@@ -109,7 +109,6 @@ def _store_daily_lines(
                 "game_date": _parse_ticker_game_date(entry.get("ticker", ""), date_str),
                 "prop_type": prop_type,
                 "entity_id": game_id,
-                "team_id": team_id,
                 "stat": prop_type,
                 "line": entry["line"],
                 "kalshi_price": entry["price"],

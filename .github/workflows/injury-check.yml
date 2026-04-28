@@ -1,0 +1,36 @@
+name: Injury Check
+
+# Runs hourly during NBA game hours (10am–11pm ET).
+# Two schedule entries because cron ranges don't wrap midnight UTC:
+#   10am–7pm ET  = 14:00–23:00 UTC
+#   8pm–11pm ET  = 00:00–03:00 UTC (next calendar day)
+on:
+  schedule:
+    - cron: '0 14-23 * * *'
+    - cron: '0 0-3 * * *'
+  workflow_dispatch:
+
+jobs:
+  injury-check:
+    name: Injury Check + Pick Invalidation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: analytics/requirements.txt
+
+      - name: Install Python deps
+        run: pip install -r analytics/requirements.txt
+
+      - name: Run injury check
+        run: python -m analytics.batch.injury_check --date "$(date -u +%Y-%m-%d)"

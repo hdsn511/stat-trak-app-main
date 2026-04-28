@@ -97,7 +97,7 @@ async function loadPlayerStats(playerIds: number[]): Promise<PlayerGameStat[]> {
       .select("game_id, player_id, team_id, points, rebounds, assists, three_points_made, fouls, minutes_played, game_date, games!inner(game_type)")
       .in("player_id", chunk)
       .gte("game_date", seasonStart)
-      .eq("games.game_type", "regular")
+      .in("games.game_type", ["regular", "playoff", "playin"])
       .gt("minutes_played", 0)
       .order("game_date", { ascending: false });
 

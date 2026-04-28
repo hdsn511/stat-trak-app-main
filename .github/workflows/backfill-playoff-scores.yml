@@ -1,0 +1,32 @@
+name: Backfill Playoff Scores (one-time)
+
+# Manual trigger only — run once to populate home_score/away_score for the
+# 32 playoff and 2 play-in games that have NULL scores in the games table.
+# After this runs successfully, the workflow can be deleted or left idle.
+on:
+  workflow_dispatch:
+
+jobs:
+  backfill:
+    name: Backfill Playoff Scores
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: analytics/requirements.txt
+
+      - name: Install Python deps
+        run: pip install -r analytics/requirements.txt
+
+      - name: Backfill playoff scores
+        run: python -m analytics.batch.backfill_playoff_scores

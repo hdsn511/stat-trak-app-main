@@ -1,0 +1,33 @@
+name: Reconcile Picks
+
+# Runs at noon ET daily (4:00pm UTC during EDT) to resolve yesterday's picks
+# once box scores from last night are in the DB.
+on:
+  schedule:
+    - cron: '0 16 * * *'
+  workflow_dispatch:
+
+jobs:
+  reconcile:
+    name: Reconcile Yesterday's Picks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: analytics/requirements.txt
+
+      - name: Install Python deps
+        run: pip install -r analytics/requirements.txt
+
+      - name: Reconcile picks
+        run: python -m analytics.batch.nightly --date "$(date -u -d '-1 day' +%Y-%m-%d)"

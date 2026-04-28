@@ -271,12 +271,14 @@ def _fetch_and_insert_box_scores(
             print(f"  WARNING: parse error for game {ext_id}: {exc}")
             continue
 
+        # Derive team totals by summing player points from player_df.
+        # V3 has no reliable separate team-totals frame; get_data_frames()[1]
+        # returns something other than final team scores.
         try:
-            team_df = result.get_data_frames()[1]
             team_pts: dict[str, int] = {}
-            for _, tr in team_df.iterrows():
-                t_ext = str(int(tr["teamId"]))
-                team_pts[t_ext] = int(tr.get("points") or 0)
+            for _, pr in player_df.iterrows():
+                t_ext = str(int(pr["teamId"]))
+                team_pts[t_ext] = team_pts.get(t_ext, 0) + int(pr.get("points") or 0)
             if team_pts and game_db_id in game_teams:
                 home_db_t, away_db_t = game_teams[game_db_id]
                 pts_by_db = {team_map.get(ext): pts for ext, pts in team_pts.items()}

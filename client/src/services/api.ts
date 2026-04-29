@@ -10,7 +10,13 @@ export interface TrendingPlayer {
   zScore: number
   rollingAvg: number
   windowSize: number
-  seasonAvg?: number
+  seasonAvg?: number | null
+  /**
+   * Driver chips explaining WHY the player is trending — derived from
+   * daily_conditions (usage spike, minutes bump, pace) + player_availability
+   * (teammate out → injury boost). Empty array when no drivers fire.
+   */
+  trendDrivers?: string[]
 }
 
 export interface PlayerSearchResult {
@@ -114,17 +120,54 @@ export interface TopPicksResponse {
   game: TopPickGame[]
 }
 
+export interface PotdConditionBreakdown {
+  usg_pct: 'active' | 'dropped'
+  pace: 'active' | 'dropped'
+  home_away: 'active' | 'dropped'
+  matchup_rank: 'active' | 'dropped'
+  rest: 'active' | 'dropped'
+}
+
+export interface PotdResponse {
+  game_date: string
+  prop_type: 'player' | 'winner' | 'spread' | 'total'
+  player_id: number | null
+  player_name: string | null
+  team: string | null
+  position: string | null
+  opponent: { team: string | null; team_name: string | null } | null
+  stat: string | null
+  stat_label: string | null
+  line: number
+  direction: 'over' | 'under'
+  hit_rate: number
+  confidence: number
+  edge: number
+  implied_prob: number
+  sample_size: number
+  conditions_matched: number
+  total_conditions: number
+  condition_breakdown: PotdConditionBreakdown | null
+  bullets: [string, string, string]
+}
+
 export interface PlayerStreakRow {
   player_id: number
   player_name: string
   team: string
   position: string
-  season_avg: number
-  rolling_avg: number
-  streak_count: number
+  /**
+   * Tiered Kalshi-style lines computed from the player's last 10 game values
+   * sorted ascending: line_100 = v0 (10/10 cleared), line_90 = v1 (9/10), etc.
+   * All lines snapped down to the nearest 0.5.
+   */
+  line_100: number
+  line_90: number
+  line_80: number
+  line_70: number
+  rolling_avg: number       // average over the 10-game window
+  games_used: number        // always 10
   opponent: { team: string; league_rank: number | null } | null
-  todays_line: number
-  todays_implied_prob: number
 }
 
 export interface GameStreakRow {
@@ -213,6 +256,75 @@ export interface TeamDetail {
   }
 }
 
+// ── Performance tracking ───────────────────────────────────────────────────
+
+export interface BucketStats {
+  bucket: number
+  label: string
+  total: number
+  settled: number
+  hits: number
+  misses: number
+  pending: number
+  hitRate: number | null
+  expectedRate: number
+  edgeVsMarket: number | null
+}
+
+export interface PickOutcome {
+  id: number
+  game_date: string
+  player_id: number | null
+  player_name: string | null
+  team: string | null
+  stat: string | null
+  stat_label: string | null
+  prop_type: string
+  pick_type: string
+  line: number | null
+  implied_prob: number | null
+  hit_rate: number | null
+  edge: number | null
+  confidence: number | null
+  did_hit: boolean | null
+  actual_result: number | null
+  bucket: number
+  is_potd: boolean
+}
+
+export interface SegmentStats {
+  total: number
+  settled: number
+  hits: number
+  misses: number
+  pending: number
+  hitRate: number | null
+}
+
+export interface PerformanceSummary {
+  period: { days: number; from: string; to: string }
+  overall: SegmentStats
+  buckets: BucketStats[]
+  playerProps: SegmentStats
+  gameProps: SegmentStats
+  potd: SegmentStats
+  recentPicks: PickOutcome[]
+}
+
+export interface StreakTierStats {
+  tier: '10/10' | '9/10' | '8/10' | '7/10'
+  hits: number
+  misses: number
+  total: number
+  hitRate: number | null
+}
+
+export interface StreakPerformanceSummary {
+  period: { days: number; from: string; to: string }
+  stat: string
+  tiers: StreakTierStats[]
+}
+
 async function get<T>(url: string): Promise<T> {
   const res = await fetch(url)
   const json = await res.json()
@@ -250,11 +362,13 @@ export const nbaApi = {
   getTopPicks: (limit: number = 5): Promise<TopPicksResponse> =>
     get(`${BASE}/nba/picks/top?limit=${limit}`),
 
+  getPotd: (): Promise<PotdResponse | null> =>
+    get(`${BASE}/nba/picks/potd`),
+
   getPlayerStreaks: (
-    stat: 'pts' | 'reb' | 'ast' | 'fg3m',
-    window: 3 | 5 | 10
+    stat: 'pts' | 'reb' | 'ast' | 'fg3m'
   ): Promise<PerfectStreaksResponse<PlayerStreakRow>> =>
-    get(`${BASE}/nba/streaks/perfect?type=player&stat=${stat}&window=${window}`),
+    get(`${BASE}/nba/streaks/perfect?type=player&stat=${stat}`),
 
   getGameStreaks: (
     stat: 'cover_spread' | 'over_total' | 'winner',
@@ -267,4 +381,12 @@ export const nbaApi = {
 
   getTeam: (id: number): Promise<TeamDetail> =>
     get(`${BASE}/nba/teams/${id}`),
+}
+
+export const performanceApi = {
+  getSummary: (days: number = 30): Promise<PerformanceSummary> =>
+    get(`${BASE}/performance/summary?days=${days}`),
+
+  getStreakPerformance: (days: number, stat: string): Promise<StreakPerformanceSummary> =>
+    get(`${BASE}/performance/streaks?days=${days}&stat=${stat}`),
 }

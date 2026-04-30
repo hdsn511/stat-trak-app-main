@@ -98,6 +98,8 @@ export interface TopPickPlayer {
   sample_size: number
   implied_prob: number
   opponent: { team: string | null; team_name: string | null } | null
+  did_hit: boolean | null
+  actual_result: number | null
 }
 
 export interface TopPickGame {

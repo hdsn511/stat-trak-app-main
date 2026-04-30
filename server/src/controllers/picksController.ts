@@ -11,6 +11,17 @@ const STAT_TO_COLUMN: Record<string, { col: string; statId: number }> = {
   fg3m: { col: 'three_points_made', statId: 3 },
 };
 
+// ESPN uses different abbreviations than the NBA API / our DB.
+const ESPN_ABBR_TO_DB: Record<string, string> = {
+  NY:   'NYK',
+  SA:   'SAS',
+  GS:   'GSW',
+  NO:   'NOP',
+  PHO:  'PHX',
+  BK:   'BKN',
+  UTAH: 'UTA',
+};
+
 // Resolve the nearest slate date with picks — upcoming first, then most recent past.
 async function findNearestPickDate(today: string): Promise<string> {
   const { data: upcoming } = await supabaseAdmin
@@ -64,7 +75,7 @@ export async function getTopPicks(req: any, res: any) {
       .from('pick_results')
       .select(
         'id,entity_id,stat,pick_type,prop_type,recommended_line,hit_rate,' +
-        'sample_size,confidence_score,implied_prob,edge'
+        'sample_size,confidence_score,implied_prob,edge,did_hit,actual_result'
       )
       .eq('game_date', pickDate)
       .order('confidence_score', { ascending: false });
@@ -80,24 +91,24 @@ export async function getTopPicks(req: any, res: any) {
       ['winner', 'spread', 'total'].includes(p.prop_type)
     );
 
-    // Dedupe game picks by (game_id, prop_type), preferring pick_type='safe'
+    // Dedupe game picks by (entity_id, prop_type), keeping highest confidence
     const bestPerGameProp = new Map<string, any>();
     for (const g of gameRows) {
       const key = `${g.entity_id}-${g.prop_type}`;
       const existing = bestPerGameProp.get(key);
-      if (!existing || (g.pick_type === 'safe' && existing.pick_type !== 'safe')) {
+      if (!existing || (g.confidence_score ?? 0) > (existing.confidence_score ?? 0)) {
         bestPerGameProp.set(key, g);
       }
     }
     const dedupedGameRows = Array.from(bestPerGameProp.values())
       .sort((a, b) => (b.confidence_score ?? 0) - (a.confidence_score ?? 0));
 
-    // ── Player side: dedupe by (entity_id, stat), prefer pick_type='safe'
+    // ── Player side: dedupe by (entity_id, stat), keeping highest confidence
     const bestPerPlayerStat = new Map<string, any>();
     for (const p of playerRows) {
       const key = `${p.entity_id}-${p.stat}`;
       const existing = bestPerPlayerStat.get(key);
-      if (!existing || (p.pick_type === 'safe' && existing.pick_type !== 'safe')) {
+      if (!existing || (p.confidence_score ?? 0) > (existing.confidence_score ?? 0)) {
         bestPerPlayerStat.set(key, p);
       }
     }
@@ -232,6 +243,8 @@ export async function getTopPicks(req: any, res: any) {
         sample_size: p.sample_size,
         implied_prob: p.implied_prob,
         opponent,
+        did_hit: p.did_hit ?? null,
+        actual_result: p.actual_result ?? null,
       };
     });
 
@@ -267,10 +280,29 @@ export async function getTopPicks(req: any, res: any) {
   }
 }
 
+// Tiered lines are always computed on a 10-game window — that's the bet horizon
+// users care about and matches the Kalshi prop look-back.
+const STREAKS_WINDOW = 10;
+
+// Round a raw value down to the nearest 0.5 to produce a clean Kalshi-style line.
+// e.g. 24.0 → 23.5, 24.7 → 24.5, 25.0 → 24.5.
+// We always round DOWN (subtract 0.5 from .0/.5 boundaries) because the line
+// must be strictly under the floor for the player to clear it.
+function toKalshiLine(value: number): number {
+  // Convert to half-units, floor, then back to value units.
+  const half = Math.floor(value * 2) / 2;
+  // If the value sits exactly on a half boundary (e.g. 20.0 or 20.5), drop one
+  // step so the line is strictly less than the value.
+  if (half === value) return half - 0.5;
+  return half;
+}
+
 export async function getPerfectStreaks(req: any, res: any) {
   try {
     const type = ((req.query.type as string) ?? 'player').toLowerCase();
     const stat = ((req.query.stat as string) ?? 'pts').toLowerCase();
+    // Game streaks still honor the legacy `window` param (3/5/10);
+    // player streaks are always 10-game and ignore it (tiered hit-rate model).
     const parsedWindow = parseInt((req.query.window as string) ?? '5', 10);
     const window = Number.isNaN(parsedWindow)
       ? 5
@@ -289,124 +321,107 @@ export async function getPerfectStreaks(req: any, res: any) {
     }
 
     const today = new Date().toISOString().slice(0, 10);
-    // Use pick date as the reference for lines — picks are only generated for actual game days
-    // (never pre-populated for future dates), so this correctly handles the UTC/ET midnight gap
-    // where Kalshi pre-loads tomorrow's lines before midnight ET.
-    const linesDate = await findNearestPickDate(today);
 
-    // ── A. Today's slate teams (ESPN)
+    // ── A. Today's slate teams via ESPN
     const espn = await fetch('https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard')
       .then((r) => {
-        if (!r.ok) {
-          console.error(`[getPerfectStreaks] ESPN scoreboard returned ${r.status}`);
-          return null;
-        }
+        if (!r.ok) { console.error(`[getPerfectStreaks] ESPN ${r.status}`); return null; }
         return r.json();
       })
       .catch((err) => {
-        console.error('[getPerfectStreaks] ESPN scoreboard fetch failed:', err?.message ?? err);
+        console.error('[getPerfectStreaks] ESPN failed:', err?.message ?? err);
         return null;
       });
     const slateTeams = new Set<string>();
     for (const ev of (((espn as any)?.events) ?? [])) {
       for (const c of (ev.competitions?.[0]?.competitors ?? [])) {
         const abbr = c.team?.abbreviation?.toUpperCase();
-        if (abbr) slateTeams.add(abbr);
+        if (abbr) slateTeams.add(ESPN_ABBR_TO_DB[abbr] ?? abbr);
       }
     }
     if (slateTeams.size === 0) {
-      console.warn('[getPerfectStreaks] no teams on today\'s ESPN slate — returning empty rows');
-      return res.json({ success: true, data: { stat, window, rows: [] } });
+      console.warn('[getPerfectStreaks] no teams on ESPN slate');
+      return res.json({ success: true, data: { stat, window: STREAKS_WINDOW, rows: [] } });
     }
 
-    // ── B. Today's games + out players (use linesDate to handle UTC/ET midnight gap)
-    const { data: games } = await supabaseAdmin
+    // ── B. Today's games (for opponent + out-player lookup)
+    const linesDate = await findNearestPickDate(today);
+    const { data: todayGames } = await supabaseAdmin
       .from('games')
       .select('id,home_team_id,away_team_id')
       .eq('game_date', linesDate)
       .eq('league_id', 1);
-    const gameIds = (games ?? []).map((g: any) => g.id);
+    const todayGameIds = (todayGames ?? []).map((g: any) => g.id);
 
     const outIds = new Set<number>();
-    if (gameIds.length > 0) {
+    if (todayGameIds.length > 0) {
       const { data: outRows } = await supabaseAdmin
         .from('player_availability')
         .select('player_id')
         .eq('status', 'out')
-        .in('game_id', gameIds);
+        .in('game_id', todayGameIds);
       for (const r of (outRows ?? [])) outIds.add(r.player_id);
     }
 
-    // ── C. Candidates: lines in 50–85% implied_prob range for this stat.
-    // Keep the highest-confidence line per player (closest to the market's primary expectation).
-    const { data: lines } = await supabaseAdmin
-      .from('daily_lines')
-      .select('entity_id,stat,implied_prob,line')
-      .eq('game_date', linesDate)
-      .eq('prop_type', 'player')
-      .eq('stat', stat)
-      .gte('implied_prob', 0.50)
-      .lte('implied_prob', 0.85);
-    const linesByPlayer = new Map<number, { line: number; implied_prob: number }>();
-    for (const l of (lines ?? [])) {
-      if (l.entity_id == null) continue; // skip unmatched Kalshi props
-      const existing = linesByPlayer.get(l.entity_id);
-      // Keep the highest implied_prob line — that's the market's most confident/primary line
-      if (!existing || l.implied_prob > existing.implied_prob) {
-        linesByPlayer.set(l.entity_id, { line: l.line, implied_prob: l.implied_prob });
-      }
-    }
-    const candidateIds = [...linesByPlayer.keys()].filter((id) => !outIds.has(id));
-    if (candidateIds.length === 0) {
-      return res.json({ success: true, data: { stat, window, rows: [] } });
-    }
-
-    // ── D. Players meta — filter to teams on slate
-    const { data: players } = await supabaseAdmin
+    // ── C. All active players on today's slate teams
+    const { data: allPlayers } = await supabaseAdmin
       .from('players')
       .select('id,name,team,position')
-      .in('id', candidateIds);
-    const candidates = (players ?? []).filter((p: any) =>
-      slateTeams.has((p.team ?? '').toUpperCase())
-    );
+      .in('team', [...slateTeams]);
+    const candidates = (allPlayers ?? []).filter((p: any) => !outIds.has(p.id));
     if (candidates.length === 0) {
-      return res.json({ success: true, data: { stat, window, rows: [] } });
+      return res.json({ success: true, data: { stat, window: STREAKS_WINDOW, rows: [] } });
     }
 
-    // ── E. For each candidate: fetch last `window` games, count consecutive streak vs today's line
-    const rows = await Promise.all(candidates.map(async (p: any) => {
+    // ── D. Per-player: fetch last 10 games and compute tiered lines.
+    // Sort the values ascending [v0, v1, ..., v9]:
+    //   v0 → 100% line (10/10 games clear it)
+    //   v1 → 90% line  (9/10)
+    //   v2 → 80% line  (8/10)
+    //   v3 → 70% line  (7/10)
+    // We then snap each tier down to the nearest 0.5 for Kalshi-clean lines.
+    type TieredRow = {
+      player_id: number;
+      player_name: string;
+      team: string;
+      position: string;
+      line_100: number;
+      line_90: number;
+      line_80: number;
+      line_70: number;
+      rolling_avg: number;
+      games_used: number;
+      opponent: { team: string; league_rank: number | null } | null;
+    };
+
+    const tieredResults = await Promise.all(candidates.map(async (p: any) => {
       const { data: statRows } = await supabaseAdmin
         .from('nba_player_stats')
-        .select(`game_date,${statCfg.col}`)
+        .select(`player_id,game_date,${statCfg.col},minutes_played`)
         .eq('player_id', p.id)
+        .gt('minutes_played', 0)
         .order('game_date', { ascending: false })
-        .limit(window);
-      if (!statRows || statRows.length === 0) return null;
+        .limit(STREAKS_WINDOW);
 
-      const { data: trend } = await supabaseAdmin
-        .from('nba_trends')
-        .select('season_avg')
-        .eq('player_id', p.id)
-        .eq('stat', statCfg.statId)
-        .eq('window_size', 10)
-        .limit(1)
-        .maybeSingle();
-      const seasonAvg: number | null = trend?.season_avg ?? null;
-
-      const values: number[] = statRows
+      const values: number[] = ((statRows ?? []) as any[])
         .map((r: any) => r[statCfg.col])
-        .filter((v: any) => v != null);
-      if (values.length === 0) return null;
+        .filter((v: any) => v != null && typeof v === 'number');
 
-      const line = linesByPlayer.get(p.id)!;
-      // Threshold is today's Kalshi line — streak = consecutive recent games beating the market
-      const threshold = stat === 'fg3m' ? Math.max(1, line.line - 0.5) : line.line;
-      let streakCount = 0;
-      for (const v of values) {
-        if (v >= threshold) streakCount++;
-        else break;
-      }
-      if (streakCount < 2) return null;
+      if (values.length < STREAKS_WINDOW) return null;
+
+      const sortedAsc = [...values].sort((a, b) => a - b);
+      const v0 = sortedAsc[0]; // min — 10/10 floor
+      const v1 = sortedAsc[1];
+      const v2 = sortedAsc[2];
+      const v3 = sortedAsc[3];
+
+      // Skip players with a trivial 100% line (e.g. zeros) — not actionable.
+      if (v0 <= 0) return null;
+
+      const line_100 = toKalshiLine(v0);
+      const line_90  = toKalshiLine(v1);
+      const line_80  = toKalshiLine(v2);
+      const line_70  = toKalshiLine(v3);
 
       const rollingAvg = values.reduce((a: number, b: number) => a + b, 0) / values.length;
 
@@ -415,20 +430,23 @@ export async function getPerfectStreaks(req: any, res: any) {
         player_name: p.name as string,
         team: p.team as string,
         position: p.position as string,
-        season_avg: seasonAvg,
+        line_100,
+        line_90,
+        line_80,
+        line_70,
         rolling_avg: rollingAvg,
-        streak_count: streakCount,
-        todays_line: line.line,
-        todays_implied_prob: line.implied_prob,
-      };
+        games_used: STREAKS_WINDOW,
+        opponent: null,
+      } as TieredRow;
     }));
 
-    const filtered = rows.filter((r): r is NonNullable<typeof r> => r !== null);
-    if (filtered.length === 0) {
-      return res.json({ success: true, data: { stat, window, rows: [] } });
+    const tieredRows: TieredRow[] = tieredResults.filter((r): r is TieredRow => r !== null);
+
+    if (tieredRows.length === 0) {
+      return res.json({ success: true, data: { stat, window: STREAKS_WINDOW, rows: [] } });
     }
 
-    // ── F. Enrich with opponent + league_rank (position-based)
+    // ── E. Enrich with opponent + position-based defense rank
     const { data: teamRows } = await supabaseAdmin.from('teams').select('id,abbreviation');
     const abbrToId = new Map<string, number>();
     const idToAbbr = new Map<number, string>();
@@ -438,7 +456,7 @@ export async function getPerfectStreaks(req: any, res: any) {
     }
 
     const opponentByTeamId = new Map<number, number>();
-    for (const g of (games ?? [])) {
+    for (const g of (todayGames ?? [])) {
       opponentByTeamId.set(g.home_team_id, g.away_team_id);
       opponentByTeamId.set(g.away_team_id, g.home_team_id);
     }
@@ -453,7 +471,7 @@ export async function getPerfectStreaks(req: any, res: any) {
       if (!latestOppDef.has(key)) latestOppDef.set(key, row.league_rank);
     }
 
-    const enriched = filtered.map((r) => {
+    const enriched = tieredRows.map((r) => {
       const teamAbbr = (r.team ?? '').toUpperCase();
       const teamId = abbrToId.get(teamAbbr);
       const opponentId = teamId != null ? opponentByTeamId.get(teamId) : undefined;
@@ -468,17 +486,15 @@ export async function getPerfectStreaks(req: any, res: any) {
       };
     });
 
-    // ── G. Sort by streak_count DESC, then by opponent league_rank DESC as tiebreaker
+    // Sort by line_100 DESC (highest guaranteed floor first), rolling_avg as tiebreaker
     enriched.sort((a, b) => {
-      if (b.streak_count !== a.streak_count) return b.streak_count - a.streak_count;
-      const ar = a.opponent?.league_rank ?? -1;
-      const br = b.opponent?.league_rank ?? -1;
-      return br - ar;
+      if (b.line_100 !== a.line_100) return b.line_100 - a.line_100;
+      return b.rolling_avg - a.rolling_avg;
     });
 
     res.json({
       success: true,
-      data: { stat, window, rows: enriched.slice(0, 10) },
+      data: { stat, window: STREAKS_WINDOW, rows: enriched.slice(0, 10) },
     });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });

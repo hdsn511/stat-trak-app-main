@@ -13,18 +13,16 @@ const STAT_TABS: { key: StatKey; label: string }[] = [
   { key: 'fg3m', label: '3PM' },
 ]
 
-// Round to nearest whole number for clean display
 function fmtLine(v: number): string {
   return String(Math.round(v))
 }
 
-// Translate defensive league rank (1=best defense, 30=worst) into a matchup chip
 function MatchupChip({ rank }: { rank: number | null }) {
   if (rank == null) return null
   if (rank <= 10) {
     return (
       <span className="inline-flex items-center px-1 py-0.5 rounded text-[8px] font-bold font-condensed uppercase tracking-wide border bg-under/10 text-under border-under/20">
-        TOUGH DEF | RANK { rank }
+        TOUGH DEF | RANK {rank}
       </span>
     )
   }
@@ -38,6 +36,8 @@ function MatchupChip({ rank }: { rank: number | null }) {
   return null
 }
 
+const COL_W = 'w-14'
+
 export default function StreaksCard() {
   const [stat, setStat] = useState<StatKey>('pts')
   const [rows, setRows] = useState<PlayerStreakRow[]>([])
@@ -46,16 +46,14 @@ export default function StreaksCard() {
   useEffect(() => {
     setLoading(true)
     nbaApi.getPlayerStreaks(stat)
-      .then(res => {
-        const sorted = [...res.rows].sort((a, b) => b.rolling_avg - a.rolling_avg)
-        setRows(sorted.slice(0, 10))
-      })
+      .then(res => setRows(res.rows.slice(0, 10)))
       .catch(() => setRows([]))
       .finally(() => setLoading(false))
   }, [stat])
 
   return (
     <div className="bg-[#0D0D0D] border border-[#161616] rounded-2xl overflow-hidden">
+      {/* Header */}
       <div className="px-4 pt-4 pb-3 border-b border-[#111]">
         <div className="flex items-center justify-between">
           <span className="text-[10px] font-bold text-gray-500 uppercase tracking-[0.15em] font-condensed">
@@ -86,17 +84,38 @@ export default function StreaksCard() {
         ))}
       </div>
 
+      {/* Column headers */}
+      {!loading && rows.length > 0 && (
+        <div className="flex items-center px-4 py-2 border-b border-[#111]">
+          <div className="flex-1 min-w-0" />
+          <div className="flex flex-shrink-0 ml-3">
+            <span className={cn('text-[9px] font-bold text-over/70 font-condensed uppercase tracking-widest text-right', COL_W)}>
+              100%
+            </span>
+            <span className={cn('text-[9px] font-bold text-gray-700 font-condensed uppercase tracking-widest text-right', COL_W)}>
+              90%
+            </span>
+            <span className={cn('text-[9px] font-bold text-gray-700 font-condensed uppercase tracking-widest text-right', COL_W)}>
+              80%
+            </span>
+            <span className={cn('text-[9px] font-bold text-gray-700 font-condensed uppercase tracking-widest text-right', COL_W)}>
+              70%
+            </span>
+          </div>
+        </div>
+      )}
+
       {loading && (
         <div className="p-4 space-y-2">
           {Array.from({ length: 5 }).map((_, i) => (
-            <Skeleton key={i} className="h-[72px] bg-[#141414] rounded" />
+            <Skeleton key={i} className="h-[60px] bg-[#141414] rounded" />
           ))}
         </div>
       )}
 
       {!loading && rows.length === 0 && (
         <div className="px-4 py-8 text-center text-[11px] text-gray-700 font-condensed">
-          
+          No streaks found
         </div>
       )}
 
@@ -104,10 +123,10 @@ export default function StreaksCard() {
         <Link
           key={row.player_id}
           to={`/player/${row.player_id}`}
-          className="flex items-center justify-between px-4 border-b border-[#0F0F0F] last:border-0 hover:bg-white/[0.03] transition-colors min-h-[72px] group"
+          className="flex items-center px-4 py-3 border-b border-[#0F0F0F] last:border-0 hover:bg-white/[0.03] transition-colors group"
         >
-          {/* Left: rank + player + opponent + matchup */}
-          <div className="flex items-center gap-3 min-w-0">
+          {/* Left: rank + player + opponent */}
+          <div className="flex items-center gap-3 min-w-0 flex-1">
             <span className="text-[10px] text-gray-700 font-mono w-4 flex-shrink-0 group-hover:text-mint transition-colors">
               {i + 1}
             </span>
@@ -127,47 +146,23 @@ export default function StreaksCard() {
             </div>
           </div>
 
-          {/* Right: rolling avg + tiers */}
-          <div className="flex items-center gap-4 flex-shrink-0 ml-3">
-            {/* Rolling avg — anchor */}
-            <div className="flex flex-col items-end border-r border-[#1c1c1c] pr-4">
-              <span className="text-[16px] font-black text-white font-mono tabular-nums leading-none">
-                {row.rolling_avg.toFixed(1)}
-              </span>
-              <span className="text-[8px] text-gray-700 font-condensed uppercase tracking-widest mt-0.5">
-                Avg
-              </span>
-            </div>
-
-            {/* 100% — green */}
-            <div className="flex flex-col items-end">
-              <span className="text-[16px] font-black text-over font-mono tabular-nums leading-none">
-                {fmtLine(row.line_100)}+
-              </span>
-              <span className="text-[8px] text-over/60 font-condensed uppercase tracking-widest mt-0.5">
-                100%
-              </span>
-            </div>
-
-            <TierBlock label="90%" value={fmtLine(row.line_90)} />
-            <TierBlock label="80%" value={fmtLine(row.line_80)} />
-            <TierBlock label="70%" value={fmtLine(row.line_70)} />
+          {/* Right: tier numbers aligned to column headers */}
+          <div className="flex flex-shrink-0 ml-3">
+            <span className={cn('text-[15px] font-black text-over font-mono tabular-nums text-right leading-none', COL_W)}>
+              {fmtLine(row.line_100)}+
+            </span>
+            <span className={cn('text-[15px] font-bold text-white font-mono tabular-nums text-right leading-none', COL_W)}>
+              {fmtLine(row.line_90)}+
+            </span>
+            <span className={cn('text-[15px] font-bold text-white/50 font-mono tabular-nums text-right leading-none', COL_W)}>
+              {fmtLine(row.line_80)}+
+            </span>
+            <span className={cn('text-[15px] font-bold text-white/30 font-mono tabular-nums text-right leading-none', COL_W)}>
+              {fmtLine(row.line_70)}+
+            </span>
           </div>
         </Link>
       ))}
-    </div>
-  )
-}
-
-function TierBlock({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex flex-col items-end">
-      <span className="text-[13px] font-bold font-mono tabular-nums leading-none text-mint">
-        {value}+
-      </span>
-      <span className="text-[8px] text-mint/50 font-condensed uppercase tracking-widest mt-0.5">
-        {label}
-      </span>
     </div>
   )
 }

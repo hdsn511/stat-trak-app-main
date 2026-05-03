@@ -3,13 +3,14 @@ analytics/engine/scorer.py
 
 Confidence and edge scoring for StatTrak Analytics.
 
-Takes a backtest result and market implied probability, applies penalties
-and bonuses, and returns a confidence score (0-100) plus an edge figure.
-
-The scorer is the final gate before a pick is recommended:
-  1. Hard disqualifiers filter out unreliable or low-value situations.
-  2. B2B penalty adjusts points-heavy stats on back-to-back nights.
-  3. Confidence formula combines hit rate, sample weight, and condition bonus.
+Picks v2:
+  - The B2B hit-rate adjustment is removed. B2B context is now matched
+    historically by the rest condition in backtest, so multiplying the hit
+    rate here would double-count.
+  - First-half handling is gone entirely — first-half markets are dropped
+    at Kalshi parse time (see analytics/kalshi/client.py).
+  - A bounded modifier system replaces ad-hoc adjustments. Modifiers tilt
+    the score by ±MAX_MODIFIER_IMPACT total points; they do not drive it.
 
 CLI (self-test):
     python -m analytics.engine.scorer
@@ -18,81 +19,50 @@ CLI (self-test):
 from __future__ import annotations
 
 import sys
+from typing import Optional
 
 from analytics.db.connection import supabase  # noqa: F401 — available for future use
 
-# ── Tunable constants ────────────────────────────────────────────────────────────
+# ── Hard gates (preserved) ───────────────────────────────────────────────────────
 
-MIN_HIT_RATE = 0.75
-# Hard floor for historical hit rate (before any adjustment).
-# Below 75% we decline to recommend the pick regardless of edge or sample.
-# Raise this to be more selective; lower it to generate more picks at higher risk.
+MIN_HIT_RATE = 0.60
+# Hard floor for historical hit rate (no longer adjusted before this check).
 
-MIN_EDGE = 0.05
-# Minimum edge in percentage points (hit_rate_adjusted - implied_prob).
-# 5 points means we need at least 5% more probability than the market implies.
-# This ensures we only recommend plays where the market is meaningfully mispriced.
-# Raise to require larger mispricings; lower to capture tighter edges.
+MIN_EDGE = 0.08
+# Minimum edge in percentage points (hit_rate - implied_prob).
 
 MAX_IMPLIED_PROB = 0.88
-# Hard ceiling on Kalshi implied probability. Props above this are already
-# efficiently priced "locks" — the market has priced in the likely outcome and
-# there is no exploitable information edge. This prevents 90%+ priced props from
-# ever becoming Pick of the Day, even if the historical hit rate is exceptional.
-# Lower to be more conservative; raise (max 1.0) to allow higher-odds props.
+# Hard ceiling on Kalshi implied probability — efficient-market block.
 
 MIN_SAMPLE_SIZE = 8
-# Hard floor for number of historical games in the backtest.
-# Below 10 samples, any hit rate is statistically unreliable.
-# Should match (or be >= to) analytics.engine.backtest.MIN_SAMPLE_SIZE.
+# Hard floor for backtest sample size.
+
+# ── Base confidence (preserved) ──────────────────────────────────────────────────
 
 SAMPLE_WEIGHT_TARGET = 25
-# Full confidence weight is achieved at this many historical games.
-# Below 25, confidence scales linearly (e.g. 12 games = 48% weight).
-# Increase to demand larger samples before giving full credit;
-# decrease to reward smaller but still meaningful sample sizes.
-
-CONDITION_BONUS_MAX = 8
-# Maximum bonus points added when all 5 conditions are active (5/5).
-# Scales linearly: 3/5 conditions = 3/5 * 8 = 4.8 bonus points.
-# Rewards picks that were matched under tight, highly-comparable conditions.
-# Increase to favour context-rich picks more strongly.
-
-EDGE_BONUS_SCALE = 150
-# Multiplier applied to the raw edge (adjusted_rate - implied_prob) to produce
-# a confidence bonus. Rewards larger mispricings so POTD selection gravitates
-# toward high-value plays rather than just high hit-rate plays.
-# e.g. 10% edge → 15 bonus points (capped at EDGE_BONUS_CAP).
-
-EDGE_BONUS_CAP = 10
-# Maximum bonus points from the edge component. Caps outsized bonuses when
-# edge is very large (which could otherwise dominate the confidence score).
-
+CONDITION_BONUS_MAX  = 8
+EDGE_BONUS_SCALE     = 150
+EDGE_BONUS_CAP       = 10
 IMPLIED_PROB_PENALTY_THRESHOLD = 0.65
-# Implied probabilities above this value incur a confidence penalty.
-# Picks above 65% implied probability begin to lose bonus points so
-# POTD selection prefers the mid-range sweet spot (55–75% implied).
+IMPLIED_PROB_PENALTY_SCALE     = 30
 
-IMPLIED_PROB_PENALTY_SCALE = 30
-# Penalty points per unit of implied_prob above the threshold.
-# e.g. implied=0.75 → (0.75-0.65)*30 = 3pt penalty
-#      implied=0.82 → (0.82-0.65)*30 = 5.1pt penalty (near hard cap)
+# ── Modifiers (Picks v2) ─────────────────────────────────────────────────────────
+# Modifiers tilt the score; they do not drive it. Total modifier impact is capped.
+# B2B is now a modifier (NOT a hit-rate adjustment) so it does not double-count
+# the rest condition that already filters historical samples.
 
-B2B_PENALTY_STATS = ("pts",)
-# Stats that receive a downward adjustment when the player is on a
-# back-to-back (days_rest == 0).  Points are most sensitive to fatigue;
-# add "reb", "ast", etc. here if data supports it.
+# TODO: tune against observed correlation between recent_opp_form and actual
+# hit-rate divergence vs season-form picks.
+FORM_MODIFIER_SCALE = 30
+FORM_MODIFIER_CAP   = 5
 
-B2B_PENALTY_FACTOR = 0.93
-# Multiply adjusted hit_rate by this factor on back-to-back nights for
-# affected stats.  0.93 = 7% reduction.  Calibrate against historical
-# B2B vs. non-B2B scoring differences in the dataset.
+# TODO: tune against observed B2B vs non-B2B hit-rate divergence in the new pipeline.
+B2B_MODIFIER_VALUE = -3.0
 
-FIRST_HALF_CONFIDENCE_CAP = 50
-# Maximum confidence score for first-half props.
-# First-half lines are approximations of half-game performance; the
-# historical backtests are inherently noisier for these markets.
-# Set to 50 to signal "possible but uncertain". Raise if 1H data improves.
+MAX_MODIFIER_IMPACT = 7  # |sum(modifiers)| cap
+
+# Game-stakes modifier — stub. Disabled until standings data is wired.
+GAME_STAKES_MODIFIER_ENABLED = False
 
 
 # ── Scoring function ─────────────────────────────────────────────────────────────
@@ -105,201 +75,209 @@ def score(
     implied_prob: float,
     days_rest: int,
     stat: str,
-    is_first_half: bool = False,
+    recent_opp_form: Optional[float] = None,
 ) -> dict:
     """
     Evaluate a backtest result and return a confidence score and edge.
 
     Args:
-        hit_rate:           Historical fraction of games where the stat beat the line (0.0-1.0).
+        hit_rate:           Recency-weighted hit rate from backtest (0.0-1.0).
         sample_size:        Number of historical games in the backtest.
-        conditions_matched: Number of active conditions that were matched (e.g. 4 out of 5).
-        total_conditions:   Total possible conditions (typically 5 for player, 4 for game).
-        implied_prob:       Market-implied probability from the Kalshi price (0.0-1.0).
+        conditions_matched: Number of active core conditions matched (max 5).
+        total_conditions:   Total core conditions (5 in v2).
+        implied_prob:       Market-implied probability (0.0-1.0).
         days_rest:          Days of rest for the player (0 = back-to-back).
-        stat:               Stat abbreviation (e.g. "pts") used to check B2B penalty.
-        is_first_half:      If True, cap confidence at FIRST_HALF_CONFIDENCE_CAP.
+        stat:               Stat abbreviation (e.g. "pts").
+        recent_opp_form:    Signed delta of opponent's last-N vs season form
+                            for this stat. None disables the form modifier.
 
     Returns:
         On disqualification:
-            {"confidence": 0, "edge": 0, "reason": "<reason_string>"}
+            {"confidence": 0, "edge": 0, "reason": "<reason_string>", "modifiers": {}}
         On success:
-            {"confidence": float, "edge": float, "hit_rate_adjusted": float}
+            {"confidence": float, "edge": float, "hit_rate_adjusted": float,
+             "modifiers": dict}
     """
-
-    # ── Hard disqualifier: sample size ───────────────────────────────────────
+    # ── Hard disqualifiers ────────────────────────────────────────────────────
     if sample_size < MIN_SAMPLE_SIZE:
-        return {"confidence": 0, "edge": 0, "reason": "insufficient_sample"}
-
-    # ── Hard disqualifier: raw hit rate ──────────────────────────────────────
+        return {"confidence": 0, "edge": 0, "reason": "insufficient_sample", "modifiers": {}}
     if hit_rate < MIN_HIT_RATE:
-        return {"confidence": 0, "edge": 0, "reason": "low_hit_rate"}
-
-    # ── Hard disqualifier: market-efficient props ─────────────────────────────
-    # Props priced above MAX_IMPLIED_PROB are already "locked in" by the market.
-    # Recommending them offers no exploitable edge regardless of hit rate.
+        return {"confidence": 0, "edge": 0, "reason": "low_hit_rate", "modifiers": {}}
     if implied_prob > MAX_IMPLIED_PROB:
-        return {"confidence": 0, "edge": 0, "reason": "high_implied_prob"}
+        return {"confidence": 0, "edge": 0, "reason": "high_implied_prob", "modifiers": {}}
 
-    # ── B2B penalty ──────────────────────────────────────────────────────────
-    adjusted_rate = hit_rate
-    if days_rest == 0 and stat in B2B_PENALTY_STATS:
-        adjusted_rate = hit_rate * B2B_PENALTY_FACTOR
-
-    # Re-check adjusted rate against the floor
-    if adjusted_rate < MIN_HIT_RATE:
-        return {"confidence": 0, "edge": 0, "reason": "low_hit_rate"}
-
-    # ── Edge check ───────────────────────────────────────────────────────────
-    edge = adjusted_rate - implied_prob
+    edge = hit_rate - implied_prob
     if edge < MIN_EDGE:
-        return {"confidence": 0, "edge": round(edge, 4), "reason": "insufficient_edge"}
+        return {"confidence": 0, "edge": round(edge, 4), "reason": "insufficient_edge", "modifiers": {}}
 
-    # ── Confidence formula ───────────────────────────────────────────────────
-    base = adjusted_rate * 100
-    # Linear sample weight: 0 at 0 games, 1.0 at SAMPLE_WEIGHT_TARGET games.
+    # ── Base confidence formula ───────────────────────────────────────────────
+    base = hit_rate * 100
     sample_weight = min(1.0, sample_size / SAMPLE_WEIGHT_TARGET)
-    # Condition bonus: proportional to how many conditions were active.
     condition_bonus = (conditions_matched / total_conditions) * CONDITION_BONUS_MAX
-    # Edge bonus: rewards larger market mispricings so POTD favours value plays.
     edge_bonus = min(edge * EDGE_BONUS_SCALE, float(EDGE_BONUS_CAP))
-    # Implied-probability penalty: discounts picks near the market-efficient ceiling.
     ip_penalty = max(0.0, implied_prob - IMPLIED_PROB_PENALTY_THRESHOLD) * IMPLIED_PROB_PENALTY_SCALE
 
     confidence = (base * sample_weight) + condition_bonus + edge_bonus - ip_penalty
+
+    # ── Modifiers (capped tilt) ───────────────────────────────────────────────
+    modifiers: dict[str, float] = {}
+
+    if recent_opp_form is not None:
+        raw = recent_opp_form * FORM_MODIFIER_SCALE
+        capped = max(-FORM_MODIFIER_CAP, min(FORM_MODIFIER_CAP, raw))
+        if capped != 0:
+            modifiers["recent_opp_form"] = round(capped, 3)
+
+    if days_rest == 0:
+        modifiers["b2b"] = B2B_MODIFIER_VALUE
+
+    if GAME_STAKES_MODIFIER_ENABLED:
+        pass  # implement when standings wired
+
+    modifier_total = sum(modifiers.values())
+    modifier_total = max(-MAX_MODIFIER_IMPACT, min(MAX_MODIFIER_IMPACT, modifier_total))
+
+    confidence = confidence + modifier_total
     confidence = max(0.0, min(confidence, 100.0))
 
-    # ── First-half cap ───────────────────────────────────────────────────────
-    if is_first_half:
-        confidence = min(confidence, float(FIRST_HALF_CONFIDENCE_CAP))
-
     return {
-        "confidence": round(confidence, 2),
-        "edge": round(edge, 4),
-        "hit_rate_adjusted": round(adjusted_rate, 4),
+        "confidence":        round(confidence, 2),
+        "edge":              round(edge, 4),
+        "hit_rate_adjusted": round(hit_rate, 4),  # v2: passthrough; backtest already weighted
+        "modifiers":         modifiers,
     }
 
 
 # ── CLI self-test ────────────────────────────────────────────────────────────────
 
 def _run_self_test() -> None:
-    """
-    Run four representative test cases and print results.
-    Expected outcomes documented inline.
-    """
     print("=" * 60)
-    print("StatTrak Scorer -- Self-Test")
+    print("StatTrak Scorer (v2) -- Self-Test")
     print("=" * 60)
 
     cases = [
         {
             "label": "Case 1: Strong pick (should PASS)",
             "kwargs": dict(
-                hit_rate=0.87,
-                sample_size=31,
-                conditions_matched=5,
-                total_conditions=5,
-                implied_prob=0.71,
-                days_rest=2,
-                stat="pts",
-                is_first_half=False,
+                hit_rate=0.87, sample_size=31, conditions_matched=5,
+                total_conditions=5, implied_prob=0.71, days_rest=2, stat="pts",
             ),
             "expect": "PASS",
         },
         {
             "label": "Case 2: Weak sample (should FAIL insufficient_sample)",
             "kwargs": dict(
-                hit_rate=0.90,
-                sample_size=7,
-                conditions_matched=5,
-                total_conditions=5,
-                implied_prob=0.71,
-                days_rest=2,
-                stat="pts",
-                is_first_half=False,
+                hit_rate=0.90, sample_size=7, conditions_matched=5,
+                total_conditions=5, implied_prob=0.71, days_rest=2, stat="pts",
             ),
             "expect": "FAIL insufficient_sample",
         },
         {
-            "label": "Case 3: B2B penalty -- 78% hit, 25 games, 0 rest, pts",
+            "label": "Case 3: B2B is now a modifier — passes gates, gets b2b penalty",
             "kwargs": dict(
-                hit_rate=0.78,
-                sample_size=25,
-                conditions_matched=4,
-                total_conditions=5,
-                implied_prob=0.71,
-                days_rest=0,
-                stat="pts",
-                is_first_half=False,
+                hit_rate=0.64, sample_size=25, conditions_matched=4,
+                total_conditions=5, implied_prob=0.55, days_rest=0, stat="pts",
             ),
-            # 0.78 * 0.93 = 0.7254 < MIN_HIT_RATE 0.75 -> FAIL
-            "expect": "FAIL low_hit_rate after B2B penalty",
+            # v1 used to FAIL because hit_rate was multiplied by 0.93; in v2 the
+            # hit rate is not adjusted, so it passes gates. b2b modifier appears.
+            "expect": "PASS, modifiers contains b2b=-3.0",
         },
         {
             "label": "Case 4: Low edge (should FAIL insufficient_edge)",
             "kwargs": dict(
-                hit_rate=0.85,
-                sample_size=20,
-                conditions_matched=5,
-                total_conditions=5,
-                implied_prob=0.81,
-                days_rest=2,
-                stat="pts",
-                is_first_half=False,
+                hit_rate=0.85, sample_size=20, conditions_matched=5,
+                total_conditions=5, implied_prob=0.81, days_rest=2, stat="pts",
             ),
-            # edge = 0.85 - 0.81 = 0.04 < MIN_EDGE 0.05 -> FAIL
             "expect": "FAIL insufficient_edge",
         },
         {
             "label": "Case 5: High implied prob 90% (should FAIL high_implied_prob)",
             "kwargs": dict(
-                hit_rate=0.98,
-                sample_size=25,
-                conditions_matched=5,
-                total_conditions=5,
-                implied_prob=0.90,
-                days_rest=2,
-                stat="pts",
-                is_first_half=False,
+                hit_rate=0.98, sample_size=25, conditions_matched=5,
+                total_conditions=5, implied_prob=0.90, days_rest=2, stat="pts",
             ),
-            # implied_prob 0.90 > MAX_IMPLIED_PROB 0.82 -> FAIL
             "expect": "FAIL high_implied_prob",
         },
         {
-            "label": "Case 6: Value pick vs safe pick -- edge bonus lifts confidence",
+            "label": "Case 6: Value pick — high edge bonus",
             "kwargs": dict(
-                hit_rate=0.85,
-                sample_size=25,
-                conditions_matched=4,
-                total_conditions=5,
-                implied_prob=0.60,
-                days_rest=2,
-                stat="pts",
-                is_first_half=False,
+                hit_rate=0.85, sample_size=25, conditions_matched=4,
+                total_conditions=5, implied_prob=0.60, days_rest=2, stat="pts",
             ),
-            # edge = 0.25 -> edge_bonus = min(0.25*150, 10) = 10
             "expect": "PASS with high edge bonus",
+        },
+        {
+            "label": "Case 7: Low implied bucket — passes",
+            "kwargs": dict(
+                hit_rate=0.68, sample_size=20, conditions_matched=3,
+                total_conditions=5, implied_prob=0.54, days_rest=2, stat="reb",
+            ),
+            "expect": "PASS (50% bucket pick)",
+        },
+        {
+            "label": "Case 8: Positive recent_opp_form modifier (+10% delta)",
+            "kwargs": dict(
+                hit_rate=0.85, sample_size=25, conditions_matched=5,
+                total_conditions=5, implied_prob=0.65, days_rest=2, stat="pts",
+                recent_opp_form=0.10,
+            ),
+            "expect": "PASS, modifiers contains recent_opp_form ~ +3.0",
+        },
+        {
+            "label": "Case 9: Modifier cap binds (extreme form would yield 30; capped to 5)",
+            "kwargs": dict(
+                hit_rate=0.80, sample_size=25, conditions_matched=5,
+                total_conditions=5, implied_prob=0.60, days_rest=2, stat="reb",
+                recent_opp_form=1.0,
+            ),
+            "expect": "PASS, modifiers.recent_opp_form == FORM_MODIFIER_CAP (5.0)",
+        },
+        {
+            "label": "Case 10: Two negative modifiers (b2b + bad form), MAX_MODIFIER_IMPACT clamps",
+            "kwargs": dict(
+                hit_rate=0.80, sample_size=25, conditions_matched=5,
+                total_conditions=5, implied_prob=0.60, days_rest=0, stat="pts",
+                recent_opp_form=-0.30,
+            ),
+            "expect": "PASS, sum(modifiers) clamped at -MAX_MODIFIER_IMPACT (-7)",
         },
     ]
 
     for case in cases:
         result = score(**case["kwargs"])
-        label = case["label"]
-        expected = case["expect"]
-        print(f"\n{label}")
-        print(f"  Expected : {expected}")
+        print(f"\n{case['label']}")
+        print(f"  Expected : {case['expect']}")
         if "reason" in result:
             outcome = f"FAIL {result['reason']}"
         else:
             outcome = (
                 f"PASS  confidence={result['confidence']:.2f}  "
                 f"edge={result['edge']:.4f}  "
-                f"adjusted_rate={result['hit_rate_adjusted']:.4f}"
+                f"modifiers={result['modifiers']}"
             )
         print(f"  Got      : {outcome}")
 
+    # Lightweight assertions (raise on regression)
+    r3 = score(hit_rate=0.64, sample_size=25, conditions_matched=4,
+               total_conditions=5, implied_prob=0.55, days_rest=0, stat="pts")
+    assert "reason" not in r3, f"Case 3 should pass gates: {r3}"
+    assert r3["modifiers"].get("b2b") == B2B_MODIFIER_VALUE, f"Case 3 b2b modifier: {r3}"
+
+    r9 = score(hit_rate=0.80, sample_size=25, conditions_matched=5,
+               total_conditions=5, implied_prob=0.60, days_rest=2, stat="reb",
+               recent_opp_form=1.0)
+    assert r9["modifiers"].get("recent_opp_form") == FORM_MODIFIER_CAP, \
+        f"Case 9 form modifier should be capped at FORM_MODIFIER_CAP: {r9}"
+
+    r10 = score(hit_rate=0.80, sample_size=25, conditions_matched=5,
+                total_conditions=5, implied_prob=0.60, days_rest=0, stat="pts",
+                recent_opp_form=-0.30)
+    raw_sum = r10["modifiers"]["b2b"] + r10["modifiers"]["recent_opp_form"]
+    assert raw_sum < -MAX_MODIFIER_IMPACT, \
+        f"Case 10 raw modifier sum should exceed cap: {raw_sum}"
+
     print("\n" + "=" * 60)
-    print("Self-test complete.")
+    print("Self-test complete (assertions passed).")
 
 
 def main() -> int:

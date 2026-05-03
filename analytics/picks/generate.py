@@ -145,25 +145,27 @@ def _store_daily_lines(
 
 def _select_best_lines(results: list[dict]) -> list[dict]:
     """
-    Group results by (entity_id, stat) and select the highest-confidence pick.
-    pick_type is derived from prop_type ("player" or "game").
+    Picks v2:
+      - Player results already arrive with pick_type set to "safe" or "value"
+        (selected per (player_id, stat) in the player-prop loop). Pass through.
+      - Game results don't have pick_type yet — collapse to one pick per
+        (game_id, prop_type) by max confidence and tag pick_type="game".
 
     Returns a list of pick dicts sorted by confidence descending.
     """
     from collections import defaultdict
 
-    groups: dict[tuple, list[dict]] = defaultdict(list)
-    for r in results:
-        key = (r["entity_id"], r["stat"])
-        groups[key].append(r)
+    player_results = [r for r in results if r.get("pick_type") in ("safe", "value")]
+    game_results = [r for r in results if r.get("prop_type") in ("winner", "spread", "total")]
 
-    picks: list[dict] = []
+    picks: list[dict] = list(player_results)
 
-    for (entity_id, stat), entries in groups.items():
+    game_groups: dict[tuple, list[dict]] = defaultdict(list)
+    for r in game_results:
+        game_groups[(r["entity_id"], r["stat"])].append(r)
+    for entries in game_groups.values():
         best = max(entries, key=lambda x: x["confidence"])
-        prop_type = best.get("prop_type", "player")
-        pick_type = "game" if prop_type in ("winner", "spread", "total") else "player"
-        picks.append({**best, "pick_type": pick_type})
+        picks.append({**best, "pick_type": "game"})
 
     picks.sort(key=lambda x: x["confidence"], reverse=True)
     return picks
@@ -193,9 +195,10 @@ def _store_picks(game_date: date, picks: list[dict]) -> None:
             "confidence_score": p["confidence"],
             "implied_prob": p["implied_prob"],
             "edge": p["edge"],
-            "conditions_matched": p["conditions_matched"],
+            "conditions_matched": p["conditions_matched"] if isinstance(p["conditions_matched"], int) else None,
             "total_conditions": p["total_conditions"],
             "key_conditions": p.get("condition_breakdown"),
+            "modifiers": p.get("modifiers", {}),
             "alt_lines_tested": p.get("alt_lines_tested"),
         })
 
@@ -203,7 +206,7 @@ def _store_picks(game_date: date, picks: list[dict]) -> None:
     for i in range(0, len(rows), BATCH):
         supabase.table("pick_results").upsert(
             rows[i : i + BATCH],
-            on_conflict="game_date,entity_id,stat",
+            on_conflict="game_date,entity_id,stat,pick_type",
         ).execute()
 
     print(f"  Stored {len(rows)} pick_results rows.")
@@ -217,8 +220,8 @@ def _print_summary(picks: list[dict]) -> None:
         print("\n  No picks generated.")
         return
 
-    player_picks = [p for p in picks if p["pick_type"] == "player"]
-    game_picks   = [p for p in picks if p["pick_type"] == "game"]
+    player_picks = [p for p in picks if p.get("pick_type") in ("safe", "value")]
+    game_picks   = [p for p in picks if p.get("pick_type") == "game"]
 
     print("\n" + "=" * 70)
     print("  RECOMMENDED PICKS")
@@ -231,13 +234,16 @@ def _print_summary(picks: list[dict]) -> None:
         print("  " + "-" * 66)
         for p in group:
             entity_label = p.get("entity_name") or f"id={p['entity_id']}"
+            tag = f"[{p.get('pick_type','?')}]"
+            mods = p.get("modifiers") or {}
+            mod_tag = (" mods=" + ",".join(f"{k}{v:+.1f}" for k, v in mods.items())) if mods else ""
             print(
-                f"  {entity_label:<25} {p['stat']:<6} "
+                f"  {entity_label:<25} {p['stat']:<6} {tag:<7} "
                 f"line={p['line']:<7} "
                 f"hit={p['hit_rate']:.1%}  "
                 f"conf={p['confidence']:.1f}  "
                 f"edge={p['edge']:.1%}  "
-                f"n={p['sample_size']}"
+                f"n={p['sample_size']}{mod_tag}"
             )
 
     print("\n" + "=" * 70)
@@ -338,6 +344,10 @@ def generate_picks(game_date: date, mock_kalshi: bool = False) -> list[dict]:
     print("\n[Steps 3+4] Backtesting + scoring player props ...")
     all_results: list[dict] = []
 
+    # Picks v2: collect player results into per-(player, stat) groups for
+    # safe + value pair selection at the end of player loop.
+    player_results_grouped: dict[tuple[int, str], list[dict]] = {}
+
     for candidate in player_candidates:
         player_id = candidate["player_id"]
         game_id = candidate["game_id"]
@@ -362,12 +372,17 @@ def generate_picks(game_date: date, mock_kalshi: bool = False) -> list[dict]:
                       f"(DB name key: '{player_name_lower}')")
                 continue
 
+            # Picks v2: pull recent_opp_form for this stat so the scorer can apply
+            # the form modifier. Falls back to None if the column isn't populated.
+            form_col = f"recent_opp_{stat}_form"
+            recent_opp_form = conditions.get(form_col)
+
             alt_lines_tested: list[dict] = []
+            stat_passing: list[dict] = []  # all lines that pass gates for this stat
 
             for line_entry in lines:
                 line_val = line_entry["line"]
                 implied_prob = line_entry["implied_prob"]
-                is_first_half = line_entry.get("is_first_half", False)
 
                 # Skip garbage low lines (e.g. 1.5 REB, floor props)
                 if line_val < MIN_PROP_LINE.get(stat, 0):
@@ -391,7 +406,7 @@ def generate_picks(game_date: date, mock_kalshi: bool = False) -> list[dict]:
                     implied_prob=implied_prob,
                     days_rest=days_rest,
                     stat=stat,
-                    is_first_half=is_first_half,
+                    recent_opp_form=recent_opp_form,
                 )
 
                 # Track tested lines
@@ -410,7 +425,7 @@ def generate_picks(game_date: date, mock_kalshi: bool = False) -> list[dict]:
                 if sc["edge"] < MIN_EDGE:
                     continue
 
-                all_results.append({
+                stat_passing.append({
                     "entity_id": player_id,
                     "entity_name": player_name,
                     "prop_type": "player",
@@ -418,16 +433,34 @@ def generate_picks(game_date: date, mock_kalshi: bool = False) -> list[dict]:
                     "line": line_val,
                     "implied_prob": implied_prob,
                     "hit_rate": bt["hit_rate"],
+                    "hit_rate_adjusted": sc.get("hit_rate_adjusted"),
                     "sample_size": bt["sample_size"],
                     "conditions_matched": bt["conditions_matched"],
                     "total_conditions": bt["total_conditions"],
                     "condition_breakdown": bt.get("condition_breakdown"),
                     "confidence": sc["confidence"],
                     "edge": sc["edge"],
-                    "hit_rate_adjusted": sc.get("hit_rate_adjusted"),
-                    "is_first_half": is_first_half,
+                    "modifiers": sc.get("modifiers", {}),
+                    "key_teammate_out_active": bt.get("key_teammate_out_active", False),
                     "alt_lines_tested": alt_lines_tested,
                 })
+
+            # Picks v2: select safe (highest hit_rate) + value (highest edge) pair
+            # for this (player, stat). If both pick the same line, only one row.
+            if stat_passing:
+                safe = max(stat_passing, key=lambda r: r["hit_rate_adjusted"] or 0)
+                value = max(stat_passing, key=lambda r: r["edge"])
+                player_results_grouped.setdefault((player_id, stat), []).append(
+                    {**safe, "pick_type": "safe"}
+                )
+                if value["line"] != safe["line"]:
+                    player_results_grouped[(player_id, stat)].append(
+                        {**value, "pick_type": "value"}
+                    )
+
+    # Flatten grouped results into all_results
+    for picks in player_results_grouped.values():
+        all_results.extend(picks)
 
     print(f"  Player prop results passing filters: {len(all_results)}")
 
@@ -451,7 +484,6 @@ def generate_picks(game_date: date, mock_kalshi: bool = False) -> list[dict]:
             for line_entry in lines:
                 line_val = line_entry["line"]
                 implied_prob = line_entry["implied_prob"]
-                is_first_half = line_entry.get("is_first_half", False)
 
                 # Skip long-shot bracket markets
                 if implied_prob < MIN_IMPLIED_PROB:
@@ -473,7 +505,7 @@ def generate_picks(game_date: date, mock_kalshi: bool = False) -> list[dict]:
                     bt["total_conditions"] if isinstance(cond_matched, str) else cond_matched
                 )
 
-                # Game props use days_rest=3 (not applicable) and stat=prop_type
+                # Game props: days_rest=3 (not applicable), no recent_opp_form (player-only signal)
                 sc = score(
                     hit_rate=bt["hit_rate"],
                     sample_size=bt["sample_size"],
@@ -482,7 +514,6 @@ def generate_picks(game_date: date, mock_kalshi: bool = False) -> list[dict]:
                     implied_prob=implied_prob,
                     days_rest=3,
                     stat=prop_type,
-                    is_first_half=is_first_half,
                 )
 
                 if "reason" in sc:
@@ -507,7 +538,7 @@ def generate_picks(game_date: date, mock_kalshi: bool = False) -> list[dict]:
                     "confidence": sc["confidence"],
                     "edge": sc["edge"],
                     "hit_rate_adjusted": sc.get("hit_rate_adjusted"),
-                    "is_first_half": is_first_half,
+                    "modifiers": sc.get("modifiers", {}),
                     "alt_lines_tested": None,
                 })
                 game_results_count += 1

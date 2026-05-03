@@ -266,13 +266,14 @@ def fetch_player_track(game_id: str, backfill_mode: bool = False) -> Optional[li
     """
     Fetch BoxScorePlayerTrackV3 for one game and return per-player rows.
 
-    Field availability note (verified against nba_api 2025-26 build):
-      - V3 PlayerStats frame exposes: touches, speed, distance, passes,
-        reboundChancesTotal, secondaryAssists. It does NOT expose
-        timeOfPossession, frontCourtTouches, or paintTouches — those existed
-        in V2 but the V2 endpoint now returns invalid JSON for many games.
-      - We only populate what V3 provides; the rest stay NULL in
-        player_game_conditions and downstream code must treat them optionally.
+    DO NOT re-add time_of_possession / front_court_touches / paint_touches.
+    These fields existed in V2 but are NOT in V3, and V2 now returns invalid
+    JSON for many recent games (coverage is unreliable). Decision logged
+    2026-05-03: touches is the sole opportunity signal — passes correlates
+    with playmaking role rather than scoring opportunity, and a separate
+    TOP endpoint isn't worth the complexity given V2's data-reliability
+    problem. The schema columns are kept (always NULL) so historical V2
+    data, if ever sourced, can be backfilled without a migration.
     """
     try:
         from nba_api.stats.endpoints import boxscoreplayertrackv3

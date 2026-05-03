@@ -29,11 +29,13 @@ from analytics.db.connection import supabase, POSITION_GROUP_MAP  # noqa: F401
 
 USG_BUCKET_WIDTH = 0.06
 # +/- usage rate bucket applied when filtering historical games.
-# Wider = more matching samples but noisier comparison (less context-alike).
-# Tighter = fewer samples but purer context match.
-# 0.06 (6pp) reflects that today's condition is a 5-game rolling average while
-# historical player_game_conditions stores single-game usg_pct, which has ~5-8pp
-# game-to-game std dev. A ±3pp window was too tight for this rolling-vs-single mismatch.
+# Used only as the legacy fallback when today's touches signal is missing.
+# Once PlayerTrackV3 backfill is complete this branch becomes unreachable.
+
+# Picks v2: touches replaces usage as the opportunity signal. TOP intentionally
+# not used — V3 doesn't expose it. See fetch_player_track docstring.
+# TODO: tune against observed match-rate distribution after backfill completes.
+OPPORTUNITY_TOUCH_BUCKET = 8.0   # ± touches around today's rolling avg
 
 PACE_BUCKET_WIDTH = 5.0
 # +/- pace bucket (possessions per 48 min).
@@ -74,18 +76,28 @@ MIN_SAMPLE_SIZE = 8
 # Increase to be more conservative; decrease to get more coverage at the
 # cost of statistical reliability.
 
-CONDITION_DROP_ORDER = ["home_away", "matchup_rank", "rest"]
-# When the sample is too small, we relax conditions in this order.
-# Items earlier in the list are considered less predictive and are dropped first.
-# "home_away" is least predictive; "rest" affects fatigue most directly.
-# Never touches usg_pct or pace — those are the core context signals.
-# Note: "rest" is 3rd but is effectively never reached because n_active hits
-# MIN_CONDITIONS_ACTIVE=3 before it can be dropped — rest is always active.
+CONDITION_DROP_ORDER = ["home_away", "matchup_rank"]
+# Picks v2: only home_away and matchup_rank are droppable. Opportunity, pace,
+# and rest are core context signals — dropping them would compare today against
+# fundamentally different games. "rest" used to be droppable but never actually
+# got dropped at MIN_CONDITIONS_ACTIVE=3, so removing it formalizes the truth.
 
 MIN_CONDITIONS_ACTIVE = 3
-# We never loosen below this many active conditions.
-# Dropping below 3 means the historical games are no longer meaningfully
-# similar to today's context, and the hit rate would be noise.
+# We never loosen below this many active conditions among the 5 core ones.
+# With opportunity/pace/rest non-droppable and home_away+matchup_rank droppable,
+# the floor is naturally 3 (3 non-droppable).
+
+# Picks v2: recency-weighted hit rate. weight_i = HIT_RATE_DECAY ** i where
+# i=0 is the most recent matched historical game. Lower values weight recent
+# games more aggressively.
+# TODO: recalibrate after backfill completes.
+HIT_RATE_DECAY = 0.95
+
+# Picks v2: minimum historical samples required to *activate* the optional
+# teammate-out condition. Below this we still match without it (to avoid losing
+# the entire candidate when the teammate-out scenario hasn't occurred enough).
+# TODO: raise this if 3-sample matches produce too-noisy condition activations.
+MIN_TEAMMATE_HISTORICAL_SAMPLES = 3
 
 STAT_COLUMN_MAP = {
     "pts":  "points",
@@ -126,6 +138,72 @@ def _rest_category(days_rest: int) -> str:
     if days_rest <= 3:
         return "normal"
     return "extended"
+
+
+def _weighted_hit_rate(historical_results: list[tuple[str, bool]]) -> float:
+    """
+    Inputs: list of (game_date, hit) tuples sorted by game_date DESCENDING
+            (most recent first).
+    Returns: weighted hit rate where weight_i = HIT_RATE_DECAY ** i,
+             i = 0 for the most recent game.
+    """
+    if not historical_results:
+        return 0.0
+    weights = [HIT_RATE_DECAY ** i for i in range(len(historical_results))]
+    total_w = sum(weights)
+    if total_w == 0:
+        return 0.0
+    weighted_hits = sum(
+        w * (1 if hit else 0)
+        for w, (_, hit) in zip(weights, historical_results)
+    )
+    return weighted_hits / total_w
+
+
+def _history_with_teammate_intersect(
+    candidate_id: int,
+    target_teammates: list[int],
+) -> set[int]:
+    """
+    Return the set of game_ids where:
+      - candidate_id played (had a player_game_conditions row with minutes>0), AND
+      - at least one of `target_teammates` had status='out' on that same game_id
+        (per player_availability).
+
+    Used by the optional teammate-out condition to constrain historical samples
+    to games where the candidate was playing without those specific teammates.
+    """
+    if not target_teammates:
+        return set()
+
+    # Candidate's history with team & game info
+    own_games = (
+        supabase.table("player_game_conditions")
+        .select("game_id")
+        .eq("player_id", candidate_id)
+        .gt("minutes_played", 0)
+        .execute()
+    ).data or []
+    own_game_ids = [r["game_id"] for r in own_games]
+    if not own_game_ids:
+        return set()
+
+    # Chunked lookup of out-availability for those games
+    matched: set[int] = set()
+    chunk = 100
+    for i in range(0, len(own_game_ids), chunk):
+        ids_chunk = own_game_ids[i:i + chunk]
+        res = (
+            supabase.table("player_availability")
+            .select("game_id,player_id")
+            .in_("game_id", ids_chunk)
+            .eq("status", "out")
+            .in_("player_id", target_teammates)
+            .execute()
+        )
+        for r in (res.data or []):
+            matched.add(r["game_id"])
+    return matched
 
 
 def _matchup_rank_close(today_rank: Optional[int], hist_rank: Optional[int]) -> bool:
@@ -176,9 +254,10 @@ def backtest_player(
     dc_result = (
         supabase.table("daily_conditions")
         .select(
-            "rolling_usg_5g,rolling_pace_5g,days_rest,home_away,"
+            "rolling_usg_5g,rolling_touches_5g,rolling_pace_5g,days_rest,home_away,"
             "opp_def_rank_position,opp_reb_rank_position,"
-            "opp_ast_rank_position,opp_fg3m_rank_position,game_id"
+            "opp_ast_rank_position,opp_fg3m_rank_position,"
+            "key_teammates_out,game_id"
         )
         .eq("player_id", player_id)
         .eq("game_date", game_date)
@@ -194,94 +273,110 @@ def backtest_player(
         return None
 
     dc = dc_result.data[0]
+    today_touches = dc.get("rolling_touches_5g")
     today_usg = dc.get("rolling_usg_5g")
     today_pace = dc.get("rolling_pace_5g")
     today_rest = dc.get("days_rest")
     today_home_away = dc.get("home_away")
     today_game_id = dc.get("game_id")
+    today_key_teammates_out = dc.get("key_teammates_out") or []
 
     # Use stat-specific opponent defense rank for matchup filtering.
-    # Falls back to the pts-based rank if the specific column is missing/null.
     rank_col = STAT_OPP_RANK_COL.get(stat, "opp_def_rank_position")
     today_opp_rank = dc.get(rank_col) or dc.get("opp_def_rank_position")
 
-    # Usage and pace are the core numeric anchors — bail without them.
-    if today_usg is None or today_pace is None:
+    # Picks v2: prefer the touches signal. Fall back to usg only when touches
+    # is unavailable today (rampup window before backfill catches up).
+    use_touches = today_touches is not None
+    if not use_touches and today_usg is None:
         print(
-            f"  WARNING: rolling_usg_5g or rolling_pace_5g is None for "
+            f"  WARNING: neither rolling_touches_5g nor rolling_usg_5g for "
             f"player_id={player_id} on {game_date}. Cannot backtest."
         )
         return None
+    if today_pace is None:
+        print(
+            f"  WARNING: rolling_pace_5g is None for player_id={player_id} "
+            f"on {game_date}. Cannot backtest."
+        )
+        return None
 
-    # Default rest to "normal" if missing; matchup tier handles None gracefully.
+    # Default rest to "normal" if missing.
     if today_rest is None:
         today_rest = 3
 
     # ── 2. Compute condition ranges ──────────────────────────────────────────
-    usg_lo = today_usg - USG_BUCKET_WIDTH
-    usg_hi = today_usg + USG_BUCKET_WIDTH
+    if use_touches:
+        opp_lo = today_touches - OPPORTUNITY_TOUCH_BUCKET
+        opp_hi = today_touches + OPPORTUNITY_TOUCH_BUCKET
+    else:
+        opp_lo = today_usg - USG_BUCKET_WIDTH
+        opp_hi = today_usg + USG_BUCKET_WIDTH
     pace_lo = today_pace - PACE_BUCKET_WIDTH
     pace_hi = today_pace + PACE_BUCKET_WIDTH
     today_rest_cat = _rest_category(today_rest)
 
-    # Condition state: 5 total. usg_pct and pace are always active.
-    # The droppable conditions start active and may be removed.
+    # Condition state: 5 core conditions. opportunity/pace/rest are non-droppable.
     droppable = {
         "home_away": True,
         "matchup_rank": True,
-        "rest": True,
     }
+
+    # ── Optional teammate-out condition ──────────────────────────────────────
+    teammate_eligible = bool(today_key_teammates_out)
+    teammate_active = False
+    teammate_match_game_ids: set[int] = set()
+    if teammate_eligible:
+        teammate_match_game_ids = _history_with_teammate_intersect(
+            player_id, today_key_teammates_out
+        )
+        if len(teammate_match_game_ids) >= MIN_TEAMMATE_HISTORICAL_SAMPLES:
+            teammate_active = True
 
     # ── 3. Iteratively loosen until we have enough samples ───────────────────
     drop_idx = 0  # pointer into CONDITION_DROP_ORDER
 
     while True:
-        # Count currently active conditions
-        n_active = 2 + sum(1 for v in droppable.values() if v)  # 2 = usg + pace
-
         # ── Query player_game_conditions for matching game_ids ───────────────
+        # Picks v2: filter on touches when today_touches is set; otherwise fall back to usg.
+        opp_col = "touches" if use_touches else "usg_pct"
         q = (
             supabase.table("player_game_conditions")
-            .select("game_id,days_rest,home_away,opponent_team_id")
+            .select("game_id,days_rest,home_away,opponent_team_id,touches,usg_pct")
             .eq("player_id", player_id)
-            .gte("usg_pct", usg_lo)
-            .lte("usg_pct", usg_hi)
+            .gte(opp_col, opp_lo)
+            .lte(opp_col, opp_hi)
             .gte("pace", pace_lo)
             .lte("pace", pace_hi)
             .lte("days_rest", MAX_DAYS_REST)  # exclude cross-season openers
         )
-
-        # Exclude today's game (we don't know the result yet)
         if today_game_id is not None:
             q = q.neq("game_id", today_game_id)
 
         pgc_result = q.execute()
         candidate_rows = pgc_result.data or []
 
-        # ── Filter rest and home_away in Python ──────────────────────────────
-        # (Supabase doesn't natively support enum-bucket comparisons.)
+        # ── Filter rest (always active), home_away (droppable), teammate (optional) ──
         filtered_game_ids: list[int] = []
         for row in candidate_rows:
-            # Rest filter
-            if droppable["rest"]:
-                row_rest_cat = _rest_category(row.get("days_rest") or 3)
-                if row_rest_cat != today_rest_cat:
-                    continue
+            # Rest filter — non-droppable in v2
+            row_rest_cat = _rest_category(row.get("days_rest") or 3)
+            if row_rest_cat != today_rest_cat:
+                continue
 
-            # Home/away filter
+            # Home/away filter — droppable
             if droppable["home_away"]:
                 if row.get("home_away") != today_home_away:
                     continue
 
+            # Optional teammate-out filter
+            if teammate_active and row["game_id"] not in teammate_match_game_ids:
+                continue
+
             filtered_game_ids.append(row["game_id"])
 
         # ── Matchup rank filtering (batch) ────────────────────────────────────
-        # Uses a ±MATCHUP_RANK_WINDOW window instead of the old 3-tier system.
-        # Only runs when today's rank is known and the condition is active.
         if droppable["matchup_rank"] and filtered_game_ids and today_opp_rank is not None:
-            # Batch-fetch stat-specific opp rank for this player at each candidate game.
-            # rank_col is the same stat-specific column used for today's rank so both
-            # sides of the comparison use the same defensive metric.
             rank_result = (
                 supabase.table("daily_conditions")
                 .select(
@@ -304,30 +399,27 @@ def backtest_player(
         sample_size = len(filtered_game_ids)
 
         if sample_size >= MIN_SAMPLE_SIZE:
-            break  # Enough data — proceed to stat lookup
+            break
 
-        # ── Loosen one condition if possible ─────────────────────────────────
-        # Never go below MIN_CONDITIONS_ACTIVE
-        if n_active <= MIN_CONDITIONS_ACTIVE or drop_idx >= len(CONDITION_DROP_ORDER):
-            # Cannot loosen further
+        # ── Loosen one droppable condition if possible ───────────────────────
+        if drop_idx >= len(CONDITION_DROP_ORDER):
             print(
                 f"  INFO: only {sample_size} matching games for player_id={player_id} "
                 f"stat={stat} after loosening all allowed conditions. Returning None."
             )
             return None
-
         condition_to_drop = CONDITION_DROP_ORDER[drop_idx]
         droppable[condition_to_drop] = False
         drop_idx += 1
         # Loop back and re-query with the relaxed condition set
 
-    # ── 4. Fetch actual stats for matching games ─────────────────────────────
+    # ── 4. Fetch actual stats + game_date for matching games (weighted hit rate) ──
     if not filtered_game_ids:
         return None
 
     stats_result = (
         supabase.table("nba_player_stats")
-        .select(f"{stat_col}")
+        .select(f"{stat_col},game_date,game_id")
         .eq("player_id", player_id)
         .in_("game_id", filtered_game_ids)
         .gt("minutes_played", 0)
@@ -335,40 +427,44 @@ def backtest_player(
     )
     stat_rows = stats_result.data or []
 
-    if len(stat_rows) < MIN_SAMPLE_SIZE:
-        print(
-            f"  INFO: matched {len(filtered_game_ids)} game_ids but only "
-            f"{len(stat_rows)} stat rows found for player_id={player_id}. "
-            "Some games may lack box score data."
-        )
-        if len(stat_rows) < MIN_SAMPLE_SIZE:
-            return None
-
-    # ── 5. Compute hit rate ──────────────────────────────────────────────────
-    values = [r[stat_col] for r in stat_rows if r.get(stat_col) is not None]
-    if len(values) < MIN_SAMPLE_SIZE:
+    valid = [
+        (r["game_date"], r[stat_col])
+        for r in stat_rows
+        if r.get(stat_col) is not None and r.get("game_date")
+    ]
+    if len(valid) < MIN_SAMPLE_SIZE:
         return None
 
-    hits = sum(1 for v in values if v > line)
-    hit_rate = hits / len(values)
-    conditions_matched = 2 + sum(1 for v in droppable.values() if v)
+    # ── 5. Compute recency-weighted hit rate ─────────────────────────────────
+    valid.sort(key=lambda x: x[0], reverse=True)  # most recent first
+    historical_results = [(d, v > line) for d, v in valid]
+    hit_rate = _weighted_hit_rate(historical_results)
+
+    # Core condition count (excludes the optional teammate condition)
+    conditions_matched = 3 + sum(1 for v in droppable.values() if v)  # 3 = opp+pace+rest
 
     # ── 6. Build condition breakdown ─────────────────────────────────────────
+    opportunity_label = "active" + ("(touches)" if use_touches else "(usg_legacy)")
     condition_breakdown = {
-        "usg_pct": "active",
-        "pace": "active",
-        "home_away": "active" if droppable["home_away"] else "dropped",
-        "matchup_rank": "active" if droppable["matchup_rank"] else "dropped",
-        "rest": "active" if droppable["rest"] else "dropped",
+        "opportunity":      opportunity_label,
+        "pace":             "active",
+        "rest":             "active",
+        "home_away":        "active" if droppable["home_away"] else "dropped",
+        "matchup_rank":     "active" if droppable["matchup_rank"] else "dropped",
+        "key_teammate_out": (
+            "active" if teammate_active
+            else ("inactive" if not teammate_eligible else "insufficient_sample")
+        ),
     }
 
     return {
         "hit_rate": hit_rate,
-        "sample_size": len(values),
+        "sample_size": len(valid),
         "conditions_matched": conditions_matched,
-        "total_conditions": 5,
+        "total_conditions": 5,  # 5 core (excludes optional teammate)
         "games_queried": len(filtered_game_ids),
         "condition_breakdown": condition_breakdown,
+        "key_teammate_out_active": teammate_active,
     }
 
 

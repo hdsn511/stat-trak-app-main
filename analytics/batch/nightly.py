@@ -39,6 +39,16 @@ from analytics.db.connection import (
 from analytics.data.enrich_games import api_call_with_retry, _parse_minutes
 
 
+# ── Picks v2 tunables ─────────────────────────────────────────────────────────
+# TODO: tune against observed lineup behavior. 3 captures the team's primary
+# creators without dragging in role players whose absence has minimal lineup impact.
+TOP_USAGE_TEAMMATE_COUNT = 3
+
+# TODO: window N=7 chosen as "recent enough to capture trend, not so short as to
+# be noisy". Recalibrate after collecting recent_opp_form data for a full season.
+RECENT_OPP_FORM_WINDOW = 7
+
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def _date_str(d: date) -> str:
@@ -51,6 +61,108 @@ def _safe_avg(values: list) -> Optional[float]:
     if not clean:
         return None
     return sum(clean) / len(clean)
+
+
+def _season_start_iso(target_date_str: str) -> str:
+    """
+    Return the ISO date string for the start of the NBA season containing
+    target_date_str. NBA seasons run Oct of year Y through Jun of year Y+1,
+    so the season-start year = Y when month >= 10, else Y-1, with start
+    fixed at Oct 1.
+    """
+    y = int(target_date_str[:4])
+    m = int(target_date_str[5:7])
+    season_year = y if m >= 10 else y - 1
+    return f"{season_year}-10-01"
+
+
+def _compute_recent_opp_form(
+    opponent_team_id: int,
+    target_date_str: str,
+) -> dict[str, Optional[float]]:
+    """
+    Returns {pts, reb, ast, fg3m} where each value is
+    (opp_last_N_avg_allowed / opp_season_avg_allowed) - 1.0.
+    Allowed = stat scored against `opponent_team_id` by opposing players in
+    completed games this season, prior to `target_date_str`.
+    """
+    season_start = _season_start_iso(target_date_str)
+
+    # Find this team's games this season prior to target date
+    games_res = (
+        supabase.table("games")
+        .select("id,game_date,home_team_id,away_team_id")
+        .eq("league_id", NBA_LEAGUE_ID)
+        .gte("game_date", season_start)
+        .lt("game_date", target_date_str)
+        .or_(f"home_team_id.eq.{opponent_team_id},away_team_id.eq.{opponent_team_id}")
+        .execute()
+    )
+    team_games = games_res.data or []
+    if not team_games:
+        return {"pts": None, "reb": None, "ast": None, "fg3m": None}
+
+    game_ids = [g["id"] for g in team_games]
+    game_to_date: dict[int, str] = {g["id"]: g["game_date"] for g in team_games}
+
+    # Pull stats for ALL players in these games — we filter to the ones whose
+    # team is NOT opponent_team_id (i.e. the opposing team's players that
+    # scored against opponent_team_id).
+    stat_rows: list[dict] = []
+    chunk = 80
+    for i in range(0, len(game_ids), chunk):
+        ids_chunk = game_ids[i:i + chunk]
+        page, page_size = 0, 1000
+        while True:
+            start = page * page_size
+            res = (
+                supabase.table("nba_player_stats")
+                .select("game_id,team_id,points,rebounds,assists,three_points_made")
+                .in_("game_id", ids_chunk)
+                .range(start, start + page_size - 1)
+                .execute()
+            )
+            batch = res.data or []
+            stat_rows.extend(batch)
+            if len(batch) < page_size:
+                break
+            page += 1
+
+    # Aggregate per-game opponent totals (sum across opposing players in each game)
+    per_game: dict[int, dict[str, float]] = {}
+    for r in stat_rows:
+        if r["team_id"] == opponent_team_id:
+            continue  # we only want opposing-team rows
+        g = per_game.setdefault(r["game_id"], {"pts": 0.0, "reb": 0.0, "ast": 0.0, "fg3m": 0.0})
+        g["pts"]  += r.get("points") or 0
+        g["reb"]  += r.get("rebounds") or 0
+        g["ast"]  += r.get("assists") or 0
+        g["fg3m"] += r.get("three_points_made") or 0
+
+    if not per_game:
+        return {"pts": None, "reb": None, "ast": None, "fg3m": None}
+
+    # Sort game_ids by date desc, take last N for the recent window
+    sorted_gids = sorted(per_game.keys(), key=lambda gid: game_to_date.get(gid, ""), reverse=True)
+    recent_gids = sorted_gids[:RECENT_OPP_FORM_WINDOW]
+
+    def _form(stat_key: str) -> Optional[float]:
+        season_vals = [per_game[gid][stat_key] for gid in sorted_gids]
+        recent_vals = [per_game[gid][stat_key] for gid in recent_gids]
+        if not season_vals or not recent_vals:
+            return None
+        season_avg = sum(season_vals) / len(season_vals)
+        recent_avg = sum(recent_vals) / len(recent_vals)
+        if season_avg == 0:
+            return None
+        return (recent_avg / season_avg) - 1.0
+
+    return {
+        "pts":  _form("pts"),
+        "reb":  _form("reb"),
+        "ast":  _form("ast"),
+        "fg3m": _form("fg3m"),
+    }
 
 
 # ── Step 0: Reconcile Picks ───────────────────────────────────────────────────
@@ -806,6 +918,118 @@ def compute_daily_conditions(games: list[dict], target_date: date) -> None:
         print("  No players to process. Skipping.")
         return
 
+    # ── Picks v2: precompute season averages + team usage rankings ────────
+    # Single batch query gives us season_avg_usg for top-3 ranking. We also
+    # pull season_avg_minutes from nba_player_stats so positional-sub logic
+    # can pick the next-highest-minutes player at the out starter's position.
+    candidate_player_ids = [p["id"] for p in players]
+    candidate_team_ids = list({abbr_to_id[p["team"]] for p in players if p.get("team") in abbr_to_id})
+
+    # Pull all NBA active players on today's teams in a single batched select.
+    # Used to identify top-usage teammates regardless of whether they're in `players`.
+    team_roster_rows = (
+        supabase.table("players")
+        .select("id,name,position,team")
+        .eq("league", "nba")
+        .eq("is_active", True)
+        .in_("team", list(playing_abbrs))
+        .execute()
+    )
+    team_roster = team_roster_rows.data or []
+    all_roster_ids = list({r["id"] for r in team_roster})
+
+    # season_avg_usg per player (batched). The existing per-player season query
+    # below remains for backward-compat fields but we use this map for ranking.
+    season_usg_map: dict[int, float] = {}
+    if all_roster_ids:
+        # Chunk to keep PostgREST query string size manageable
+        chunk = 200
+        for i in range(0, len(all_roster_ids), chunk):
+            ids_chunk = all_roster_ids[i:i + chunk]
+            res = (
+                supabase.table("player_game_conditions")
+                .select("player_id,usg_pct")
+                .in_("player_id", ids_chunk)
+                .not_.is_("usg_pct", "null")
+                .execute()
+            )
+            buckets: dict[int, list[float]] = {}
+            for r in (res.data or []):
+                buckets.setdefault(r["player_id"], []).append(r["usg_pct"])
+            for pid, vals in buckets.items():
+                avg = _safe_avg(vals)
+                if avg is not None:
+                    season_usg_map[pid] = avg
+
+    # season_avg_minutes per player (current season only — derive from stats)
+    season_min_map: dict[int, float] = {}
+    if all_roster_ids:
+        season_start_str = _season_start_iso(date_str)
+        chunk = 200
+        for i in range(0, len(all_roster_ids), chunk):
+            ids_chunk = all_roster_ids[i:i + chunk]
+            res = (
+                supabase.table("nba_player_stats")
+                .select("player_id,minutes_played")
+                .in_("player_id", ids_chunk)
+                .gte("game_date", season_start_str)
+                .gt("minutes_played", 0)
+                .execute()
+            )
+            buckets: dict[int, list[float]] = {}
+            for r in (res.data or []):
+                buckets.setdefault(r["player_id"], []).append(r["minutes_played"])
+            for pid, vals in buckets.items():
+                avg = _safe_avg(vals)
+                if avg is not None:
+                    season_min_map[pid] = avg
+
+    # Build top-N-usage roster per team
+    top_usage_per_team: dict[int, list[int]] = {}
+    by_team: dict[int, list[tuple[int, float]]] = {}
+    for r in team_roster:
+        team_db_id = abbr_to_id.get(r.get("team") or "")
+        if not team_db_id:
+            continue
+        usg = season_usg_map.get(r["id"])
+        if usg is None:
+            continue
+        by_team.setdefault(team_db_id, []).append((r["id"], usg))
+    for tid, plist in by_team.items():
+        plist.sort(key=lambda x: x[1], reverse=True)
+        top_usage_per_team[tid] = [pid for pid, _ in plist[:TOP_USAGE_TEAMMATE_COUNT]]
+
+    # Player → position_group lookup (for positional-sub logic)
+    player_pos_group: dict[int, Optional[str]] = {}
+    player_team_id: dict[int, int] = {}
+    for r in team_roster:
+        team_db_id = abbr_to_id.get(r.get("team") or "")
+        if team_db_id:
+            player_team_id[r["id"]] = team_db_id
+        pg = POSITION_GROUP_MAP.get(r.get("position") or "")
+        player_pos_group[r["id"]] = pg
+
+    # Out-today availability — by game_id and by team
+    out_today_by_game: dict[int, set[int]] = {}
+    today_game_ids = list({g["id"] for g in games})
+    if today_game_ids:
+        avail_res = (
+            supabase.table("player_availability")
+            .select("game_id,player_id,status")
+            .in_("game_id", today_game_ids)
+            .eq("status", "out")
+            .execute()
+        )
+        for r in (avail_res.data or []):
+            out_today_by_game.setdefault(r["game_id"], set()).add(r["player_id"])
+
+    # Recent opp-form cache: many candidates share the same opponent today
+    opp_form_cache: dict[int, dict] = {}
+    def _opp_form(opp_team_id: int) -> dict:
+        if opp_team_id not in opp_form_cache:
+            opp_form_cache[opp_team_id] = _compute_recent_opp_form(opp_team_id, date_str)
+        return opp_form_cache[opp_team_id]
+
     # Load latest opponent_position_defense snapshot (all 4 stat-specific ranks)
     opd_rows = (
         supabase.table("opponent_position_defense")
@@ -921,6 +1145,46 @@ def compute_daily_conditions(games: list[dict], target_date: date) -> None:
         if pos_group:
             opd_data = opd_map.get((opp_team_id, pos_group)) or {}
 
+        # ── Picks v2: key_teammates_out + positional_sub_for ───────────
+        out_in_game = out_today_by_game.get(game_db_id, set())
+        out_teammate_ids = {
+            pid for pid in out_in_game
+            if pid != player_id and player_team_id.get(pid) == team_db_id
+        }
+
+        # Scenario (b): top-3-usage teammates who are out
+        team_top3 = top_usage_per_team.get(team_db_id, [])
+        top_usage_out = [pid for pid in team_top3 if pid in out_teammate_ids]
+
+        # Scenario (a): is this candidate a positional sub for any out starter?
+        # Out-starter candidate = same position group on this team, sorted by season minutes desc.
+        positional_sub_for: Optional[int] = None
+        if out_teammate_ids and pos_group:
+            same_pos_out = [
+                pid for pid in out_teammate_ids
+                if player_pos_group.get(pid) == pos_group
+            ]
+            if same_pos_out:
+                # Pick the highest-minutes out starter as the slot the candidate is filling.
+                # If multiple candidates exist on the team, only treat the next-highest-minutes
+                # one as the sub (keeps key_teammates_out from firing for every reserve).
+                same_pos_out.sort(key=lambda pid: season_min_map.get(pid, 0.0), reverse=True)
+                top_out = same_pos_out[0]
+                # Find non-out same-pos teammates on this team, ranked by minutes
+                same_pos_available = [
+                    pid for pid in player_team_id
+                    if player_team_id[pid] == team_db_id
+                    and player_pos_group.get(pid) == pos_group
+                    and pid not in out_teammate_ids
+                ]
+                same_pos_available.sort(key=lambda pid: season_min_map.get(pid, 0.0), reverse=True)
+                if same_pos_available and same_pos_available[0] == player_id:
+                    positional_sub_for = top_out
+
+        key_teammates_out = sorted(
+            set(top_usage_out) | ({positional_sub_for} if positional_sub_for else set())
+        )
+
         daily_rows.append({
             "player_id": player_id,
             "game_id": game_db_id,
@@ -941,10 +1205,17 @@ def compute_daily_conditions(games: list[dict], target_date: date) -> None:
             # (TOP / paint_touches deliberately NULL — see fetch_player_track docstring).
             "rolling_touches_5g": rolling_touches,
             "season_avg_touches": season_avg_touches,
+            "key_teammates_out": key_teammates_out,
+            "positional_sub_for": positional_sub_for,
             "opp_def_rank_position":  opd_data.get("pts_rank"),
             "opp_reb_rank_position":  opd_data.get("reb_rank"),
             "opp_ast_rank_position":  opd_data.get("ast_rank"),
             "opp_fg3m_rank_position": opd_data.get("fg3m_rank"),
+            # Picks v2: opponent's last-N vs season form delta per stat
+            "recent_opp_pts_form":  _opp_form(opp_team_id)["pts"],
+            "recent_opp_reb_form":  _opp_form(opp_team_id)["reb"],
+            "recent_opp_ast_form":  _opp_form(opp_team_id)["ast"],
+            "recent_opp_fg3m_form": _opp_form(opp_team_id)["fg3m"],
         })
 
     if daily_rows:

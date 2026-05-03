@@ -29,6 +29,9 @@ CREATE_TABLES = [
         usg_pct REAL, pace REAL, off_rating REAL, def_rating REAL,
         home_away VARCHAR(4), days_rest INTEGER,
         opponent_team_id BIGINT REFERENCES teams(id), minutes_played INTEGER,
+        -- Player tracking signals from BoxScorePlayerTrackV3 (added in picks v2)
+        touches FLOAT, front_court_touches FLOAT, time_of_possession FLOAT,
+        paint_touches FLOAT, avg_speed FLOAT,
         UNIQUE(player_id, game_id)
     );
     """,
@@ -68,6 +71,13 @@ CREATE_TABLES = [
         opp_def_rank_position INTEGER, opp_reb_rank_position INTEGER,
         opp_ast_rank_position INTEGER, opp_fg3m_rank_position INTEGER,
         position_group VARCHAR(1),
+        -- Picks v2: rolling/season touches & TOP, key teammates out, opp recent form
+        rolling_touches_5g FLOAT, rolling_top_5g FLOAT,
+        season_avg_touches FLOAT, season_avg_top FLOAT,
+        key_teammates_out INT[] DEFAULT '{}',
+        positional_sub_for INT,
+        recent_opp_pts_form FLOAT, recent_opp_reb_form FLOAT,
+        recent_opp_ast_form FLOAT, recent_opp_fg3m_form FLOAT,
         UNIQUE(player_id, game_date)
     );
     """,
@@ -88,6 +98,8 @@ CREATE_TABLES = [
         sample_size INTEGER, confidence_score REAL, implied_prob REAL,
         edge REAL, conditions_matched INTEGER, total_conditions INTEGER,
         key_conditions JSONB, alt_lines_tested JSONB,
+        -- Picks v2: per-pick modifier breakdown (b2b, recent_opp_form, etc.)
+        modifiers JSONB DEFAULT '{}'::JSONB,
         actual_result REAL, did_hit BOOLEAN,
         created_at TIMESTAMPTZ DEFAULT NOW()
     );

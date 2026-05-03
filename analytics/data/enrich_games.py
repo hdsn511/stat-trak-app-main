@@ -147,7 +147,7 @@ def _fetch_all(table: str, select: str = "*", filters: Optional[list] = None) ->
 
 # ── Shared retry helper ─────────────────────────────────────────────────────────
 
-def api_call_with_retry(call_fn, description: str) -> Optional[Any]:
+def api_call_with_retry(call_fn, description: str, backfill_mode: bool = False) -> Optional[Any]:
     """
     Call call_fn() with exponential backoff on network errors and HTTP 429.
 
@@ -155,6 +155,11 @@ def api_call_with_retry(call_fn, description: str) -> Optional[Any]:
     Always sleeps API_DELAY_SECONDS before the first attempt and between retries.
     On HTTP 429 (rate limit), uses double backoff and does not count against retries,
     up to a maximum of MAX_RATE_LIMIT_RETRIES times before giving up.
+
+    backfill_mode (Task 3): when True, use FAST_RETRY_SECONDS on first failure,
+    then escalate to _trigger_cooldown() on the second consecutive failure;
+    skip the inter-call API_DELAY_SECONDS floor so backfill cadence is governed
+    by 429s and the cooldown ladder rather than a fixed delay.
     """
     MAX_RATE_LIMIT_RETRIES = 10
     rate_limit_hits = 0
@@ -202,6 +207,64 @@ def api_call_with_retry(call_fn, description: str) -> Optional[Any]:
 
 
 # ── Minute parsing ──────────────────────────────────────────────────────────────
+
+def _safe_float(v) -> Optional[float]:
+    """Coerce a value to float, returning None for NaN/None/non-numeric."""
+    if v is None:
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    if math.isnan(f):
+        return None
+    return f
+
+
+def fetch_player_track(game_id: str, backfill_mode: bool = False) -> Optional[list[dict]]:
+    """
+    Fetch BoxScorePlayerTrackV3 for one game and return per-player rows
+    keyed by player_id (NBA ext_id). Returns None on persistent failure
+    (after retries). Field-name fallback handles nba_api version drift.
+    """
+    try:
+        from nba_api.stats.endpoints import boxscoreplayertrackv3
+    except ImportError as exc:
+        print(f"  ERROR: nba_api missing boxscoreplayertrackv3: {exc}")
+        return None
+
+    def _call():
+        return boxscoreplayertrackv3.BoxScorePlayerTrackV3(game_id=game_id, timeout=30)
+
+    resp = api_call_with_retry(_call, f"PlayerTrackV3 game_id={game_id}", backfill_mode=backfill_mode)
+    if resp is None:
+        return None
+
+    try:
+        df = resp.get_data_frames()[0]
+    except Exception as exc:
+        print(f"  WARNING: PlayerTrackV3 parse error for {game_id}: {exc}")
+        return None
+
+    rows = []
+    for _, r in df.iterrows():
+        pid_raw = r.get("personId", r.get("PERSON_ID"))
+        if pid_raw is None:
+            continue
+        try:
+            pid = int(pid_raw)
+        except (TypeError, ValueError):
+            continue
+        rows.append({
+            "player_ext_id":       str(pid),
+            "touches":             _safe_float(r.get("touches", r.get("TOUCHES"))),
+            "front_court_touches": _safe_float(r.get("frontCourtTouches", r.get("FRONT_COURT_TOUCHES"))),
+            "time_of_possession":  _safe_float(r.get("timeOfPossession", r.get("TIME_OF_POSSESSION"))),
+            "paint_touches":       _safe_float(r.get("paintTouches", r.get("PAINT_TOUCHES"))),
+            "avg_speed":           _safe_float(r.get("avgSpeed", r.get("AVG_SPEED"))),
+        })
+    return rows
+
 
 def _parse_minutes(raw) -> int:
     """
@@ -521,6 +584,10 @@ def enrich_games(
 
         print(f"[{game_num}/{total}] Game {ext_id} ({game_date_str})", end=" ... ", flush=True)
 
+        # Per-game pgc accumulator — lets us merge PlayerTrackV3 fields by p_ext_id
+        # before extending the cross-game pgc_rows buffer.
+        game_pgc_rows: list[dict] = []
+
         # ── BoxScoreAdvancedV3 ──────────────────────────────────────────
         # V2 was deprecated by stats.nba.com and returns empty responses.
         # V3 uses camelCase column names.
@@ -553,20 +620,13 @@ def enrich_games(
 
                     rest = _days_rest(p_db_id, game_date_str, stats_index)
 
-                    def _safe_float(val) -> Optional[float]:
-                        if val is None or (isinstance(val, float) and math.isnan(val)):
-                            return None
-                        try:
-                            return float(val)
-                        except (ValueError, TypeError):
-                            return None
-
                     mins = _parse_minutes(row.get("minutes"))
                     if not mins or mins <= 0:
                         continue  # skip DNPs — pace/usg meaningless without playing time
-                    pgc_rows.append(
+                    game_pgc_rows.append(
                         {
                             "player_id": p_db_id,
+                            "_p_ext_id": p_ext_id,  # stripped before upsert; used to merge track data
                             "game_id": game_db_id,
                             "game_date": game_date_str,
                             "usg_pct": _safe_float(row.get("usagePercentage")),
@@ -600,6 +660,28 @@ def enrich_games(
 
             except Exception as exc:
                 print(f"\n  WARNING: could not parse BoxScoreAdvancedV3 for {ext_id}: {exc}")
+
+        # ── BoxScorePlayerTrackV3 (touches/TOP/etc) ─────────────────────
+        # Merges into the per-player pgc rows already built for this game.
+        if game_pgc_rows:
+            track_rows = fetch_player_track(ext_id)
+            if track_rows is None:
+                print(f"\n  WARNING: PlayerTrackV3 unavailable for {ext_id} — skipping touches/TOP")
+            else:
+                track_by_pext = {tr["player_ext_id"]: tr for tr in track_rows}
+                for row in game_pgc_rows:
+                    tr = track_by_pext.get(row["_p_ext_id"])
+                    if tr:
+                        row["touches"]             = tr["touches"]
+                        row["front_court_touches"] = tr["front_court_touches"]
+                        row["time_of_possession"]  = tr["time_of_possession"]
+                        row["paint_touches"]       = tr["paint_touches"]
+                        row["avg_speed"]           = tr["avg_speed"]
+
+        # Strip the temporary merge key and flush into the cross-game buffer
+        for row in game_pgc_rows:
+            row.pop("_p_ext_id", None)
+        pgc_rows.extend(game_pgc_rows)
 
         # ── BoxScoreSummaryV2 (inactive players) ────────────────────────
         def _summ(gid=ext_id):

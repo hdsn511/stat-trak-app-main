@@ -63,6 +63,22 @@ SLOW_MODE_DELAY_MAX = 10.0     # Max delay (jittered)
 # we always surface a timeout exception so retry/cooldown logic fires.
 HARD_TIMEOUT_SECONDS = 45
 
+# ── Backfill speed tuning (used by --backfill-track mode) ─────────────────────
+# Backfill assumes the API is healthy — go fast, only slow down on real signal.
+# TODO: tune against observed nba_api 429 frequency. Lower if API tolerates faster cadence.
+FAST_RETRY_SECONDS = 5
+# First-failure quick retry. Most transient errors (timeouts, dropped connections)
+# clear in well under 5 seconds.
+
+DOUBLE_FAIL_TRIGGERS_COOLDOWN = True
+# When the FAST_RETRY also fails, escalate to the existing _trigger_cooldown()
+# (120-180s jittered + 30-call slow mode). Two consecutive failures within seconds
+# is a strong signal of a real problem, not a blip.
+
+BACKFILL_API_DELAY_SECONDS = 0.0
+# In --backfill-track mode, skip the inter-call API_DELAY_SECONDS floor.
+# Rate-limit signal (429s) and the cooldown ladder are the only governors.
+
 # Module-level state for adaptive delay
 _slow_mode_calls_remaining = 0
 
@@ -163,19 +179,44 @@ def api_call_with_retry(call_fn, description: str, backfill_mode: bool = False) 
     """
     MAX_RATE_LIMIT_RETRIES = 10
     rate_limit_hits = 0
+    consecutive_failures = 0
     attempt = 0
     while attempt < MAX_RETRIES:
         attempt += 1
-        time.sleep(_adaptive_delay())
+        # Backfill mode skips the adaptive_delay floor — let cooldown ladder govern cadence
+        if backfill_mode:
+            time.sleep(BACKFILL_API_DELAY_SECONDS)
+        else:
+            time.sleep(_adaptive_delay())
         try:
-            return _call_with_hard_timeout(call_fn)
+            result = _call_with_hard_timeout(call_fn)
+            consecutive_failures = 0
+            return result
         except (ReadTimeout, ConnectionError, FutureTimeout) as exc:
-            wait = min(BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)), BACKOFF_MAX_SECONDS)
             label = (
                 f"hard timeout after {HARD_TIMEOUT_SECONDS}s"
                 if isinstance(exc, FutureTimeout)
                 else type(exc).__name__
             )
+            consecutive_failures += 1
+            if backfill_mode:
+                # Fast retry on first transient failure
+                if consecutive_failures == 1:
+                    print(
+                        f"  WARNING [{description}] attempt {attempt}/{MAX_RETRIES} "
+                        f"failed ({label}). Fast retry in {FAST_RETRY_SECONDS}s ..."
+                    )
+                    time.sleep(FAST_RETRY_SECONDS)
+                    continue
+                if DOUBLE_FAIL_TRIGGERS_COOLDOWN and consecutive_failures >= 2:
+                    print(
+                        f"  WARNING [{description}] second consecutive failure ({label}). "
+                        f"Escalating to cooldown."
+                    )
+                    _trigger_cooldown(description)
+                    consecutive_failures = 0
+                    continue
+            wait = min(BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)), BACKOFF_MAX_SECONDS)
             print(
                 f"  WARNING [{description}] attempt {attempt}/{MAX_RETRIES} "
                 f"failed ({label}). Waiting {wait}s ..."
@@ -223,9 +264,15 @@ def _safe_float(v) -> Optional[float]:
 
 def fetch_player_track(game_id: str, backfill_mode: bool = False) -> Optional[list[dict]]:
     """
-    Fetch BoxScorePlayerTrackV3 for one game and return per-player rows
-    keyed by player_id (NBA ext_id). Returns None on persistent failure
-    (after retries). Field-name fallback handles nba_api version drift.
+    Fetch BoxScorePlayerTrackV3 for one game and return per-player rows.
+
+    Field availability note (verified against nba_api 2025-26 build):
+      - V3 PlayerStats frame exposes: touches, speed, distance, passes,
+        reboundChancesTotal, secondaryAssists. It does NOT expose
+        timeOfPossession, frontCourtTouches, or paintTouches — those existed
+        in V2 but the V2 endpoint now returns invalid JSON for many games.
+      - We only populate what V3 provides; the rest stay NULL in
+        player_game_conditions and downstream code must treat them optionally.
     """
     try:
         from nba_api.stats.endpoints import boxscoreplayertrackv3
@@ -258,10 +305,10 @@ def fetch_player_track(game_id: str, backfill_mode: bool = False) -> Optional[li
         rows.append({
             "player_ext_id":       str(pid),
             "touches":             _safe_float(r.get("touches", r.get("TOUCHES"))),
-            "front_court_touches": _safe_float(r.get("frontCourtTouches", r.get("FRONT_COURT_TOUCHES"))),
-            "time_of_possession":  _safe_float(r.get("timeOfPossession", r.get("TIME_OF_POSSESSION"))),
-            "paint_touches":       _safe_float(r.get("paintTouches", r.get("PAINT_TOUCHES"))),
-            "avg_speed":           _safe_float(r.get("avgSpeed", r.get("AVG_SPEED"))),
+            "front_court_touches": None,  # not exposed by V3
+            "time_of_possession":  None,  # not exposed by V3
+            "paint_touches":       None,  # not exposed by V3
+            "avg_speed":           _safe_float(r.get("speed", r.get("SPEED"))),
         })
     return rows
 
@@ -936,6 +983,122 @@ def backfill_basic_stats(
     print(f"\nBasic stats backfill complete. Processed {total} games.")
 
 
+# ── 4. PLAYER TRACK BACKFILL ────────────────────────────────────────────────────
+
+def backfill_track(seasons: list[str], limit: Optional[int] = None) -> None:
+    """
+    Backfill BoxScorePlayerTrackV3 for completed games in the given seasons.
+    Skips games whose player_game_conditions rows already have touches set.
+
+    Args:
+        seasons: list of season strings, e.g. ["2023-24","2024-25","2025-26"]
+        limit:   optional cap on games processed (per smoke-test runs)
+    """
+    from analytics.db.connection import season_str_to_int
+
+    print(f"[backfill_track] seasons={seasons} limit={limit}")
+
+    # Map ext_id (NBA player id, str) -> db_id, for selective row updates
+    player_rows = _fetch_all("players", "id,ext_id", [("eq", "league", "nba")])
+    player_map = {r["ext_id"]: r["id"] for r in player_rows}
+    print(f"  players loaded: {len(player_map)}")
+
+    season_ints = [season_str_to_int(s) for s in seasons]
+
+    # Load completed games for the target seasons. "Completed" = home_score IS NOT NULL.
+    # _fetch_all paginates past PostgREST's default 1000-row cap.
+    all_games: list[dict] = []
+    for season_int in season_ints:
+        season_games = _fetch_all(
+            "games",
+            "id,ext_id,game_date,season,home_score",
+            [
+                ("eq", "season", season_int),
+                ("eq", "league_id", NBA_LEAGUE_ID),
+            ],
+        )
+        season_games = [g for g in season_games if g.get("home_score") is not None]
+        season_games.sort(key=lambda g: g["game_date"] or "")
+        print(f"  season {season_int_to_str(season_int)}: {len(season_games)} completed games")
+        all_games.extend(season_games)
+
+    # Filter out preseason / All-Star (only 002/004/005 have track data)
+    all_games = [g for g in all_games if g["ext_id"][:3] in ("002", "004", "005")]
+    print(f"  regular+playoff games: {len(all_games)}")
+
+    if limit:
+        all_games = all_games[:limit]
+        print(f"  limit applied: {len(all_games)} games")
+
+    processed = 0
+    updated = 0
+    skipped = 0
+
+    for i, game in enumerate(all_games, start=1):
+        ext_id = game["ext_id"]
+        game_db_id = game["id"]
+
+        # Skip if any condition row for this game already has touches populated
+        existing = (
+            supabase.table("player_game_conditions")
+            .select("id", count="exact")
+            .eq("game_id", game_db_id)
+            .not_.is_("touches", "null")
+            .limit(1)
+            .execute()
+        )
+        if (existing.count or 0) > 0:
+            skipped += 1
+            if i % 100 == 0:
+                print(f"  [{i}/{len(all_games)}] skipped {ext_id} (already has touches)")
+            continue
+
+        track_rows = fetch_player_track(ext_id, backfill_mode=True)
+        if track_rows is None:
+            print(f"  [{i}/{len(all_games)}] {ext_id}: PlayerTrackV3 unavailable")
+            continue
+
+        # Update only the existing pgc rows for this game (do not insert new rows
+        # — pgc rows come from BoxScoreAdvancedV3 enrichment which has stricter
+        # column requirements like usg_pct/pace).
+        game_updated = 0
+        for tr in track_rows:
+            p_db_id = player_map.get(tr["player_ext_id"])
+            if not p_db_id:
+                continue
+            if all(tr[k] is None for k in ("touches", "front_court_touches", "time_of_possession", "paint_touches", "avg_speed")):
+                continue
+            try:
+                res = (
+                    supabase.table("player_game_conditions")
+                    .update({
+                        "touches":             tr["touches"],
+                        "front_court_touches": tr["front_court_touches"],
+                        "time_of_possession":  tr["time_of_possession"],
+                        "paint_touches":       tr["paint_touches"],
+                        "avg_speed":           tr["avg_speed"],
+                    })
+                    .eq("player_id", p_db_id)
+                    .eq("game_id", game_db_id)
+                    .execute()
+                )
+                if res.data:
+                    game_updated += len(res.data)
+            except Exception as exc:
+                print(f"    WARNING: update failed for player={p_db_id} game={game_db_id}: {exc}")
+
+        processed += 1
+        updated += game_updated
+
+        if i % 50 == 0 or i == len(all_games):
+            print(
+                f"  [{i}/{len(all_games)}] processed={processed} skipped={skipped} "
+                f"row_updates={updated}"
+            )
+
+    print(f"[backfill_track] complete. processed={processed} skipped={skipped} row_updates={updated}")
+
+
 # ── Opponent Position Defense Backfill ──────────────────────────────────────────
 
 # Maps players.position strings (from CommonTeamRoster) to the 3 position groups
@@ -1193,6 +1356,26 @@ Examples:
         action="store_true",
         help="Skip confirmation prompt (useful for unattended runs)",
     )
+    parser.add_argument(
+        "--backfill-track",
+        action="store_true",
+        dest="backfill_track",
+        help="Backfill BoxScorePlayerTrackV3 only (touches/TOP/etc) across the season window. "
+             "Uses speed-tuned retry: fast retry first, full cooldown on second consecutive fail.",
+    )
+    parser.add_argument(
+        "--seasons",
+        type=str,
+        default=None,
+        help="Comma-separated list of seasons (e.g. '2023-24,2024-25,2025-26'). "
+             "Required with --backfill-track.",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Cap on games processed (smoke-tests; works with --backfill-track).",
+    )
 
     args = parser.parse_args()
 
@@ -1211,6 +1394,14 @@ Examples:
 
     if args.opp_defense:
         backfill_opp_defense()
+        return 0
+
+    if args.backfill_track:
+        if not args.seasons:
+            print("ERROR: --backfill-track requires --seasons (e.g. --seasons 2023-24,2024-25)")
+            return 1
+        seasons = [s.strip() for s in args.seasons.split(",") if s.strip()]
+        backfill_track(seasons, limit=args.limit)
         return 0
 
     # Default: full game enrichment

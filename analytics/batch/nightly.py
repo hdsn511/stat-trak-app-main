@@ -17,8 +17,14 @@ CLI:
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 import time
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 from datetime import date, datetime, timedelta
 from typing import Optional
 
@@ -91,7 +97,16 @@ def reconcile_picks(yesterday: date) -> None:
 
     if not has_stats:
         print("  No nba_player_stats rows found for yesterday. Attempting fresh box score fetch ...")
-        _fetch_and_insert_box_scores(yesterday)
+        # Look up game ext_ids from DB first — avoids LeagueGameFinder (times out on GH Actions)
+        game_rows = (
+            supabase.table("games")
+            .select("ext_id")
+            .eq("game_date", yest_str)
+            .eq("league_id", NBA_LEAGUE_ID)
+            .execute()
+        )
+        known_ext_ids = [r["ext_id"] for r in (game_rows.data or [])] or None
+        _fetch_and_insert_box_scores(yesterday, game_ext_ids=known_ext_ids)
 
     # ── Resolve player props ─────────────────────────────────────────────────
     PROP_STAT_MAP = {
@@ -186,7 +201,7 @@ def _fetch_and_insert_box_scores(
     API does not expose pre-season box scores via this endpoint.
     """
     try:
-        from nba_api.stats.endpoints import BoxScoreTraditionalV3, LeagueGameFinder
+        from nba_api.stats.endpoints import BoxScoreTraditionalV3, BoxScoreTraditionalV2, LeagueGameFinder
     except ImportError as exc:
         print(f"  ERROR: nba_api not installed: {exc}")
         return
@@ -266,65 +281,125 @@ def _fetch_and_insert_box_scores(
             return BoxScoreTraditionalV3(game_id=gid)
 
         result = api_call_with_retry(_trad, f"BoxScoreTraditionalV3 {ext_id}")
+
+        # V3 fails for playoff games — try V2
         if result is None:
-            print(f"  WARNING: BoxScoreTraditionalV3 returned None for {ext_id}.")
-            continue
+            def _trad_v2(gid=ext_id):
+                return BoxScoreTraditionalV2(game_id=gid)
+            result = api_call_with_retry(_trad_v2, f"BoxScoreTraditionalV2 {ext_id}")
 
-        try:
-            player_df = result.get_data_frames()[0]
-        except Exception as exc:
-            print(f"  WARNING: parse error for game {ext_id}: {exc}")
-            continue
-
-        # Derive team totals by summing player points from player_df.
-        # V3 has no reliable separate team-totals frame; get_data_frames()[1]
-        # returns something other than final team scores.
-        try:
-            team_pts: dict[str, int] = {}
-            for _, pr in player_df.iterrows():
-                t_ext = str(int(pr["teamId"]))
-                team_pts[t_ext] = team_pts.get(t_ext, 0) + int(pr.get("points") or 0)
-            if team_pts and game_db_id in game_teams:
-                home_db_t, away_db_t = game_teams[game_db_id]
-                pts_by_db = {team_map.get(ext): pts for ext, pts in team_pts.items()}
-                hs = pts_by_db.get(home_db_t)
-                aws = pts_by_db.get(away_db_t)
-                if hs is not None and aws is not None:
-                    score_updates[game_db_id] = {"home_score": hs, "away_score": aws}
-        except Exception:
-            pass
-
-        print(f"    {ext_id}: {len(player_df)} player rows")
-
-        for _, row in player_df.iterrows():
+        # Parse whichever stats API responded (V3 or V2)
+        player_rows_from_api: list[dict] = []
+        if result is not None:
             try:
-                # V3 returns integer IDs, not strings
-                p_ext_id = str(int(row["personId"]))
-                t_ext_id = str(int(row["teamId"]))
-            except (ValueError, TypeError, KeyError):
-                continue
-            p_db_id = player_map.get(p_ext_id)
-            t_db_id = team_map.get(t_ext_id)
+                player_df = result.get_data_frames()[0]
+                for _, row in player_df.iterrows():
+                    # V3 uses camelCase int IDs; V2 uses UPPER_CASE string IDs
+                    if "personId" in player_df.columns:
+                        p_ext = str(int(row["personId"]))
+                        t_ext = str(int(row["teamId"]))
+                        player_rows_from_api.append({
+                            "p_ext": p_ext, "t_ext": t_ext,
+                            "pts": _si(row.get("points")),
+                            "reb": _si(row.get("reboundsTotal")),
+                            "ast": _si(row.get("assists")),
+                            "fg3m": _si(row.get("threePointersMade")),
+                            "fouls": _si(row.get("foulsPersonal")),
+                            "mins": _parse_minutes(row.get("minutes")),
+                            "pos": str(row.get("position") or "").strip(),
+                        })
+                    else:
+                        p_ext = str(row.get("PLAYER_ID", "") or "").strip()
+                        t_ext = str(row.get("TEAM_ID", "") or "").strip()
+                        player_rows_from_api.append({
+                            "p_ext": p_ext, "t_ext": t_ext,
+                            "pts": _si(row.get("PTS")),
+                            "reb": _si(row.get("REB")),
+                            "ast": _si(row.get("AST")),
+                            "fg3m": _si(row.get("FG3M")),
+                            "fouls": _si(row.get("PF")),
+                            "mins": _parse_minutes(row.get("MIN")),
+                            "pos": str(row.get("START_POSITION") or "").strip(),
+                        })
+            except Exception as exc:
+                print(f"  WARNING: stats API parse error for {ext_id}: {exc}")
+
+        # stats.nba.com returned nothing — fall back to NBA live data API
+        if not player_rows_from_api:
+            try:
+                from nba_api.live.nba.endpoints.boxscore import BoxScore as LiveBoxScore
+                live = LiveBoxScore(game_id=ext_id)
+                game_data = live.game.get_dict()
+                for team_key in ("homeTeam", "awayTeam"):
+                    team_data = game_data.get(team_key, {})
+                    t_ext = str(team_data.get("teamId", "") or "").strip()
+                    team_score = team_data.get("score")
+                    if team_score is not None and game_db_id in game_teams:
+                        score_updates.setdefault(game_db_id, {})
+                        score_key = "home_score" if team_key == "homeTeam" else "away_score"
+                        score_updates[game_db_id][score_key] = int(team_score)
+                    for player in team_data.get("players", []):
+                        p_ext = str(player.get("personId", "") or "").strip()
+                        stats = player.get("statistics", {})
+                        mins_raw = str(stats.get("minutesCalculated", "") or "")
+                        mins_m = re.match(r"PT(\d+)M", mins_raw)
+                        player_rows_from_api.append({
+                            "p_ext": p_ext, "t_ext": t_ext,
+                            "pts": _si(stats.get("points")),
+                            "reb": _si(stats.get("reboundsTotal")),
+                            "ast": _si(stats.get("assists")),
+                            "fg3m": _si(stats.get("threePointersMade")),
+                            "fouls": _si(stats.get("foulsPersonal")),
+                            "mins": int(mins_m.group(1)) if mins_m else 0,
+                            "pos": str(player.get("position", "") or "").strip(),
+                        })
+                print(f"    {ext_id}: {len(player_rows_from_api)} player rows (live API)")
+            except ImportError:
+                print(f"  WARNING: nba_api.live not available for {ext_id}")
+            except Exception as exc:
+                print(f"  WARNING: live API error for {ext_id}: {exc}")
+        else:
+            print(f"    {ext_id}: {len(player_rows_from_api)} player rows (stats API)")
+
+        if not player_rows_from_api:
+            print(f"  WARNING: no box score data found for {ext_id} from any source.")
+            continue
+
+        # Accumulate team scores from stats API rows (live API sets them above)
+        if result is not None:
+            try:
+                team_pts: dict[str, int] = {}
+                for r in player_rows_from_api:
+                    team_pts[r["t_ext"]] = team_pts.get(r["t_ext"], 0) + r["pts"]
+                if team_pts and game_db_id in game_teams:
+                    home_db_t, away_db_t = game_teams[game_db_id]
+                    pts_by_db = {team_map.get(ext): pts for ext, pts in team_pts.items()}
+                    hs = pts_by_db.get(home_db_t)
+                    aws = pts_by_db.get(away_db_t)
+                    if hs is not None and aws is not None:
+                        score_updates[game_db_id] = {"home_score": hs, "away_score": aws}
+            except Exception:
+                pass
+
+        for r in player_rows_from_api:
+            p_db_id = player_map.get(r["p_ext"])
+            t_db_id = team_map.get(r["t_ext"])
             if not p_db_id or not t_db_id:
                 continue
-
             stat_buffer.append({
                 "game_id": game_db_id,
                 "player_id": p_db_id,
                 "team_id": t_db_id,
                 "game_date": date_str,
-                "points": _si(row.get("points")),
-                "rebounds": _si(row.get("reboundsTotal")),
-                "assists": _si(row.get("assists")),
-                "three_points_made": _si(row.get("threePointersMade")),
-                "fouls": _si(row.get("foulsPersonal")),
-                "minutes_played": _parse_minutes(row.get("minutes")),
+                "points": r["pts"],
+                "rebounds": r["reb"],
+                "assists": r["ast"],
+                "three_points_made": r["fg3m"],
+                "fouls": r["fouls"],
+                "minutes_played": r["mins"],
             })
-
-            # Update position from box score if present
-            pos = str(row.get("position") or "").strip()
-            if pos and p_db_id:
-                position_updates[p_db_id] = pos
+            if r["pos"] and p_db_id:
+                position_updates[p_db_id] = r["pos"]
 
     if stat_buffer:
         for i in range(0, len(stat_buffer), BATCH_SIZE):
@@ -813,9 +888,11 @@ def compute_daily_conditions(games: list[dict], target_date: date) -> None:
                     pass
 
         # ── Rolling conditions: last 5 player_game_conditions ──────────
+        # Picks v2: also pull touches. TOP/front_court/paint_touches are
+        # always-NULL (V3 doesn't expose them) — see fetch_player_track docstring.
         cond_res = (
             supabase.table("player_game_conditions")
-            .select("game_date,usg_pct,pace")
+            .select("game_date,usg_pct,pace,touches")
             .eq("player_id", player_id)
             .lt("game_date", date_str)
             .gt("pace", 0)  # exclude DNP rows where pace wasn't computed
@@ -826,16 +903,18 @@ def compute_daily_conditions(games: list[dict], target_date: date) -> None:
         recent_cond = cond_res.data or []
         rolling_usg = _safe_avg([r.get("usg_pct") for r in recent_cond])
         rolling_pace = _safe_avg([r.get("pace") for r in recent_cond])
+        rolling_touches = _safe_avg([r.get("touches") for r in recent_cond])
 
-        # ── Season avg usg ────────────────────────────────────────────
-        season_usg_res = (
+        # ── Season averages (usg legacy + touches v2) ─────────────────
+        season_cond_res = (
             supabase.table("player_game_conditions")
-            .select("usg_pct")
+            .select("usg_pct,touches")
             .eq("player_id", player_id)
             .execute()
         )
-        season_usg_vals = [r.get("usg_pct") for r in (season_usg_res.data or [])]
-        season_avg_usg = _safe_avg(season_usg_vals)
+        season_cond_rows = season_cond_res.data or []
+        season_avg_usg = _safe_avg([r.get("usg_pct") for r in season_cond_rows])
+        season_avg_touches = _safe_avg([r.get("touches") for r in season_cond_rows])
 
         # ── Opponent defense ranks (stat-specific) ───────────────────────
         opd_data: dict = {}
@@ -858,6 +937,10 @@ def compute_daily_conditions(games: list[dict], target_date: date) -> None:
             "rolling_usg_5g": rolling_usg,
             "rolling_pace_5g": rolling_pace,
             "season_avg_usg": season_avg_usg,
+            # Picks v2: touches as the sole opportunity signal
+            # (TOP / paint_touches deliberately NULL — see fetch_player_track docstring).
+            "rolling_touches_5g": rolling_touches,
+            "season_avg_touches": season_avg_touches,
             "opp_def_rank_position":  opd_data.get("pts_rank"),
             "opp_reb_rank_position":  opd_data.get("reb_rank"),
             "opp_ast_rank_position":  opd_data.get("ast_rank"),
@@ -877,33 +960,49 @@ def compute_daily_conditions(games: list[dict], target_date: date) -> None:
 
 # ── Orchestrator ──────────────────────────────────────────────────────────────
 
-def run_nightly(target_date: date, test: bool = False) -> None:
+def run_nightly(
+    target_date: date,
+    test: bool = False,
+    slate_only: bool = False,
+    reconcile_only: bool = False,
+) -> None:
     """
     Full nightly pipeline:
-      Step 0   - reconcile picks from yesterday
-      Step 0.5 - backfill completed games + box scores since last DB entry
-      Step 1   - fetch game slate for target_date
-      Steps 2+3 - compute daily_conditions for all players on today's teams
+      Step 0   - reconcile picks from yesterday           (skipped with --slate-only)
+      Step 0.5 - backfill completed games + box scores    (skipped with --slate-only / --reconcile-only skips 1+2+3)
+      Step 1   - fetch game slate for target_date         (skipped with --reconcile-only)
+      Steps 2+3 - compute daily_conditions                (skipped with --reconcile-only)
+
+    --slate-only:     Run only steps 1 and 2+3 (future-date slate syncs).
+    --reconcile-only: Run only step 0 (noon reconcile job).
     """
     yesterday = target_date - timedelta(days=1)
 
+    mode = " [SLATE-ONLY]" if slate_only else " [RECONCILE-ONLY]" if reconcile_only else ""
     print("=" * 60)
-    print(f"StatTrak Nightly Batch  |  target: {_date_str(target_date)}")
+    print(f"StatTrak Nightly Batch  |  target: {_date_str(target_date)}{mode}")
     if test:
-        print("(TEST MODE - no writes will be skipped, but limited scope)")
+        print("(TEST MODE - limited scope)")
     print("=" * 60)
 
-    # Step 0
-    try:
-        reconcile_picks(yesterday)
-    except (Exception, KeyboardInterrupt) as exc:
-        print(f"  ERROR in reconcile_picks: {exc}")
+    # Step 0: reconcile picks — only when not doing a forward slate sync
+    if not slate_only:
+        try:
+            reconcile_picks(yesterday)
+        except (Exception, KeyboardInterrupt) as exc:
+            print(f"  ERROR in reconcile_picks: {exc}")
 
-    # Step 0.5 — backfill any completed games since the last DB entry
-    try:
-        backfill_completed_games(up_to=target_date)
-    except (Exception, KeyboardInterrupt) as exc:
-        print(f"  ERROR in backfill_completed_games: {exc}")
+    if reconcile_only:
+        print("=" * 60)
+        print("Reconcile-only run complete.")
+        return
+
+    # Step 0.5 — backfill any completed games (full run only; slate syncs skip this)
+    if not slate_only:
+        try:
+            backfill_completed_games(up_to=target_date)
+        except (Exception, KeyboardInterrupt) as exc:
+            print(f"  ERROR in backfill_completed_games: {exc}")
 
     # Step 1
     try:
@@ -950,6 +1049,18 @@ Examples:
         action="store_true",
         help="Run in test mode (limited games, no destructive ops)",
     )
+    parser.add_argument(
+        "--slate-only",
+        action="store_true",
+        dest="slate_only",
+        help="Skip reconcile + backfill; only sync slate + daily_conditions (use for future-date loops)",
+    )
+    parser.add_argument(
+        "--reconcile-only",
+        action="store_true",
+        dest="reconcile_only",
+        help="Only run Step 0 (reconcile yesterday's picks); skip slate + backfill + conditions",
+    )
 
     args = parser.parse_args()
 
@@ -962,7 +1073,12 @@ Examples:
     else:
         target_date = date.today() + timedelta(days=1)
 
-    run_nightly(target_date, test=args.test)
+    run_nightly(
+        target_date,
+        test=args.test,
+        slate_only=args.slate_only,
+        reconcile_only=args.reconcile_only,
+    )
     return 0
 
 

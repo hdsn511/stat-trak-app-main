@@ -34,8 +34,10 @@ USG_BUCKET_WIDTH = 0.06
 
 # Picks v2: touches replaces usage as the opportunity signal. TOP intentionally
 # not used — V3 doesn't expose it. See fetch_player_track docstring.
-# TODO: tune against observed match-rate distribution after backfill completes.
-OPPORTUNITY_TOUCH_BUCKET = 8.0   # ± touches around today's rolling avg
+# Tuned 2026-05-03 against observed pgc distribution (mean 58, stddev 19.4
+# for rotation players); ±16 captures ~one std dev which gives comparable
+# match-rate coverage to v1's USG_BUCKET_WIDTH at 0.06.
+OPPORTUNITY_TOUCH_BUCKET = 16.0   # ± touches around today's rolling avg
 
 PACE_BUCKET_WIDTH = 5.0
 # +/- pace bucket (possessions per 48 min).
@@ -76,13 +78,15 @@ MIN_SAMPLE_SIZE = 8
 # Increase to be more conservative; decrease to get more coverage at the
 # cost of statistical reliability.
 
-CONDITION_DROP_ORDER = ["home_away", "matchup_rank"]
-# Picks v2: only home_away and matchup_rank are droppable. Opportunity, pace,
-# and rest are core context signals — dropping them would compare today against
-# fundamentally different games. "rest" used to be droppable but never actually
-# got dropped at MIN_CONDITIONS_ACTIVE=3, so removing it formalizes the truth.
+CONDITION_DROP_ORDER = ["home_away", "matchup_rank", "rest"]
+# Picks v2: home_away → matchup_rank → rest, in that order. Rest is included
+# because days_rest in player_game_conditions has data-quality gaps (multi-game
+# absences and across-season rows produce 50-450 day "rest" values that fail
+# MAX_DAYS_REST). For players with limited normal-rest samples (e.g. centers
+# pulled for foul trouble), the rest filter alone can collapse the sample to 0.
+# Dropping it is preferable to returning None.
 
-MIN_CONDITIONS_ACTIVE = 3
+MIN_CONDITIONS_ACTIVE = 2
 # We never loosen below this many active conditions among the 5 core ones.
 # With opportunity/pace/rest non-droppable and home_away+matchup_rank droppable,
 # the floor is naturally 3 (3 non-droppable).
@@ -316,10 +320,12 @@ def backtest_player(
     pace_hi = today_pace + PACE_BUCKET_WIDTH
     today_rest_cat = _rest_category(today_rest)
 
-    # Condition state: 5 core conditions. opportunity/pace/rest are non-droppable.
+    # Condition state: 5 core conditions. opportunity/pace are non-droppable;
+    # home_away, matchup_rank, rest are droppable in that order.
     droppable = {
         "home_away": True,
         "matchup_rank": True,
+        "rest": True,
     }
 
     # ── Optional teammate-out condition ──────────────────────────────────────
@@ -356,13 +362,14 @@ def backtest_player(
         pgc_result = q.execute()
         candidate_rows = pgc_result.data or []
 
-        # ── Filter rest (always active), home_away (droppable), teammate (optional) ──
+        # ── Filter rest, home_away (droppable), teammate (optional) ──
         filtered_game_ids: list[int] = []
         for row in candidate_rows:
-            # Rest filter — non-droppable in v2
-            row_rest_cat = _rest_category(row.get("days_rest") or 3)
-            if row_rest_cat != today_rest_cat:
-                continue
+            # Rest filter — droppable
+            if droppable["rest"]:
+                row_rest_cat = _rest_category(row.get("days_rest") or 3)
+                if row_rest_cat != today_rest_cat:
+                    continue
 
             # Home/away filter — droppable
             if droppable["home_away"]:
@@ -441,14 +448,14 @@ def backtest_player(
     hit_rate = _weighted_hit_rate(historical_results)
 
     # Core condition count (excludes the optional teammate condition)
-    conditions_matched = 3 + sum(1 for v in droppable.values() if v)  # 3 = opp+pace+rest
+    conditions_matched = 2 + sum(1 for v in droppable.values() if v)  # 2 = opp+pace (non-droppable)
 
     # ── 6. Build condition breakdown ─────────────────────────────────────────
     opportunity_label = "active" + ("(touches)" if use_touches else "(usg_legacy)")
     condition_breakdown = {
         "opportunity":      opportunity_label,
         "pace":             "active",
-        "rest":             "active",
+        "rest":             "active" if droppable["rest"] else "dropped",
         "home_away":        "active" if droppable["home_away"] else "dropped",
         "matchup_rank":     "active" if droppable["matchup_rank"] else "dropped",
         "key_teammate_out": (

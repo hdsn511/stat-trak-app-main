@@ -438,13 +438,18 @@ class KalshiClient:
         Only considers markets from PLAYER_PROP_SERIES tickers to avoid
         team/game markets being misclassified as player props.
 
+        Picks v2: first-half markets are dropped at parse time. They never
+        had a valid backtest (the historical samples are full-game) and the
+        old half-game approximation introduced more noise than signal.
+
         Returns
         -------
         dict keyed by (player_name_lower, stat) ->
-            list of {line, price, implied_prob, ticker, is_first_half}
+            list of {line, price, implied_prob, ticker}
         """
         result: dict[tuple[str, str], list[dict]] = {}
         player_series_set = set(PLAYER_PROP_SERIES)
+        skipped_first_half = 0
 
         for market in markets:
             ticker = market.get("ticker", "")
@@ -453,6 +458,11 @@ class KalshiClient:
 
             title = market.get("title", "")
             if not title:
+                continue
+
+            # Drop first-half markets up front — they don't make it into the pipeline.
+            if self._is_first_half(title):
+                skipped_first_half += 1
                 continue
 
             stat = self._detect_stat(title)
@@ -474,10 +484,12 @@ class KalshiClient:
                 "price":        price,
                 "implied_prob": price,
                 "ticker":       ticker,
-                "is_first_half": self._is_first_half(title),
                 "title":        title,
             }
             result.setdefault(key, []).append(entry)
+
+        if skipped_first_half:
+            print(f"[kalshi] skipped {skipped_first_half} first-half player markets")
 
         # Deduplicate by line: for each (player, stat, line) group keep the
         # entry with the highest implied_prob. Kalshi may return multiple markets
@@ -576,7 +588,6 @@ class KalshiClient:
                 "price":         price,
                 "implied_prob":  price,
                 "ticker":        ticker,
-                "is_first_half": self._is_first_half(title),
                 "title":         title,
                 "team_abbr":     team_abbr,
             }
@@ -714,7 +725,6 @@ class KalshiClient:
                 "price":         price,
                 "implied_prob":  price,
                 "ticker":        f"NBA-MOCK-{player_name[:3].upper()}-{stat.upper()}-{int(line)}",
-                "is_first_half": False,
                 "title":         f"Will {player_name} score over {line} {stat}?",
             })
         return lines
@@ -750,9 +760,8 @@ def _run_test(live: bool = False) -> None:
     player_props = client.parse_player_props(markets)
     print(f"\nUnique player/stat combos: {len(player_props)}")
     for (player, stat), lines in sorted(player_props.items()):
-        fh_count = sum(1 for l in lines if l["is_first_half"])
-        fh_tag = f"  [{fh_count} 1H]" if fh_count else ""
-        print(f"  {player:<25} {stat:<6} -> {len(lines)} line(s){fh_tag}")
+        # First-half markets are dropped at parse — no fh_tag needed.
+        print(f"  {player:<25} {stat:<6} -> {len(lines)} line(s)")
         for entry in lines[:2]:  # show at most 2 alt lines
             print(
                 f"    line={entry['line']:<6}  prob={entry['implied_prob']:.4f}"

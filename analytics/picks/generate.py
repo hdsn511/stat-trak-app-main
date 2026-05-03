@@ -13,6 +13,7 @@ Pipeline steps:
   3b. Backtest + score game props
   5+6. Select best lines (safe + value) per entity/stat
   7. Store picks to pick_results table
+  7b. Run injury check — remove picks for Out/Doubtful players
   8. Print summary
 
 CLI:
@@ -23,8 +24,15 @@ CLI:
 from __future__ import annotations
 
 import argparse
+import io
 import re
 import sys
+
+# Force UTF-8 stdout/stderr on Windows (cp1252 can't handle non-ASCII player names)
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 from datetime import date as _date
 from datetime import date, datetime, timedelta
 from typing import Optional
@@ -34,6 +42,7 @@ from analytics.engine.backtest import backtest_player, backtest_game_prop, backt
 from analytics.engine.scorer import score, MIN_HIT_RATE, MIN_EDGE, MAX_IMPLIED_PROB
 from analytics.kalshi.client import KalshiClient
 from analytics.screener.screen import screen_player_candidates, screen_game_candidates
+from analytics.batch.injury_check import run_injury_check
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
@@ -41,7 +50,7 @@ MIN_CONFIDENCE = 55
 
 # Minimum implied probability — excludes long-shot bracket markets (e.g. 1%)
 # where the market assigns near-zero probability, making edge estimates meaningless.
-MIN_IMPLIED_PROB = 0.40
+MIN_IMPLIED_PROB = 0.47
 
 # Minimum prop line per stat — filters out garbage low lines from Kalshi
 MIN_PROP_LINE: dict[str, float] = {
@@ -101,7 +110,9 @@ def _store_daily_lines(
                 "kalshi_price": entry["price"],
                 "implied_prob": entry["implied_prob"],
                 "market_ticker": entry.get("ticker", ""),
-                "is_first_half": entry.get("is_first_half", False),
+                # is_first_half retained as schema column (always False) since
+                # 1H markets are dropped at parse — no v2 picks can be 1H.
+                "is_first_half": False,
             })
 
     for (event_key, prop_type), lines in game_props.items():
@@ -118,7 +129,7 @@ def _store_daily_lines(
                 "kalshi_price": entry["price"],
                 "implied_prob": entry["implied_prob"],
                 "market_ticker": entry.get("ticker", ""),
-                "is_first_half": entry.get("is_first_half", False),
+                "is_first_half": False,
             })
 
     if rows:
@@ -134,9 +145,8 @@ def _store_daily_lines(
 
 def _select_best_lines(results: list[dict]) -> list[dict]:
     """
-    Group results by (entity_id, stat) and select:
-      - "safe" pick: highest hit_rate
-      - "value" pick: highest edge (only if different line than safe)
+    Group results by (entity_id, stat) and select the highest-confidence pick.
+    pick_type is derived from prop_type ("player" or "game").
 
     Returns a list of pick dicts sorted by confidence descending.
     """
@@ -150,18 +160,11 @@ def _select_best_lines(results: list[dict]) -> list[dict]:
     picks: list[dict] = []
 
     for (entity_id, stat), entries in groups.items():
-        # Safe pick: highest hit_rate
-        safe = max(entries, key=lambda x: x["hit_rate"])
-        safe_pick = {**safe, "pick_type": "safe"}
-        picks.append(safe_pick)
+        best = max(entries, key=lambda x: x["confidence"])
+        prop_type = best.get("prop_type", "player")
+        pick_type = "game" if prop_type in ("winner", "spread", "total") else "player"
+        picks.append({**best, "pick_type": pick_type})
 
-        # Value pick: highest edge, only if different line
-        value = max(entries, key=lambda x: x["edge"])
-        if value["line"] != safe["line"]:
-            value_pick = {**value, "pick_type": "value"}
-            picks.append(value_pick)
-
-    # Sort by confidence descending
     picks.sort(key=lambda x: x["confidence"], reverse=True)
     return picks
 
@@ -198,7 +201,10 @@ def _store_picks(game_date: date, picks: list[dict]) -> None:
 
     BATCH = 500
     for i in range(0, len(rows), BATCH):
-        supabase.table("pick_results").insert(rows[i : i + BATCH]).execute()
+        supabase.table("pick_results").upsert(
+            rows[i : i + BATCH],
+            on_conflict="game_date,entity_id,stat",
+        ).execute()
 
     print(f"  Stored {len(rows)} pick_results rows.")
 
@@ -211,31 +217,19 @@ def _print_summary(picks: list[dict]) -> None:
         print("\n  No picks generated.")
         return
 
-    safe_picks = [p for p in picks if p["pick_type"] == "safe"]
-    value_picks = [p for p in picks if p["pick_type"] == "value"]
+    player_picks = [p for p in picks if p["pick_type"] == "player"]
+    game_picks   = [p for p in picks if p["pick_type"] == "game"]
 
     print("\n" + "=" * 70)
     print("  RECOMMENDED PICKS")
     print("=" * 70)
 
-    if safe_picks:
-        print(f"\n  SAFE PICKS ({len(safe_picks)})")
+    for group_label, group in [("PLAYER PICKS", player_picks), ("GAME PICKS", game_picks)]:
+        if not group:
+            continue
+        print(f"\n  {group_label} ({len(group)})")
         print("  " + "-" * 66)
-        for p in safe_picks:
-            entity_label = p.get("entity_name") or f"id={p['entity_id']}"
-            print(
-                f"  {entity_label:<25} {p['stat']:<6} "
-                f"line={p['line']:<7} "
-                f"hit={p['hit_rate']:.1%}  "
-                f"conf={p['confidence']:.1f}  "
-                f"edge={p['edge']:.1%}  "
-                f"n={p['sample_size']}"
-            )
-
-    if value_picks:
-        print(f"\n  VALUE PICKS ({len(value_picks)})")
-        print("  " + "-" * 66)
-        for p in value_picks:
+        for p in group:
             entity_label = p.get("entity_name") or f"id={p['entity_id']}"
             print(
                 f"  {entity_label:<25} {p['stat']:<6} "
@@ -247,7 +241,7 @@ def _print_summary(picks: list[dict]) -> None:
             )
 
     print("\n" + "=" * 70)
-    print(f"  Total: {len(safe_picks)} safe + {len(value_picks)} value = {len(picks)} picks")
+    print(f"  Total: {len(player_picks)} player + {len(game_picks)} game = {len(picks)} picks")
     print("=" * 70)
 
 
@@ -363,6 +357,9 @@ def generate_picks(game_date: date, mock_kalshi: bool = False) -> list[dict]:
                 lines = kalshi._mock_player_lines(player_name, stat)
 
             if not lines:
+                # Surface name-mismatch / missing-market issues instead of silently skipping
+                print(f"  [NO MARKET] {player_name} {stat.upper()}: no Kalshi lines found "
+                      f"(DB name key: '{player_name_lower}')")
                 continue
 
             alt_lines_tested: list[dict] = []
@@ -529,6 +526,13 @@ def generate_picks(game_date: date, mock_kalshi: bool = False) -> list[dict]:
     # ── Step 7: Store picks ──────────────────────────────────────────────────
     print("\n[Step 7] Storing picks ...")
     _store_picks(game_date, picks)
+
+    # ── Step 7b: Remove picks for injured/out players ────────────────────────
+    print("\n[Step 7b] Running injury check ...")
+    try:
+        run_injury_check(game_date)
+    except Exception as exc:
+        print(f"  WARNING: injury check failed: {exc}")
 
     # ── Step 8: Print summary ────────────────────────────────────────────────
     _print_summary(picks)

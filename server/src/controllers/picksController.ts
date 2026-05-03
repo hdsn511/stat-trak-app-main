@@ -1,15 +1,7 @@
+import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabaseAdmin';
-
-const PICK_STAT_LABELS: Record<string, string> = {
-  pts: 'PTS', reb: 'REB', ast: 'AST', fg3m: '3PM',
-};
-
-const STAT_TO_COLUMN: Record<string, { col: string; statId: number }> = {
-  pts: { col: 'points', statId: 0 },
-  reb: { col: 'rebounds', statId: 1 },
-  ast: { col: 'assists', statId: 2 },
-  fg3m: { col: 'three_points_made', statId: 3 },
-};
+import { STAT_LABELS, STAT_CONFIG } from '../constants/stats';
+import { findNearestPickDate, findNearestLinesDate } from '../utils/dateQueries';
 
 // ESPN uses different abbreviations than the NBA API / our DB.
 const ESPN_ABBR_TO_DB: Record<string, string> = {
@@ -22,51 +14,9 @@ const ESPN_ABBR_TO_DB: Record<string, string> = {
   UTAH: 'UTA',
 };
 
-// Resolve the nearest slate date with picks — upcoming first, then most recent past.
-async function findNearestPickDate(today: string): Promise<string> {
-  const { data: upcoming } = await supabaseAdmin
-    .from('pick_results')
-    .select('game_date')
-    .gte('game_date', today)
-    .order('game_date', { ascending: true })
-    .limit(1)
-    .maybeSingle();
-  if (upcoming?.game_date) return upcoming.game_date;
-
-  const { data: past } = await supabaseAdmin
-    .from('pick_results')
-    .select('game_date')
-    .lt('game_date', today)
-    .order('game_date', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  return past?.game_date ?? today;
-}
-
-// Resolve the nearest date with daily_lines — upcoming first, then most recent past.
-async function findNearestLinesDate(today: string): Promise<string> {
-  const { data: upcoming } = await supabaseAdmin
-    .from('daily_lines')
-    .select('game_date')
-    .gte('game_date', today)
-    .order('game_date', { ascending: true })
-    .limit(1)
-    .maybeSingle();
-  if (upcoming?.game_date) return upcoming.game_date;
-
-  const { data: past } = await supabaseAdmin
-    .from('daily_lines')
-    .select('game_date')
-    .lt('game_date', today)
-    .order('game_date', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  return past?.game_date ?? today;
-}
-
-export async function getTopPicks(req: any, res: any) {
+export async function getTopPicks(req: Request<{}, {}, {}, { limit?: string }>, res: Response) {
   try {
-    const parsed = parseInt((req.query.limit as string) ?? '5', 10);
+    const parsed = parseInt(req.query.limit ?? '5', 10);
     const limit = Number.isNaN(parsed) ? 5 : Math.max(1, Math.min(20, parsed));
     const today = new Date().toISOString().slice(0, 10);
     const pickDate = await findNearestPickDate(today);
@@ -233,7 +183,7 @@ export async function getTopPicks(req: any, res: any) {
         team: pl.team,
         position: pl.position,
         stat: p.stat,
-        stat_label: PICK_STAT_LABELS[p.stat] ?? String(p.stat).toUpperCase(),
+        stat_label: STAT_LABELS[p.stat] ?? String(p.stat).toUpperCase(),
         pick_type: p.pick_type,
         line: p.recommended_line,
         direction,
@@ -297,13 +247,13 @@ function toKalshiLine(value: number): number {
   return half;
 }
 
-export async function getPerfectStreaks(req: any, res: any) {
+export async function getPerfectStreaks(req: Request<{}, {}, {}, { type?: string; stat?: string; window?: string }>, res: Response) {
   try {
-    const type = ((req.query.type as string) ?? 'player').toLowerCase();
-    const stat = ((req.query.stat as string) ?? 'pts').toLowerCase();
+    const type = (req.query.type ?? 'player').toLowerCase();
+    const stat = (req.query.stat ?? 'pts').toLowerCase();
     // Game streaks still honor the legacy `window` param (3/5/10);
     // player streaks are always 10-game and ignore it (tiered hit-rate model).
-    const parsedWindow = parseInt((req.query.window as string) ?? '5', 10);
+    const parsedWindow = parseInt(req.query.window ?? '5', 10);
     const window = Number.isNaN(parsedWindow)
       ? 5
       : Math.max(3, Math.min(10, parsedWindow));
@@ -315,7 +265,7 @@ export async function getPerfectStreaks(req: any, res: any) {
       return res.status(400).json({ success: false, error: `unknown type: ${type}` });
     }
 
-    const statCfg = STAT_TO_COLUMN[stat];
+    const statCfg = STAT_CONFIG[stat];
     if (!statCfg) {
       return res.status(400).json({ success: false, error: `invalid stat: ${stat}` });
     }
@@ -392,6 +342,10 @@ export async function getPerfectStreaks(req: any, res: any) {
       rolling_avg: number;
       games_used: number;
       opponent: { team: string; league_rank: number | null } | null;
+      // Picks v2 context fields (nullable until backfill / nightly populates them)
+      recent_opp_form: number | null;
+      key_teammates_out: number[];
+      opportunity_trend: number | null;
     };
 
     const tieredResults = await Promise.all(candidates.map(async (p: any) => {
@@ -437,6 +391,9 @@ export async function getPerfectStreaks(req: any, res: any) {
         rolling_avg: rollingAvg,
         games_used: STREAKS_WINDOW,
         opponent: null,
+        recent_opp_form: null,
+        key_teammates_out: [],
+        opportunity_trend: null,
       } as TieredRow;
     }));
 
@@ -471,6 +428,24 @@ export async function getPerfectStreaks(req: any, res: any) {
       if (!latestOppDef.has(key)) latestOppDef.set(key, row.league_rank);
     }
 
+    // Picks v2: pull today's daily_conditions for the candidate set so we can
+    // surface recent_opp_form (stat-specific), key_teammates_out, and
+    // opportunity_trend (rolling vs season touches delta).
+    const candidateIds = tieredRows.map((r) => r.player_id);
+    const dcByPlayer = new Map<number, any>();
+    if (candidateIds.length > 0) {
+      const { data: dcRows } = await supabaseAdmin
+        .from('daily_conditions')
+        .select(
+          'player_id, rolling_touches_5g, season_avg_touches, key_teammates_out, ' +
+          'recent_opp_pts_form, recent_opp_reb_form, recent_opp_ast_form, recent_opp_fg3m_form'
+        )
+        .in('player_id', candidateIds)
+        .eq('game_date', linesDate);
+      for (const r of ((dcRows ?? []) as any[])) dcByPlayer.set(r.player_id, r);
+    }
+    const formColumn = `recent_opp_${stat}_form`;
+
     const enriched = tieredRows.map((r) => {
       const teamAbbr = (r.team ?? '').toUpperCase();
       const teamId = abbrToId.get(teamAbbr);
@@ -480,9 +455,24 @@ export async function getPerfectStreaks(req: any, res: any) {
       const positionGroup = pos.startsWith('G') ? 'G' : pos.startsWith('F') ? 'F' : 'C';
       const leagueRank =
         opponentId != null ? (latestOppDef.get(`${opponentId}-${positionGroup}`) ?? null) : null;
+
+      // Picks v2 context
+      const dc = dcByPlayer.get(r.player_id);
+      const recentOppForm = (dc?.[formColumn] ?? null) as number | null;
+      const keyTeammatesOut: number[] = (dc?.key_teammates_out ?? []) as number[];
+      let opportunityTrend: number | null = null;
+      const rt = dc?.rolling_touches_5g;
+      const st = dc?.season_avg_touches;
+      if (rt != null && st != null && st > 0) {
+        opportunityTrend = (rt - st) / st;
+      }
+
       return {
         ...r,
         opponent: opponentAbbr ? { team: opponentAbbr, league_rank: leagueRank } : null,
+        recent_opp_form: recentOppForm,
+        key_teammates_out: keyTeammatesOut,
+        opportunity_trend: opportunityTrend,
       };
     });
 
@@ -507,7 +497,7 @@ export async function getPerfectStreaks(req: any, res: any) {
 // team_id is now populated on daily_lines for all team-bearing Kalshi game-prop rows.
 const GAME_STAT_CHOICES = new Set(['cover_spread', 'over_total', 'winner']);
 
-async function getGamePerfectStreaks(req: any, res: any, stat: string, window: number) {
+async function getGamePerfectStreaks(_req: Request, res: Response, stat: string, window: number) {
   if (!GAME_STAT_CHOICES.has(stat)) {
     return res.status(400).json({ success: false, error: `invalid game stat: ${stat}` });
   }

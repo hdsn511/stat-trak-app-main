@@ -35,9 +35,10 @@ USG_BUCKET_WIDTH = 0.06
 # Picks v2: touches replaces usage as the opportunity signal. TOP intentionally
 # not used — V3 doesn't expose it. See fetch_player_track docstring.
 # Tuned 2026-05-03 against observed pgc distribution (mean 58, stddev 19.4
-# for rotation players); ±16 captures ~one std dev which gives comparable
-# match-rate coverage to v1's USG_BUCKET_WIDTH at 0.06.
-OPPORTUNITY_TOUCH_BUCKET = 16.0   # ± touches around today's rolling avg
+# for rotation players). ±24 ≈ 1.25 std dev — wider than the strict 1-stddev
+# initial pass to compensate for rolling-avg-vs-single-game variance and the
+# rest filter's data-quality losses (see CONDITION_DROP_ORDER comment).
+OPPORTUNITY_TOUCH_BUCKET = 24.0   # ± touches around today's rolling avg
 
 PACE_BUCKET_WIDTH = 5.0
 # +/- pace bucket (possessions per 48 min).
@@ -92,10 +93,12 @@ MIN_CONDITIONS_ACTIVE = 2
 # the floor is naturally 3 (3 non-droppable).
 
 # Picks v2: recency-weighted hit rate. weight_i = HIT_RATE_DECAY ** i where
-# i=0 is the most recent matched historical game. Lower values weight recent
-# games more aggressively.
-# TODO: recalibrate after backfill completes.
-HIT_RATE_DECAY = 0.95
+# i=0 is the most recent matched historical game.
+# Tuned 2026-05-03: 0.95 was too aggressive — a single recent miss could drop
+# a 90%+ player to <60% weighted, killing the entire "safe pick" distribution.
+# 0.98 still tilts toward recent form (10th game weight 0.82 vs 1.0) but does
+# not let one bad night dominate.
+HIT_RATE_DECAY = 0.98
 
 # Picks v2: minimum historical samples required to *activate* the optional
 # teammate-out condition. Below this we still match without it (to avoid losing

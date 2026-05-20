@@ -19,6 +19,11 @@ import sys
 import time
 from datetime import date, datetime, timedelta
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 from analytics.db.connection import API_DELAY_SECONDS, NBA_LEAGUE_ID, supabase
 from analytics.batch.nightly import _fetch_and_insert_box_scores
 
@@ -100,7 +105,7 @@ def find_missing_dates(since: date, until: date) -> list[date]:
 
 
 def backfill(since: date, until: date, dry_run: bool = False) -> None:
-    print(f"Scanning {since} → {until} for missing box scores ...")
+    print(f"Scanning {since} to {until} for missing box scores ...")
     missing = find_missing_dates(since, until)
 
     if not missing:

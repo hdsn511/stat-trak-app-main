@@ -1,0 +1,66 @@
+<h2>Full Scope — Locked</h2>
+<p class="subtitle">7 sub-projects + 4 bugs. Everything confirmed. Moving to design.</p>
+
+<div class="section">
+  <h3>🐛 Bugs</h3>
+  <div style="background:#1a1a1a;border:1px solid #2a2a2a;border-radius:8px;padding:14px">
+    <ul style="margin:0;padding-left:18px;color:#ccc;font-size:13px;line-height:2.2">
+      <li><b style="color:#f87171">Cron jobs not firing</b> — nightly pipeline unreliable</li>
+      <li><b style="color:#f87171">POTD stale</b> — Pick of the Day not refreshing daily</li>
+      <li><b style="color:#f87171">TopTrending dedup</b> — each player appears once with their single top stat only</li>
+      <li><b style="color:#f87171">TopTrending scope</b> — only players with games today</li>
+    </ul>
+  </div>
+</div>
+
+<div class="section">
+  <h3 style="color:#fb923c">G — Design &amp; Typography Overhaul</h3>
+  <div style="background:#1a1a1a;border:1px solid #2a2a2a;border-radius:8px;padding:14px;color:#aaa;font-size:13px;line-height:1.9">
+    <b style="color:#fff">Font:</b> Space Grotesk (all text) + Space Mono (stats/numbers). Global polish pass — every page.<br>
+    Every pixel intentional. No wasted space.
+  </div>
+</div>
+
+<div class="section">
+  <h3 style="color:#facc15">E — NBA Page Content Expansion</h3>
+  <div style="background:#1a1a1a;border:1px solid #2a2a2a;border-radius:8px;padding:14px">
+    <div style="font-size:12px;color:#888;font-family:monospace;line-height:2.2">
+      <div style="color:#7fff7f">Row 1 · 4× POTD cards: Player · Spread · Total · ML</div>
+      <div style="color:#818cf8">Row 2 · Props table · tabs: 50 | 60 | 70 | 80 | 90 (market bucket) · sorted by edge (model − market) · book-agnostic architecture</div>
+      <div style="color:#818cf8">         → Player props (10) · Spread (5) · Total (5) · no ML</div>
+      <div style="color:#f87171">Row 3 · Top 10 Streaks · PTS/REB/AST/3PM × L3/L5/L10</div>
+      <div style="color:#aaa">Row 4 · TrendFinder</div>
+      <div style="color:#aaa">Row 5 · TopTrending (today's players, deduped)</div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3 style="color:#34d399">D — Player Explorer Dashboard</h3>
+  <div style="background:#1a1a1a;border:1px solid #2a2a2a;border-radius:8px;padding:14px;color:#aaa;font-size:13px;line-height:1.9">
+    Full redesign of <code>/player/:id</code> as a rich explorer. <b style="color:#fff">Bar chart bars are clickable</b> — each bar navigates to the Game View for that date.
+  </div>
+</div>
+
+<div class="section">
+  <h3 style="color:#818cf8">F — Game View (new route <code>/game/:id</code>)</h3>
+  <div style="background:#1a1a1a;border:1px solid #2a2a2a;border-radius:8px;padding:14px">
+    <div style="font-size:13px;color:#aaa;line-height:1.9">
+      <b style="color:#fff">Two states:</b><br>
+      · <b style="color:#60a5fa">Upcoming</b> — starting 5 matchup (position-matched), bench, usage rates, def matchup, injury context, best player &amp; game props for this game<br>
+      · <b style="color:#a78bfa">Completed</b> — box score, prop hit/miss outcomes, results<br><br>
+      <b style="color:#fff">Entry points:</b> sidebar game card · player chart bar click
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3 style="color:#38bdf8">H — Team View (new route <code>/team/:id</code>)</h3>
+  <div style="background:#1a1a1a;border:1px solid #2a2a2a;border-radius:8px;padding:14px;color:#aaa;font-size:13px;line-height:1.9">
+    Game log, team splits (home/away, last N games). Linked from player view team label and game view.
+  </div>
+</div>
+
+<div style="background:#111;border:1px solid #333;border-radius:8px;padding:14px;margin-top:4px">
+  <p style="color:#666;font-size:12px;margin:0">✓ All decisions locked. Writing the spec next.</p>
+</div>

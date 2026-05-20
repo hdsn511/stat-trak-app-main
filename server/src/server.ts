@@ -1,10 +1,12 @@
-export {};
-const express = require('express');
-const cors = require('cors');
-const helmet = require('helmet');
-const morgan = require('morgan');
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import morgan from 'morgan';
 import { startScheduler } from './jobs/scheduler';
 import sportqueryRoutes from './routes/sportquery';
+import nbaRoutes from './routes/nba';
+import picksRoutes from './routes/picks';
+import performanceRoutes from './routes/performance';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -22,12 +24,10 @@ app.get('/health', (req: any, res: any) => {
   });
 });
 
-const nbaRoutes = require('./routes/nba');
 app.use('/api/nba', nbaRoutes);
-
-const picksRoutes = require('./routes/picks');
 app.use('/api/nba', picksRoutes);
 app.use('/api/sportquery', sportqueryRoutes);
+app.use('/api/performance', performanceRoutes);
 
 app.listen(PORT, () => {
   console.log(`StatTrak API running on http://localhost:${PORT}`);

@@ -1,0 +1,29 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - link "STAT TRAK" [ref=e5] [cursor=pointer]:
+      - /url: /
+      - generic [ref=e6]: STAT
+      - generic [ref=e7]: TRAK
+    - navigation [ref=e9]:
+      - link "SPORTQUERY" [ref=e10] [cursor=pointer]:
+        - /url: /sportquery
+      - link "NBA" [ref=e11] [cursor=pointer]:
+        - /url: /nba
+      - link "NFL" [ref=e12] [cursor=pointer]:
+        - /url: /nfl
+      - link "MLB" [ref=e13] [cursor=pointer]:
+        - /url: /mlb
+      - link "NHL" [ref=e14] [cursor=pointer]:
+        - /url: /nhl
+    - generic [ref=e16]:
+      - img [ref=e17]
+      - textbox "Search players..." [ref=e20]
+  - generic [ref=e22]:
+    - complementary [ref=e23]:
+      - generic [ref=e25]:
+        - img [ref=e26]
+        - generic [ref=e28]: Today's Games
+    - main [ref=e33]:
+      - generic [ref=e38]:
+        - img [ref=e39]
+        - heading "Top Trending" [level=2] [ref=e42]

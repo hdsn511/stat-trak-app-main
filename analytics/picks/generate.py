@@ -236,7 +236,10 @@ def _print_summary(picks: list[dict]) -> None:
             entity_label = p.get("entity_name") or f"id={p['entity_id']}"
             tag = f"[{p.get('pick_type','?')}]"
             mods = p.get("modifiers") or {}
-            mod_tag = (" mods=" + ",".join(f"{k}{v:+.1f}" for k, v in mods.items())) if mods else ""
+            mod_tag = (" mods=" + ",".join(
+                f"{k}{v:+.1f}" if isinstance(v, (int, float)) else f"{k}={v}"
+                for k, v in mods.items()
+            )) if mods else ""
             print(
                 f"  {entity_label:<25} {p['stat']:<6} {tag:<7} "
                 f"line={p['line']:<7} "
@@ -523,6 +526,7 @@ def generate_picks(game_date: date, mock_kalshi: bool = False) -> list[dict]:
                 if sc["edge"] < MIN_EDGE:
                     continue
 
+                team_abbr = line_entry.get("team_abbr")
                 all_results.append({
                     "entity_id": game_id,
                     "entity_name": event_key,
@@ -538,7 +542,7 @@ def generate_picks(game_date: date, mock_kalshi: bool = False) -> list[dict]:
                     "confidence": sc["confidence"],
                     "edge": sc["edge"],
                     "hit_rate_adjusted": sc.get("hit_rate_adjusted"),
-                    "modifiers": sc.get("modifiers", {}),
+                    "modifiers": {**sc.get("modifiers", {}), "team_abbr": team_abbr} if team_abbr else sc.get("modifiers", {}),
                     "alt_lines_tested": None,
                 })
                 game_results_count += 1
@@ -595,6 +599,11 @@ Examples:
         action="store_true",
         help="Use mock Kalshi data instead of live API",
     )
+    parser.add_argument(
+        "--today",
+        action="store_true",
+        help="Target today's date (shortcut for --date $(date +%%Y-%%m-%%d))",
+    )
 
     args = parser.parse_args()
 
@@ -604,8 +613,12 @@ Examples:
         except ValueError:
             print(f"ERROR: invalid date format '{args.date}'. Use YYYY-MM-DD.")
             return 1
+    elif args.today:
+        game_date = date.today()
     else:
         game_date = date.today() + timedelta(days=1)
+        print(f"  NOTE: no --date given; defaulting to tomorrow ({game_date.strftime('%Y-%m-%d')}).")
+        print(f"  Use --today for today's games or --date YYYY-MM-DD to be explicit.")
 
     generate_picks(game_date, mock_kalshi=args.mock)
     return 0

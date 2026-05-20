@@ -106,7 +106,7 @@ export function startScheduler(): void {
   // 2:30am — sync upcoming week's slate. Kalshi markets are listed ~7 days
   // ahead of each game, but `games` rows are needed for entity_id join on
   // daily_lines + for backtest history. Serially run nightly for each of
-  // the next 7 days to fetch/insert future slates via ScoreboardV2.
+  // the next 7 days to fetch/insert future slates via ScoreboardV3.
   cron.schedule('30 2 * * *', async () => {
     for (let offset = 1; offset <= 7; offset++) {
       const dateStr = dateOffsetStr(offset);

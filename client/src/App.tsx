@@ -5,6 +5,7 @@ import NBA from '@/pages/NBA/NBA'
 import NFL from '@/pages/NFL/NFL'
 import MLB from '@/pages/MLB/MLB'
 import NHL from '@/pages/NHL/NHL'
+import Performance from '@/pages/Performance/Performance'
 import PlayerDetailView from '@/components/TrendFinder/PlayerDetailView'
 import GameView from '@/components/GameView/GameView'
 import TeamView from '@/components/TeamView/TeamView'
@@ -24,6 +25,7 @@ export default function App() {
           <Route path="/player/:id" element={<PlayerDetailView />} />
           <Route path="/game/:id" element={<GameView />} />
           <Route path="/team/:id" element={<TeamView />} />
+          <Route path="/performance" element={<Performance />} />
           <Route path="/sportquery" element={<SportQuery />} />
           <Route path="/sportquery/:sessionId" element={<SportQuery />} />
         </Routes>

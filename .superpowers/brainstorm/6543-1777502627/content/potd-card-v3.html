@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>POTD Card v3</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&family=Doto:wght@900&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0a0a0a;
+    font-family: 'Space Grotesk', system-ui, sans-serif;
+    color: white;
+    padding: 32px;
+    min-height: 100vh;
+  }
+  .page-title {
+    font-size: 10px; color: #444; margin-bottom: 20px;
+    font-weight: 600; text-transform: uppercase; letter-spacing: 0.15em;
+  }
+
+  /* ── Card ── */
+  .potd-card {
+    position: relative; overflow: hidden;
+    border-radius: 16px;
+    border: 1px solid rgba(255,95,46,0.2);
+    background: linear-gradient(135deg, #1a0e08 0%, #0a0a0a 55%, #0a0a14 100%);
+    padding: 22px 28px;
+    display: flex; align-items: stretch; gap: 0;
+    cursor: pointer; transition: border-color 0.2s;
+    max-width: 920px;
+  }
+  .potd-card:hover { border-color: rgba(255,95,46,0.4); }
+  .potd-card::before {
+    content:''; position:absolute; inset:0; pointer-events:none;
+    background: radial-gradient(ellipse 50% 100% at 92% 50%, rgba(255,95,46,0.09) 0%, transparent 70%);
+  }
+
+  /* ── Left ── */
+  .left { flex:1; min-width:0; padding-right:28px; display:flex; flex-direction:column; }
+
+  .potd-label {
+    font-size:10px; font-weight:700; letter-spacing:0.18em;
+    text-transform:uppercase; color:#FF5F2E;
+    display:flex; align-items:center; gap:6px; margin-bottom:8px;
+  }
+  .pulse-dot {
+    width:5px; height:5px; border-radius:50%; background:#FF5F2E; flex-shrink:0;
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.75)} }
+  .date-tag { color:#333; font-weight:500; }
+
+  .player-name {
+    font-size:28px; font-weight:900; color:white;
+    line-height:1; margin-bottom:4px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .player-meta { font-size:11px; color:#444; margin-bottom:14px; }
+
+  .line-badge {
+    display:inline-flex; align-items:center; gap:5px;
+    border:1px solid rgba(255,95,46,0.3); border-radius:6px;
+    padding:4px 10px; margin-bottom:18px;
+    font-size:11px; font-weight:900; color:#FF5F2E;
+    letter-spacing:0.06em; align-self:flex-start;
+  }
+
+  .bullets { display:flex; flex-direction:column; gap:6px; }
+  .bullet { display:flex; align-items:baseline; gap:8px; font-size:11.5px; color:#505050; line-height:1.45; }
+  .bullet-dash { color:#FF5F2E; font-weight:900; font-size:11px; flex-shrink:0; }
+  .bullet em   { font-style:normal; color:#888; }
+  .bullet strong { font-style:normal; color:#FF5F2E; font-weight:700; }
+
+  .edge-bar-wrap { margin-top:16px; }
+  .edge-bar-labels { display:flex; justify-content:space-between; margin-bottom:5px; }
+  .edge-bar-labels span { font-size:9px; color:#444; font-weight:600; font-family:'Space Mono',monospace; }
+  .edge-bar-labels .hit { color:#FF5F2E; }
+  .edge-bar { position:relative; height:3px; background:#181818; border-radius:4px; overflow:hidden; }
+  .edge-bar-mkt { position:absolute; inset-y:0; left:0; background:rgba(255,255,255,0.07); width:74%; }
+  .edge-bar-hit { position:absolute; inset-y:0; left:0; background:linear-gradient(90deg,rgba(255,95,46,.45),#FF5F2E); width:95%; }
+
+  /* ── Divider ── */
+  .vdivider { width:1px; background:#1c1c1c; align-self:stretch; flex-shrink:0; margin:4px 0; }
+
+  /* ── Right ── */
+  .right {
+    flex-shrink:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center;
+    padding:0 28px; gap:0; min-width:170px;
+  }
+
+  .conf-number {
+    font-family:'Doto',sans-serif; font-size:80px; font-weight:900;
+    color:#FF5F2E; line-height:1; letter-spacing:-2px;
+    text-shadow:0 0 36px rgba(255,95,46,.3);
+  }
+  .conf-label {
+    font-size:9px; color:#444; letter-spacing:0.2em;
+    text-transform:uppercase; font-weight:700;
+    margin-top:4px; margin-bottom:14px;
+  }
+
+  /* ── Top stats row (hit / edge / n) ── */
+  .top-stats {
+    display:flex; gap:14px; margin-bottom:14px;
+    width:100%; justify-content:center;
+  }
+  .tstat { display:flex; flex-direction:column; align-items:center; gap:2px; }
+  .tstat-val { font-family:'Space Mono',monospace; font-size:13px; font-weight:700; color:#ccc; line-height:1; }
+  .tstat-val.accent { color:#FF5F2E; }
+  .tstat-lbl { font-size:8px; color:#383838; text-transform:uppercase; letter-spacing:0.12em; font-weight:600; }
+
+  /* ── Condition pills section ── */
+  .cond-section { width:100%; }
+  .cond-heading {
+    font-size:8px; color:#2a2a2a; text-transform:uppercase;
+    letter-spacing:0.15em; font-weight:700;
+    margin-bottom:7px; text-align:center;
+  }
+  .cond-pills {
+    display:flex; flex-wrap:wrap; gap:5px; justify-content:center;
+  }
+  .pill {
+    display:flex; align-items:center; gap:4px;
+    border-radius:4px; padding:3px 7px;
+    font-size:9px; font-weight:700; letter-spacing:0.08em;
+    text-transform:uppercase; font-family:'Space Grotesk',sans-serif;
+    transition:opacity .2s;
+  }
+  .pill.active {
+    background:rgba(255,95,46,0.08);
+    border:1px solid rgba(255,95,46,0.25);
+    color:#FF5F2E;
+  }
+  .pill.dropped {
+    background:#111;
+    border:1px solid #222;
+    color:#2e2e2e;
+  }
+  .pill-dot {
+    width:4px; height:4px; border-radius:50%; flex-shrink:0;
+  }
+  .pill.active  .pill-dot { background:#FF5F2E; }
+  .pill.dropped .pill-dot { background:#2a2a2a; }
+
+  /* ── Arrow ── */
+  .arrow {
+    position:absolute; right:18px; top:50%; transform:translateY(-50%);
+    color:#252525; font-size:16px; transition:color .2s, transform .2s;
+  }
+  .potd-card:hover .arrow { color:#FF5F2E; transform:translateY(-50%) translateX(2px); }
+</style>
+</head>
+<body>
+
+<div class="page-title">POTD card v3 · condition pills</div>
+
+<div class="potd-card">
+
+  <!-- LEFT -->
+  <div class="left">
+    <div class="potd-label">
+      <div class="pulse-dot"></div>
+      Pick of the Day
+      <span class="date-tag">· Apr 29</span>
+    </div>
+
+    <div class="player-name">LeBron James</div>
+    <div class="player-meta">LAL &nbsp;·&nbsp; Power Forward &nbsp;·&nbsp; vs SAC</div>
+    <div class="line-badge">↑ OVER 5.5 REB</div>
+
+    <div class="bullets">
+      <div class="bullet">
+        <span class="bullet-dash">—</span>
+        <span>Hit OVER 5.5 REB in <strong>95%</strong> of <em>21 comparable games</em> — market prices it at <em>74%</em>, a <strong>+21% edge</strong>.</span>
+      </div>
+      <div class="bullet">
+        <span class="bullet-dash">—</span>
+        <span>Averaging <strong>7.2 REB</strong> over his last 5 games.</span>
+      </div>
+      <div class="bullet">
+        <span class="bullet-dash">—</span>
+        <span>Rested <em>(2 days)</em>, home court, facing Sacramento ranked <strong>#27</strong> vs Power Forwards.</span>
+      </div>
+    </div>
+
+    <div class="edge-bar-wrap">
+      <div class="edge-bar-labels">
+        <span>MKT 74%</span>
+        <span class="hit">HIT RATE 95% &nbsp;+21%</span>
+      </div>
+      <div class="edge-bar">
+        <div class="edge-bar-mkt"></div>
+        <div class="edge-bar-hit"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="vdivider"></div>
+
+  <!-- RIGHT -->
+  <div class="right">
+    <div class="conf-number">92</div>
+    <div class="conf-label">Confidence</div>
+
+    <!-- Hit / Edge / n -->
+    <div class="top-stats">
+      <div class="tstat">
+        <div class="tstat-val accent">95%</div>
+        <div class="tstat-lbl">Hit Rate</div>
+      </div>
+      <div class="tstat">
+        <div class="tstat-val accent">+21%</div>
+        <div class="tstat-lbl">Edge</div>
+      </div>
+      <div class="tstat">
+        <div class="tstat-val">21</div>
+        <div class="tstat-lbl">Games</div>
+      </div>
+    </div>
+
+    <!-- Context conditions -->
+    <div class="cond-section">
+      <div class="cond-heading">Context matched</div>
+      <div class="cond-pills">
+        <div class="pill active">
+          <div class="pill-dot"></div>USG
+        </div>
+        <div class="pill active">
+          <div class="pill-dot"></div>PACE
+        </div>
+        <div class="pill active">
+          <div class="pill-dot"></div>HOME
+        </div>
+        <div class="pill active">
+          <div class="pill-dot"></div>MATCHUP
+        </div>
+        <div class="pill dropped">
+          <div class="pill-dot"></div>REST
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow">›</div>
+</div>
+
+<!-- Dropped example -->
+<div style="margin-top:24px; max-width:920px;">
+  <div style="font-size:10px;color:#333;margin-bottom:12px;text-transform:uppercase;letter-spacing:.15em;font-weight:600;">Same card when matchup + rest were dropped (3/5 ctx)</div>
+  <div class="potd-card" style="border-color:rgba(255,95,46,0.12);">
+    <div class="left">
+      <div class="potd-label"><div class="pulse-dot"></div>Pick of the Day <span class="date-tag">· Apr 29</span></div>
+      <div class="player-name">Jakob Poeltl</div>
+      <div class="player-meta">TOR &nbsp;·&nbsp; Center &nbsp;·&nbsp; vs BOS</div>
+      <div class="line-badge">↑ OVER 3.5 REB</div>
+      <div class="bullets">
+        <div class="bullet"><span class="bullet-dash">—</span><span>Hit OVER 3.5 REB in <strong>96%</strong> of <em>25 comparable games</em> — market prices it at <em>74%</em>, a <strong>+22% edge</strong>.</span></div>
+        <div class="bullet"><span class="bullet-dash">—</span><span>Averaging <strong>8.1 REB</strong> over his last 5 games.</span></div>
+        <div class="bullet"><span class="bullet-dash">—</span><span><em>Matchup and rest context not matched</em> — result based on usage and pace alone.</span></div>
+      </div>
+      <div class="edge-bar-wrap">
+        <div class="edge-bar-labels"><span>MKT 74%</span><span class="hit">HIT RATE 96% &nbsp;+22%</span></div>
+        <div class="edge-bar"><div class="edge-bar-mkt"></div><div class="edge-bar-hit" style="width:96%"></div></div>
+      </div>
+    </div>
+    <div class="vdivider"></div>
+    <div class="right">
+      <div class="conf-number" style="font-size:80px;">100</div>
+      <div class="conf-label">Confidence</div>
+      <div class="top-stats">
+        <div class="tstat"><div class="tstat-val accent">96%</div><div class="tstat-lbl">Hit Rate</div></div>
+        <div class="tstat"><div class="tstat-val accent">+22%</div><div class="tstat-lbl">Edge</div></div>
+        <div class="tstat"><div class="tstat-val">25</div><div class="tstat-lbl">Games</div></div>
+      </div>
+      <div class="cond-section">
+        <div class="cond-heading">Context matched</div>
+        <div class="cond-pills">
+          <div class="pill active"><div class="pill-dot"></div>USG</div>
+          <div class="pill active"><div class="pill-dot"></div>PACE</div>
+          <div class="pill dropped"><div class="pill-dot"></div>HOME</div>
+          <div class="pill dropped"><div class="pill-dot"></div>MATCHUP</div>
+          <div class="pill dropped"><div class="pill-dot"></div>REST</div>
+        </div>
+      </div>
+    </div>
+    <div class="arrow">›</div>
+  </div>
+</div>
+
+</body>
+</html>

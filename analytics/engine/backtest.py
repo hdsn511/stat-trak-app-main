@@ -87,6 +87,18 @@ CONDITION_DROP_ORDER = ["home_away", "matchup_rank", "rest"]
 # pulled for foul trouble), the rest filter alone can collapse the sample to 0.
 # Dropping it is preferable to returning None.
 
+CONDITION_DROP_ORDER_EXTENDED_REST = ["rest", "home_away", "matchup_rank"]
+# When a player has >= EXTENDED_REST_THRESHOLD days of rest (standard inter-round
+# playoff wait), drop rest FIRST. The "extended" bucket (4+ days) is thin in
+# history, so keeping it would exhaust all three drops to find MIN_SAMPLE_SIZE
+# games, leaving cond=2/5 and killing confidence. Dropping rest first preserves
+# the more signal-rich home/away and matchup conditions.
+
+EXTENDED_REST_THRESHOLD = 7
+# Days-rest value above which CONDITION_DROP_ORDER_EXTENDED_REST is used.
+# 7 days covers standard inter-round waits (5-10 days) without touching
+# typical b2b / short / normal rest scenarios.
+
 MIN_CONDITIONS_ACTIVE = 2
 # We never loosen below this many active conditions among the 5 core ones.
 # With opportunity/pace/rest non-droppable and home_away+matchup_rank droppable,
@@ -343,7 +355,12 @@ def backtest_player(
             teammate_active = True
 
     # ── 3. Iteratively loosen until we have enough samples ───────────────────
-    drop_idx = 0  # pointer into CONDITION_DROP_ORDER
+    drop_order = (
+        CONDITION_DROP_ORDER_EXTENDED_REST
+        if today_rest >= EXTENDED_REST_THRESHOLD
+        else CONDITION_DROP_ORDER
+    )
+    drop_idx = 0  # pointer into drop_order
 
     while True:
         # ── Query player_game_conditions for matching game_ids ───────────────
@@ -412,13 +429,13 @@ def backtest_player(
             break
 
         # ── Loosen one droppable condition if possible ───────────────────────
-        if drop_idx >= len(CONDITION_DROP_ORDER):
+        if drop_idx >= len(drop_order):
             print(
                 f"  INFO: only {sample_size} matching games for player_id={player_id} "
                 f"stat={stat} after loosening all allowed conditions. Returning None."
             )
             return None
-        condition_to_drop = CONDITION_DROP_ORDER[drop_idx]
+        condition_to_drop = drop_order[drop_idx]
         droppable[condition_to_drop] = False
         drop_idx += 1
         # Loop back and re-query with the relaxed condition set

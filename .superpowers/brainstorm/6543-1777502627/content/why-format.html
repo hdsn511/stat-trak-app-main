@@ -1,0 +1,90 @@
+<h2>How should the "why" be presented?</h2>
+<p class="subtitle">The POTD card takes the full width of the 4-pick row. This decides how the model's reasoning appears inside it.</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#0D0D0D;padding:16px;border-radius:8px;font-family:system-ui;">
+      <!-- Option A mockup -->
+      <div style="display:flex;gap:16px;align-items:center;">
+        <div style="flex:1;">
+          <div style="color:#2AFFC8;font-size:10px;font-weight:900;letter-spacing:0.15em;margin-bottom:6px;">🔥 PICK OF THE DAY</div>
+          <div style="color:white;font-size:22px;font-weight:900;margin-bottom:2px;">LeBron James</div>
+          <div style="color:#555;font-size:11px;margin-bottom:10px;">LAL · PF</div>
+          <div style="background:#111;border:1px solid #2AFFC830;border-radius:6px;padding:8px 10px;font-size:11px;color:#aaa;line-height:1.6;">
+            <span style="color:#2AFFC8;">↑</span> Hit OVER 5.5 REB in <strong style="color:white;">95%</strong> of 21 similar games.<br>
+            <span style="color:#2AFFC8;">↑</span> Market prices this at only <strong style="color:white;">74%</strong> — a <strong style="color:#2AFFC8;">+21% edge</strong>.<br>
+            <span style="color:#2AFFC8;">↑</span> Rested (2 days), home court, <strong style="color:white;">vs SAC ranked 27th</strong> vs PFs.
+          </div>
+        </div>
+        <div style="text-align:center;">
+          <div style="font-size:64px;font-weight:900;color:#2AFFC8;line-height:1;">92</div>
+          <div style="color:#555;font-size:10px;">CONF</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Narrative bullets</h3>
+      <p>2–3 short sentences derived server-side from daily_conditions + pick_results. No LLM, pure data templates. Human-readable but predictable.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#0D0D0D;padding:16px;border-radius:8px;font-family:system-ui;">
+      <!-- Option B mockup -->
+      <div style="display:flex;gap:16px;align-items:center;">
+        <div style="flex:1;">
+          <div style="color:#2AFFC8;font-size:10px;font-weight:900;letter-spacing:0.15em;margin-bottom:6px;">🔥 PICK OF THE DAY</div>
+          <div style="color:white;font-size:22px;font-weight:900;margin-bottom:2px;">LeBron James</div>
+          <div style="color:#555;font-size:11px;margin-bottom:10px;">LAL · PF</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <span style="background:#1a2e1a;border:1px solid #2AFFC840;border-radius:4px;padding:4px 8px;font-size:10px;color:#2AFFC8;font-weight:700;">95% HIT RATE</span>
+            <span style="background:#1a2e1a;border:1px solid #2AFFC840;border-radius:4px;padding:4px 8px;font-size:10px;color:#2AFFC8;font-weight:700;">+21% EDGE</span>
+            <span style="background:#1a1a2e;border:1px solid #6366f140;border-radius:4px;padding:4px 8px;font-size:10px;color:#a5b4fc;font-weight:700;">2 DAYS REST</span>
+            <span style="background:#1a1a2e;border:1px solid #6366f140;border-radius:4px;padding:4px 8px;font-size:10px;color:#a5b4fc;font-weight:700;">HOME</span>
+            <span style="background:#2e1a1a;border:1px solid #ef444440;border-radius:4px;padding:4px 8px;font-size:10px;color:#fca5a5;font-weight:700;">OPP DEF RANK 27</span>
+            <span style="background:#1a1a1a;border:1px solid #33333340;border-radius:4px;padding:4px 8px;font-size:10px;color:#888;font-weight:700;">21 GAMES</span>
+          </div>
+        </div>
+        <div style="text-align:center;">
+          <div style="font-size:64px;font-weight:900;color:#2AFFC8;line-height:1;">92</div>
+          <div style="color:#555;font-size:10px;">CONF</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Signal chips</h3>
+      <p>Each factor is a chip: hit rate, edge, rest, home/away, opponent rank, sample size. Color-coded by signal type. Dense but scannable.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#0D0D0D;padding:16px;border-radius:8px;font-family:system-ui;">
+      <!-- Option C mockup — chips on top, 1 sentence below -->
+      <div style="display:flex;gap:16px;align-items:center;">
+        <div style="flex:1;">
+          <div style="color:#2AFFC8;font-size:10px;font-weight:900;letter-spacing:0.15em;margin-bottom:6px;">🔥 PICK OF THE DAY</div>
+          <div style="color:white;font-size:22px;font-weight:900;margin-bottom:2px;">LeBron James</div>
+          <div style="color:#555;font-size:11px;margin-bottom:8px;">LAL · PF</div>
+          <div style="display:flex;gap:5px;margin-bottom:8px;flex-wrap:wrap;">
+            <span style="background:#1a2e1a;border:1px solid #2AFFC840;border-radius:4px;padding:3px 7px;font-size:10px;color:#2AFFC8;font-weight:700;">95% HIT · +21% EDGE</span>
+            <span style="background:#2e1a1a;border:1px solid #ef444440;border-radius:4px;padding:3px 7px;font-size:10px;color:#fca5a5;font-weight:700;">WEAK DEF #27</span>
+            <span style="background:#1a1a2e;border:1px solid #6366f140;border-radius:4px;padding:3px 7px;font-size:10px;color:#a5b4fc;font-weight:700;">HOME · 2D REST</span>
+          </div>
+          <div style="color:#888;font-size:11px;line-height:1.5;font-style:italic;">
+            "Rested at home vs Sacramento's 27th-ranked front-court defense — LeBron has cleared 5.5 REB in 20 of his last 21 comparable games."
+          </div>
+        </div>
+        <div style="text-align:center;">
+          <div style="font-size:64px;font-weight:900;color:#2AFFC8;line-height:1;">92</div>
+          <div style="color:#555;font-size:10px;">CONF</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Chips + one summary sentence</h3>
+      <p>Quick-scan chips for data people, a single readable sentence below for context. Best of both — scannable and narrative. Slightly more space needed.</p>
+    </div>
+  </div>
+
+</div>

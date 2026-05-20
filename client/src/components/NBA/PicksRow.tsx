@@ -34,6 +34,8 @@ function PickCard({ label, type, playerPick, gamePick }: PickCardProps) {
   const hitPct = Math.round(hitRate * 100)
   const mktPct = Math.round(impliedProb * 100)
   const confInt = Math.round(conf)
+  // Bucket: floor to nearest 10, clamp to 50–80 (so 47% → 50 bucket)
+  const bucket = Math.min(80, Math.max(50, Math.floor(Math.round(impliedProb * 100) / 10) * 10))
 
   const title = isPlayer
     ? playerPick!.player_name ?? '—'
@@ -43,6 +45,8 @@ function PickCard({ label, type, playerPick, gamePick }: PickCardProps) {
     : type === 'spread' ? 'Spread' : type === 'total' ? 'Total' : 'ML'
   const lineLabel = isPlayer
     ? `OVER ${playerPick!.line} ${playerPick!.stat_label}`
+    : type === 'spread' && gamePick!.spread_team && gamePick!.line != null
+    ? `${gamePick!.spread_team} -${gamePick!.line}`
     : gamePick!.line != null ? `${gamePick!.line}` : '—'
 
   return (
@@ -57,7 +61,13 @@ function PickCard({ label, type, playerPick, gamePick }: PickCardProps) {
           <Flame size={9} className="text-mint flex-shrink-0" />
           <span className="text-[9px] font-bold text-mint uppercase tracking-widest font-condensed">{label}</span>
         </div>
-        <span className="font-mono text-[20px] font-black text-mint leading-none">{confInt}</span>
+        <div className="flex items-center gap-1.5">
+          {/* Bucket badge: which market % range this pick is in */}
+          <span className="text-[9px] font-bold font-mono text-gray-600 border border-[#222] bg-[#111] px-1.5 py-0.5 rounded">
+            {bucket}%
+          </span>
+          <span className="font-mono text-[20px] font-black text-mint leading-none">{confInt}</span>
+        </div>
       </div>
       <div>
         <div className="text-[15px] font-bold text-white font-condensed leading-tight truncate">{title}</div>

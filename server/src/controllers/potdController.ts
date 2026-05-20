@@ -1,8 +1,7 @@
+import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabaseAdmin';
-
-const PICK_STAT_LABELS: Record<string, string> = {
-  pts: 'PTS', reb: 'REB', ast: 'AST', fg3m: '3PM',
-};
+import { STAT_LABELS } from '../constants/stats';
+import { findNearestPickDate } from '../utils/dateQueries';
 
 const STAT_ROLLING_COL: Record<string, string> = {
   pts: 'rolling_pts_5g',
@@ -11,33 +10,13 @@ const STAT_ROLLING_COL: Record<string, string> = {
   fg3m: 'rolling_fg3m_5g',
 };
 
-async function findNearestPickDate(today: string): Promise<string> {
-  const { data: upcoming } = await supabaseAdmin
-    .from('pick_results')
-    .select('game_date')
-    .gte('game_date', today)
-    .order('game_date', { ascending: true })
-    .limit(1)
-    .maybeSingle();
-  if (upcoming?.game_date) return upcoming.game_date;
-
-  const { data: past } = await supabaseAdmin
-    .from('pick_results')
-    .select('game_date')
-    .lt('game_date', today)
-    .order('game_date', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  return past?.game_date ?? today;
-}
-
 function composeBullets(
   pick: any,
   dc: any,
   oppName: string | null,
 ): [string, string, string] {
   const stat = pick.stat ?? '';
-  const statLabel = PICK_STAT_LABELS[stat] ?? stat.toUpperCase();
+  const statLabel = STAT_LABELS[stat] ?? stat.toUpperCase();
   const hitPct = Math.round((pick.hit_rate ?? 0) * 100);
   const mktPct = Math.round((pick.implied_prob ?? 0) * 100);
   const edgePct = Math.round((pick.edge ?? 0) * 100);
@@ -123,7 +102,7 @@ function composeBullets(
   return [bullet1, bullet2, bullet3];
 }
 
-export async function getPotd(req: any, res: any) {
+export async function getPotd(_req: Request, res: Response) {
   try {
     const today = new Date().toISOString().slice(0, 10);
     const pickDate = await findNearestPickDate(today);
@@ -222,7 +201,7 @@ export async function getPotd(req: any, res: any) {
         position: playerInfo?.position ?? null,
         opponent,
         stat: p.stat,
-        stat_label: PICK_STAT_LABELS[p.stat] ?? (p.stat ?? '').toUpperCase(),
+        stat_label: STAT_LABELS[p.stat] ?? (p.stat ?? '').toUpperCase(),
         line: p.recommended_line,
         direction,
         hit_rate: p.hit_rate,

@@ -16,6 +16,7 @@ const NAV_LINKS = [
   { label: "NFL", href: "/nfl" },
   { label: "MLB", href: "/mlb" },
   { label: "NHL", href: "/nhl" },
+  { label: "TRACK", href: "/performance" },
 ];
 
 export default function Header() {
@@ -97,6 +98,9 @@ export default function Header() {
         </span>
         <span className="font-display text-[22px] font-black tracking-tight text-mint leading-none">
           TRAK
+        </span>
+        <span className="font-display text-[22px] font-black tracking-tight text-white leading-none">
+          SPORTS
         </span>
       </Link>
 

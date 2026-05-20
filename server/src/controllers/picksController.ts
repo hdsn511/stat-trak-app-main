@@ -3,17 +3,6 @@ import { supabaseAdmin } from '../config/supabaseAdmin';
 import { STAT_LABELS, STAT_CONFIG } from '../constants/stats';
 import { findNearestPickDate, findNearestLinesDate } from '../utils/dateQueries';
 
-// ESPN uses different abbreviations than the NBA API / our DB.
-const ESPN_ABBR_TO_DB: Record<string, string> = {
-  NY:   'NYK',
-  SA:   'SAS',
-  GS:   'GSW',
-  NO:   'NOP',
-  PHO:  'PHX',
-  BK:   'BKN',
-  UTAH: 'UTA',
-};
-
 export async function getTopPicks(req: Request<{}, {}, {}, { limit?: string }>, res: Response) {
   try {
     const parsed = parseInt(req.query.limit ?? '5', 10);
@@ -25,7 +14,7 @@ export async function getTopPicks(req: Request<{}, {}, {}, { limit?: string }>, 
       .from('pick_results')
       .select(
         'id,entity_id,stat,pick_type,prop_type,recommended_line,hit_rate,' +
-        'sample_size,confidence_score,implied_prob,edge,did_hit,actual_result'
+        'sample_size,confidence_score,implied_prob,edge,did_hit,actual_result,modifiers'
       )
       .eq('game_date', pickDate)
       .order('confidence_score', { ascending: false });
@@ -202,6 +191,8 @@ export async function getTopPicks(req: Request<{}, {}, {}, { limit?: string }>, 
       const gm: any = gameMap.get(g.entity_id) ?? {};
       const home = teamMap.get(gm.home_team_id) ?? null;
       const away = teamMap.get(gm.away_team_id) ?? null;
+      const spreadTeam: string | null =
+        g.prop_type === 'spread' ? (g.modifiers?.team_abbr ?? null) : null;
       return {
         game_id: g.entity_id,
         prop_type: g.prop_type,
@@ -209,6 +200,7 @@ export async function getTopPicks(req: Request<{}, {}, {}, { limit?: string }>, 
         away_team: away,
         pick_type: g.pick_type,
         line: g.prop_type === 'winner' ? null : g.recommended_line,
+        spread_team: spreadTeam,
         hit_rate: g.hit_rate,
         confidence: g.confidence_score,
         edge: g.edge,
@@ -272,25 +264,29 @@ export async function getPerfectStreaks(req: Request<{}, {}, {}, { type?: string
 
     const today = new Date().toISOString().slice(0, 10);
 
-    // ── A. Today's slate teams via ESPN
-    const espn = await fetch('https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard')
-      .then((r) => {
-        if (!r.ok) { console.error(`[getPerfectStreaks] ESPN ${r.status}`); return null; }
-        return r.json();
-      })
-      .catch((err) => {
-        console.error('[getPerfectStreaks] ESPN failed:', err?.message ?? err);
-        return null;
-      });
+    // ── A. Today's slate teams via DB games table
+    const { data: slateGames } = await supabaseAdmin
+      .from('games')
+      .select('home_team_id, away_team_id')
+      .eq('game_date', today)
+      .eq('league_id', 1);
+    const slateTeamIds = new Set<number>();
+    for (const g of (slateGames ?? [])) {
+      slateTeamIds.add(g.home_team_id);
+      slateTeamIds.add(g.away_team_id);
+    }
     const slateTeams = new Set<string>();
-    for (const ev of (((espn as any)?.events) ?? [])) {
-      for (const c of (ev.competitions?.[0]?.competitors ?? [])) {
-        const abbr = c.team?.abbreviation?.toUpperCase();
-        if (abbr) slateTeams.add(ESPN_ABBR_TO_DB[abbr] ?? abbr);
+    if (slateTeamIds.size > 0) {
+      const { data: slateTeamRows } = await supabaseAdmin
+        .from('teams')
+        .select('id, abbreviation')
+        .in('id', [...slateTeamIds]);
+      for (const t of (slateTeamRows ?? [])) {
+        if (t.abbreviation) slateTeams.add(t.abbreviation.toUpperCase());
       }
     }
     if (slateTeams.size === 0) {
-      console.warn('[getPerfectStreaks] no teams on ESPN slate');
+      console.warn('[getPerfectStreaks] no teams on today\'s slate');
       return res.json({ success: true, data: { stat, window: STREAKS_WINDOW, rows: [] } });
     }
 

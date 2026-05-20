@@ -1,7 +1,5 @@
-export {};
-const express = require('express');
-const router = express.Router();
-const {
+import { Router } from 'express';
+import {
   getTopTrending,
   getTrends,
   searchPlayers,
@@ -9,9 +7,11 @@ const {
   getTodaysGames,
   getTodaysPicks,
   getPlayerPicks,
-} = require('../controllers/nbaController');
-const { getGameById } = require('../controllers/gameController');
-const { getTeamById } = require('../controllers/teamController');
+} from '../controllers/nbaController';
+import { getGameById } from '../controllers/gameController';
+import { getTeamById } from '../controllers/teamController';
+
+const router = Router();
 
 router.get('/trends/top', getTopTrending);
 router.get('/trends', getTrends);
@@ -23,4 +23,4 @@ router.get('/teams/:id', getTeamById);
 router.get('/picks/today', getTodaysPicks);
 router.get('/picks/player/:id', getPlayerPicks);
 
-module.exports = router;
+export default router;

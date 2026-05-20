@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Game View Wireframe — StatTrak</title>
+  <style>
+    body { background: #0A0A0A; padding: 24px; font-family: 'Space Grotesk', system-ui, sans-serif; }
+  </style>
+</head>
+<body>
+
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
+
+  /* ── design tokens — mirror tailwind.config.js exactly ── */
+  :root {
+    --accent:  #FF5F2E;
+    --over:    #22C55E;
+    --under:   #EF4444;
+    --push:    #EAB308;
+    --bg:      #0D0D0D;    /* NBA card bg */
+    --bdr:     #1E1E1E;    /* card border — matches tailwind border token */
+    --sec-bdr: #111111;    /* section dividers inside card */
+    --row-bdr: #161616;    /* row separators */
+
+    --t1: #FFFFFF;         /* names, primary */
+    --t2: #E5E7EB;         /* body copy, secondary numbers */
+    --t3: #CDD1D7;         /* section titles — lifted ~50% toward white */
+    --t4: #9CA3AF;         /* col headers, sublabels */
+    --t5: #6B7280;         /* very faint */
+
+    --fn: 'Space Grotesk', system-ui, sans-serif;
+    --fm: 'Space Mono', monospace;
+  }
+
+  /* ── card shell ── */
+  .gv-card {
+    background: var(--bg);
+    border: 1px solid var(--bdr);
+    border-radius: 16px;
+    overflow: hidden;
+    font-family: var(--fn);
+    color: var(--t1);
+  }
+
+  /* ── card section header ── */
+  .gv-card-hdr {
+    padding: 14px 20px 12px;
+    border-bottom: 1px solid var(--sec-bdr);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .gv-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--t3);
+    font-family: var(--fn);
+  }
+  .gv-meta {
+    font-size: 9px;
+    color: var(--t4);
+    font-weight: 400;
+  }
+
+  /* ── matchup header card ── */
+  .gv-matchup-card {
+    background: var(--bg);
+    border: 1px solid var(--bdr);
+    border-radius: 16px;
+    overflow: hidden;
+    font-family: var(--fn);
+    padding: 20px 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .gv-matchup-card h1 {
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--t1);
+    margin: 0 0 4px;
+    letter-spacing: -0.3px;
+  }
+  .gv-btn {
+    font-family: var(--fn);
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--t1);
+    background: transparent;
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+    padding: 7px 14px;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  /* ── layout grid ── */
+  .gv-layout { display: flex; flex-direction: column; gap: 10px; max-width: 1080px; margin: 0 auto; }
+  .gv-row-main { display: grid; grid-template-columns: 3fr 2fr; gap: 10px; }
+  .gv-row-sub  { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+  /* ── roster table ── */
+  .gv-card-body { padding: 16px 20px; }
+  .gv-rosters { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .gv-team-name {
+    font-size: 9px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.16em; color: var(--t4); margin-bottom: 8px;
+  }
+  .gv-tbl { display: grid; grid-template-columns: 1fr 40px 40px 40px; }
+  .gv-tbl > * { padding: 4px 0; font-size: 12px; line-height: 1.3; }
+  .gv-ch {
+    font-size: 9px; text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--t4); font-weight: 700;
+    text-align: right; padding-bottom: 5px; border-bottom: 1px solid var(--sec-bdr);
+  }
+  .gv-ch:first-child { text-align: left; }
+  .gv-stat    { text-align: right; color: var(--t2); font-family: var(--fm); font-size: 12px; font-weight: 700; }
+  .gv-stat-hi { text-align: right; color: var(--accent); font-family: var(--fm); font-size: 12px; font-weight: 700; }
+  .gv-player     { color: var(--t1); font-weight: 500; font-size: 12px; }
+  .gv-player-out { color: var(--t5); text-decoration: line-through; font-weight: 400; font-size: 12px; }
+
+  /* ── scrollable ── */
+  .gv-scroll { overflow-y: auto; padding-right: 10px; margin-right: -10px; }
+  .gv-scroll::-webkit-scrollbar { width: 2px; }
+  .gv-scroll::-webkit-scrollbar-thumb { background: #2A2A2A; border-radius: 2px; }
+
+  /* ── picks ── */
+  .gv-picks-body { padding: 0 20px; }
+  .gv-pick { padding: 13px 0; border-bottom: 1px solid var(--row-bdr); }
+  .gv-pick:last-child { border-bottom: none; }
+  .gv-pick-name { font-size: 12px; font-weight: 700; color: var(--t1); }
+  .gv-pick-pos  { font-size: 10px; color: var(--t4); font-weight: 400; margin-left: 5px; }
+
+  .gv-pick-pct-row { display: flex; align-items: flex-end; gap: 10px; margin: 5px 0 4px; }
+  .gv-pick-pct { font-family: var(--fm); font-size: 18px; font-weight: 700; color: var(--t1); line-height: 1; }
+  .gv-pick-n   { font-size: 10px; color: var(--t4); line-height: 1.4; }
+
+  /* bar chart: white dashed threshold, green=hit (#22C55E), red=miss (#EF4444) */
+  .gv-bars { display: flex; gap: 3px; align-items: flex-end; height: 24px; position: relative; flex-shrink: 0; }
+  .gv-bar  { width: 6px; border-radius: 2px 2px 0 0; }
+  .gv-bar-hit  { background: #22C55E !important; }
+  .gv-bar-miss { background: #EF4444 !important; }
+  .gv-threshold { position: absolute; left: 0; right: 0; border-top: 1px dashed rgba(255,255,255,0.3); pointer-events: none; }
+
+  .gv-pick-line   { font-size: 12px; font-weight: 700; margin-bottom: 4px; }
+  .gv-pick-line-over  { color: #22C55E; }
+  .gv-pick-line-under { color: #EF4444; }
+  .gv-pick-footer { display: flex; justify-content: space-between; align-items: center; }
+  .gv-pick-avg    { font-size: 10px; color: var(--t4); }
+  .gv-pick-avg .gv-val { font-family: var(--fm); font-weight: 700; color: var(--t2); font-size: 10px; }
+  .gv-pick-link   { font-size: 10px; color: var(--accent); font-weight: 600; }
+
+  /* ── injury badges ── */
+  .gv-badge {
+    font-size: 9px; font-weight: 700; text-transform: uppercase;
+    padding: 2px 6px; border-radius: 4px; white-space: nowrap;
+    font-family: var(--fn); letter-spacing: 0.05em;
+  }
+  .gv-badge-out { color: #EF4444; background: #1c0808; border: 1px solid #3a1010; }
+  .gv-badge-gtd { color: #EAB308; background: #1c1600; border: 1px solid #3a2c00; }
+  .gv-injury { display: flex; align-items: center; gap: 8px; padding: 8px 20px; border-bottom: 1px solid var(--row-bdr); }
+  .gv-injury:last-child { border-bottom: none; }
+
+  /* ── previous meetings ── */
+  .gv-meeting {
+    display: grid; grid-template-columns: 30px 1fr auto;
+    gap: 8px; align-items: center;
+    padding: 8px 20px; border-bottom: 1px solid var(--row-bdr); cursor: pointer;
+  }
+  .gv-meeting:last-child { border-bottom: none; }
+  .gv-meet-date   { font-size: 9px; color: var(--t1); }
+  .gv-meet-winner { font-family: var(--fm); font-size: 12px; font-weight: 700; color: #22C55E; }
+  .gv-meet-loser  { font-family: var(--fm); font-size: 12px; font-weight: 700; color: var(--t1); }
+  .gv-meet-sep    { color: var(--t1); font-family: var(--fm); font-size: 12px; font-weight: 400; }
+  .gv-meet-link   { font-size: 9px; color: var(--accent); font-weight: 600; }
+
+  /* ── narratives ── */
+  .gv-narr-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0; align-items: stretch; }
+  .gv-narr-col { padding: 14px 20px; display: flex; flex-direction: column; }
+  .gv-narr-col + .gv-narr-col { border-left: 1px solid var(--sec-bdr); }
+  .gv-narr-sub { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.14em; color: var(--t4); margin-bottom: 10px; flex-shrink: 0; }
+
+  .gv-factor {
+    display: grid; grid-template-columns: 14px 1fr 88px;
+    gap: 8px; align-items: baseline;
+    padding: 7px 0; border-bottom: 1px solid var(--row-bdr);
+    flex: 1;
+  }
+  .gv-factor:last-child { border-bottom: none; }
+  .gv-factor-icon   { font-size: 14px; font-weight: 700; }
+  .gv-factor-text   { font-size: 14px; color: var(--t2); line-height: 1.5; }
+  .gv-factor-metric { font-family: var(--fm); font-size: 12px; font-weight: 700; text-align: right; white-space: nowrap; color: var(--t1); }
+
+  .gv-ctx-row {
+    display: grid; grid-template-columns: 86px 1fr 96px;
+    gap: 14px; align-items: baseline;
+    padding: 9px 0; border-bottom: 1px solid var(--row-bdr);
+    flex: 1;
+  }
+  .gv-ctx-row:last-child { border-bottom: none; }
+  .gv-ctx-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--t4); font-weight: 700; padding-top: 2px; }
+  .gv-ctx-text  { font-size: 14px; color: var(--t2); line-height: 1.5; }
+  .gv-ctx-tag   { font-family: var(--fm); font-size: 12px; font-weight: 700; text-align: center; white-space: nowrap; }
+  .gv-ctx-sep   { color: #FFFFFF; font-weight: 400; }
+
+  /* ── color helpers ── */
+  .c-accent { color: #FF5F2E; }
+  .c-over   { color: #22C55E !important; }
+  .c-under  { color: #EF4444 !important; }
+  .c-push   { color: #EAB308; }
+  .c-t3     { color: var(--t3); }
+  .c-t4     { color: var(--t4); }
+  .c-t5     { color: var(--t5); }
+</style>
+
+<div class="gv-layout">
+
+  <!-- ── Matchup header card ── -->
+  <div class="gv-matchup-card">
+    <div>
+      <h1>Detroit Pistons <span class="c-accent" style="font-weight:400;margin:0 8px;">@</span> Cleveland Cavaliers</h1>
+      <div class="gv-meta" style="letter-spacing:0.14em;text-transform:uppercase;">Tue May 13 · Playoff Game 6 · 7:30 PM ET</div>
+    </div>
+    <button class="gv-btn">Research this game</button>
+  </div>
+
+  <!-- ── Main row: Left card (Rosters + IR + Prev Meetings) | Right card (Props) ── -->
+  <div class="gv-row-main">
+
+    <!-- LEFT card: Rosters at top, IR + Prev Meetings split at bottom -->
+    <div class="gv-card" style="display:flex;flex-direction:column;">
+
+      <!-- Rosters section -->
+      <div class="gv-card-hdr">
+        <span class="gv-label">Rosters — Top 5</span>
+        <span class="gv-meta">Szn avg vs opp · Highlighted = season leader</span>
+      </div>
+      <div class="gv-card-body" style="flex:1;">
+        <div class="gv-rosters">
+
+          <div>
+            <div class="gv-team-name">Detroit Pistons</div>
+            <div class="gv-tbl">
+              <div class="gv-ch">Player</div><div class="gv-ch">PTS</div><div class="gv-ch">REB</div><div class="gv-ch">AST</div>
+              <div class="gv-player">Cade Cunningham</div><div class="gv-stat-hi">22.7</div><div class="gv-stat">4.4</div><div class="gv-stat">6.9</div>
+              <div class="gv-player">Jalen Duren</div><div class="gv-stat">14.2</div><div class="gv-stat-hi">10.8</div><div class="gv-stat">2.1</div>
+              <div class="gv-player">Ausar Thompson</div><div class="gv-stat">13.1</div><div class="gv-stat">6.8</div><div class="gv-stat">2.4</div>
+              <div class="gv-player">James Harden</div><div class="gv-stat">14.8</div><div class="gv-stat">4.1</div><div class="gv-stat-hi">8.3</div>
+              <div class="gv-player-out">K. Huerter <span class="c-under" style="font-size:9px;text-decoration:none;margin-left:3px;">OUT</span></div>
+              <div class="gv-stat c-t5">—</div><div class="gv-stat c-t5">—</div><div class="gv-stat c-t5">—</div>
+            </div>
+          </div>
+
+          <div>
+            <div class="gv-team-name">Cleveland Cavaliers</div>
+            <div class="gv-tbl">
+              <div class="gv-ch">Player</div><div class="gv-ch">PTS</div><div class="gv-ch">REB</div><div class="gv-ch">AST</div>
+              <div class="gv-player">Donovan Mitchell</div><div class="gv-stat-hi">26.1</div><div class="gv-stat">4.2</div><div class="gv-stat">5.1</div>
+              <div class="gv-player">Darius Garland</div><div class="gv-stat">18.4</div><div class="gv-stat">2.9</div><div class="gv-stat-hi">7.8</div>
+              <div class="gv-player">Jarrett Allen</div><div class="gv-stat">12.1</div><div class="gv-stat-hi">9.4</div><div class="gv-stat">1.8</div>
+              <div class="gv-player" style="color:#EAB308;">Evan Mobley <span style="font-size:9px;">GTD</span></div>
+              <div class="gv-stat">15.7</div><div class="gv-stat">8.1</div><div class="gv-stat">2.9</div>
+              <div class="gv-player">Max Strus</div><div class="gv-stat">11.4</div><div class="gv-stat">3.1</div><div class="gv-stat">2.2</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- IR + Previous Meetings — split 1:1 inside the same card -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;border-top:1px solid var(--sec-bdr);">
+
+        <!-- Injury Report -->
+        <div style="border-right:1px solid var(--sec-bdr);">
+          <div class="gv-card-hdr">
+            <span class="gv-label">Injury Report</span>
+          </div>
+          <div class="gv-injury">
+            <span class="gv-badge gv-badge-out">OUT</span>
+            <span style="font-size:12px;font-weight:500;font-family:var(--fn);">Kevin Huerter</span>
+            <span class="gv-meta">DET · SG</span>
+          </div>
+          <div class="gv-injury">
+            <span class="gv-badge gv-badge-gtd">GTD</span>
+            <span style="font-size:12px;font-weight:500;font-family:var(--fn);">Evan Mobley</span>
+            <span class="gv-meta">CLE · C</span>
+          </div>
+        </div>
+
+        <!-- Previous Meetings -->
+        <div>
+          <div class="gv-card-hdr">
+            <span class="gv-label">Previous Meetings</span>
+            <span style="font-size:9px;color:#22C55E;font-weight:700;">CLE leads 3–1</span>
+          </div>
+          <div class="gv-scroll" style="max-height:110px;">
+            <div class="gv-meeting">
+              <span class="gv-meet-date">Nov 4</span>
+              <span><span class="gv-meet-winner">CLE 112</span><span class="gv-meet-sep"> – </span><span class="gv-meet-loser">DET 98</span></span>
+              <span class="gv-meet-link">Box score →</span>
+            </div>
+            <div class="gv-meeting">
+              <span class="gv-meet-date">Jan 18</span>
+              <span><span class="gv-meet-loser">CLE 101</span><span class="gv-meet-sep"> – </span><span class="gv-meet-winner">DET 104</span></span>
+              <span class="gv-meet-link">Box score →</span>
+            </div>
+            <div class="gv-meeting">
+              <span class="gv-meet-date">Feb 26</span>
+              <span><span class="gv-meet-winner">CLE 119</span><span class="gv-meet-sep"> – </span><span class="gv-meet-loser">DET 109</span></span>
+              <span class="gv-meet-link">Box score →</span>
+            </div>
+            <div class="gv-meeting">
+              <span class="gv-meet-date">Apr 3</span>
+              <span><span class="gv-meet-loser">CLE 95</span><span class="gv-meet-sep"> – </span><span class="gv-meet-winner">DET 97</span></span>
+              <span class="gv-meet-link">Box score →</span>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /bottom split -->
+    </div><!-- /left card -->
+
+    <!-- RIGHT card: Suggested Props -->
+    <div class="gv-card">
+      <div class="gv-card-hdr">
+        <span class="gv-label">Suggested Props</span>
+      </div>
+      <div class="gv-picks-body">
+        <div class="gv-scroll" style="max-height:420px;">
+
+          <!-- Duren -->
+          <div class="gv-pick">
+            <div><span class="gv-pick-name">Jalen Duren</span><span class="gv-pick-pos">DET · C</span></div>
+            <div class="gv-pick-pct-row">
+              <span class="gv-pick-pct">88%</span>
+              <div class="gv-bars">
+                <div class="gv-threshold" style="bottom:calc(7.5/12*24px);"></div>
+                <div class="gv-bar gv-bar-hit"  style="height:24px;"></div>
+                <div class="gv-bar gv-bar-hit"  style="height:16px;"></div>
+                <div class="gv-bar gv-bar-hit"  style="height:18px;"></div>
+                <div class="gv-bar gv-bar-miss" style="height:12px;"></div>
+                <div class="gv-bar gv-bar-hit"  style="height:20px;"></div>
+              </div>
+              <span class="gv-pick-n">n=23</span>
+            </div>
+            <div class="gv-pick-line gv-pick-line-over">OVER 7.5 REB</div>
+            <div class="gv-pick-footer">
+              <span class="gv-pick-avg">vs CLE avg (L5): <span class="gv-val">12.4 REB</span></span>
+              <span class="gv-pick-link">View player →</span>
+            </div>
+          </div>
+
+          <!-- Thompson -->
+          <div class="gv-pick">
+            <div><span class="gv-pick-name">Ausar Thompson</span><span class="gv-pick-pos">DET · F</span></div>
+            <div class="gv-pick-pct-row">
+              <span class="gv-pick-pct">100%</span>
+              <div class="gv-bars">
+                <div class="gv-threshold" style="bottom:calc(5.5/9*24px);"></div>
+                <div class="gv-bar gv-bar-hit" style="height:21px;"></div>
+                <div class="gv-bar gv-bar-hit" style="height:19px;"></div>
+                <div class="gv-bar gv-bar-hit" style="height:16px;"></div>
+                <div class="gv-bar gv-bar-hit" style="height:19px;"></div>
+                <div class="gv-bar gv-bar-hit" style="height:24px;"></div>
+              </div>
+              <span class="gv-pick-n" style="color:#EAB308;">n=12 · small</span>
+            </div>
+            <div class="gv-pick-line gv-pick-line-over">OVER 5.5 REB</div>
+            <div class="gv-pick-footer">
+              <span class="gv-pick-avg">vs CLE avg (L5): <span class="gv-val">7.1 REB</span></span>
+              <span class="gv-pick-link">View player →</span>
+            </div>
+          </div>
+
+          <!-- Harden -->
+          <div class="gv-pick">
+            <div><span class="gv-pick-name">James Harden</span><span class="gv-pick-pos">DET · G</span></div>
+            <div class="gv-pick-pct-row">
+              <span class="gv-pick-pct">86%</span>
+              <div class="gv-bars">
+                <div class="gv-threshold" style="bottom:calc(5.5/9*24px);"></div>
+                <div class="gv-bar gv-bar-hit"  style="height:21px;"></div>
+                <div class="gv-bar gv-bar-miss" style="height:11px;"></div>
+                <div class="gv-bar gv-bar-hit"  style="height:19px;"></div>
+                <div class="gv-bar gv-bar-hit"  style="height:24px;"></div>
+                <div class="gv-bar gv-bar-hit"  style="height:16px;"></div>
+              </div>
+              <span class="gv-pick-n">n=14</span>
+            </div>
+            <div class="gv-pick-line gv-pick-line-over">OVER 5.5 AST</div>
+            <div class="gv-pick-footer">
+              <span class="gv-pick-avg">vs CLE avg (L5): <span class="gv-val">7.2 AST</span></span>
+              <span class="gv-pick-link">View player →</span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div><!-- /right card -->
+
+  </div><!-- /gv-row-main -->
+
+  <!-- ── Game Narratives card (full width) ── -->
+  <div class="gv-card">
+    <div class="gv-card-hdr">
+      <span class="gv-label">Game Narratives</span>
+    </div>
+    <div class="gv-narr-grid">
+
+      <!-- Key Factors -->
+      <div class="gv-narr-col">
+        <div class="gv-narr-sub">Key Factors</div>
+        <div class="gv-factor">
+          <span class="gv-factor-icon c-over">+</span>
+          <span class="gv-factor-text">Huerter out increases Duren usage and rim touches</span>
+          <span class="gv-factor-metric">+3.2 REB avg</span>
+        </div>
+        <div class="gv-factor">
+          <span class="gv-factor-icon c-over">+</span>
+          <span class="gv-factor-text">CLE's 2-day rest edge historically lifts scoring output</span>
+          <span class="gv-factor-metric">+2.8 pts avg</span>
+        </div>
+        <div class="gv-factor">
+          <span class="gv-factor-icon c-under">–</span>
+          <span class="gv-factor-text">DET's slow pace compresses total scoring volume</span>
+          <span class="gv-factor-metric">–4.8 poss/g</span>
+        </div>
+        <div class="gv-factor">
+          <span class="gv-factor-icon c-under">–</span>
+          <span class="gv-factor-text">If Mobley plays, Duren's rebound ceiling drops</span>
+          <span class="gv-factor-metric">–2.1 REB avg</span>
+        </div>
+      </div>
+
+      <!-- Game Stats -->
+      <div class="gv-narr-col">
+        <div class="gv-narr-sub">Game Stats</div>
+        <div class="gv-ctx-row">
+          <div class="gv-ctx-label">Pace</div>
+          <div class="gv-ctx-text">DET's pace suppresses total possessions and scoring volume.</div>
+          <div class="gv-ctx-tag"><span class="c-under">98.4</span><span class="gv-ctx-sep"> vs </span><span class="c-over">103.2</span></div>
+        </div>
+        <div class="gv-ctx-row">
+          <div class="gv-ctx-label">Efficiency</div>
+          <div class="gv-ctx-text">CLE leads both OffRtg and DefRtg — clear two-way advantage.</div>
+          <div class="gv-ctx-tag"><span class="c-over">118.4</span><span class="gv-ctx-sep"> / </span><span class="c-over">108.7</span></div>
+        </div>
+        <div class="gv-ctx-row">
+          <div class="gv-ctx-label">Def vs Pos</div>
+          <div class="gv-ctx-text">CLE #8 vs centers limits Duren. DET #26 opens Allen.</div>
+          <div class="gv-ctx-tag"><span class="c-over">#8</span><span class="gv-ctx-sep"> vs </span><span class="c-under">#26</span></div>
+        </div>
+        <div class="gv-ctx-row">
+          <div class="gv-ctx-label">Rest</div>
+          <div class="gv-ctx-text">CLE rested 2 days vs DET's 1 — rest edge correlates with output.</div>
+          <div class="gv-ctx-tag"><span class="c-over">2d</span><span class="gv-ctx-sep"> vs </span><span class="c-under">1d</span></div>
+        </div>
+      </div>
+
+    </div>
+  </div><!-- /game narratives -->
+
+</div><!-- /gv-layout -->
+
+</body>
+</html>

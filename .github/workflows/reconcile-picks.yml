@@ -30,5 +30,7 @@ jobs:
       - name: Install Python deps
         run: pip install -r analytics/requirements.txt
 
+      # --reconcile-only runs only Step 0 (fill actual_result + did_hit for yesterday).
+      # Passing today's date means yesterday = today - 1 day, which is correct.
       - name: Reconcile picks
-        run: python -m analytics.batch.nightly --date "$(date -u +%Y-%m-%d)"
+        run: python -m analytics.batch.nightly --reconcile-only --date "$(date -u +%Y-%m-%d)"

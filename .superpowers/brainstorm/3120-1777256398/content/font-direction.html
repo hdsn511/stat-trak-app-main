@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Font Direction</title>
+<script src="/helper.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0a0a0a; color: #fff; font-family: sans-serif; padding: 24px; }
+  h2 { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+  .subtitle { color: #666; font-size: 13px; margin-bottom: 24px; }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+  .card {
+    border: 2px solid #222;
+    border-radius: 12px;
+    padding: 20px;
+    cursor: pointer;
+    transition: border-color 0.15s;
+    position: relative;
+  }
+  .card:hover { border-color: #444; }
+  .card.selected { border-color: #ff6b35; }
+  .card .tag {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: #ff6b35;
+    border: 1px solid #ff6b35;
+    border-radius: 4px;
+    padding: 2px 6px;
+    margin-bottom: 14px;
+  }
+
+  /* ── Option A: Sharp Editorial ── */
+  .font-a-display { font-family: 'Oswald', sans-serif; font-weight: 700; }
+  .font-a-body    { font-family: 'Inter', sans-serif; }
+  .font-a-mono    { font-family: 'JetBrains Mono', monospace; }
+
+  /* ── Option B: Premium Finance ── */
+  .font-b-display { font-family: 'Space Grotesk', sans-serif; font-weight: 700; }
+  .font-b-body    { font-family: 'Space Grotesk', sans-serif; }
+  .font-b-mono    { font-family: 'Space Mono', monospace; }
+
+  /* ── Option C: Pro Sports Data ── */
+  .font-c-display { font-family: 'Rajdhani', sans-serif; font-weight: 700; }
+  .font-c-body    { font-family: 'DM Sans', sans-serif; }
+  .font-c-mono    { font-family: 'Fira Code', monospace; }
+
+  /* ── Option D: Keep + Refine ── */
+  .font-d-display { font-family: serif; font-weight: 900; }
+  .font-d-body    { font-family: 'IBM Plex Sans', sans-serif; }
+  .font-d-mono    { font-family: 'IBM Plex Mono', monospace; }
+
+  .preview-stat { font-size: 48px; font-weight: 900; line-height: 1; color: #ff6b35; margin-bottom: 4px; }
+  .preview-label { font-size: 10px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; color: #555; margin-bottom: 12px; }
+  .preview-player { font-size: 22px; font-weight: 700; color: #fff; margin-bottom: 2px; }
+  .preview-sub { font-size: 12px; color: #555; margin-bottom: 12px; }
+  .preview-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.1em;
+    background: rgba(255,107,53,0.1); color: #ff6b35;
+    border: 1px solid rgba(255,107,53,0.25);
+    border-radius: 4px; padding: 3px 8px; margin-bottom: 12px;
+  }
+  .preview-row { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #1a1a1a; }
+  .preview-row:last-child { border-bottom: none; }
+  .preview-hit { color: #34d399; font-size: 12px; font-weight: 700; }
+  .preview-miss { color: #f87171; font-size: 12px; font-weight: 700; }
+  .letter-badge {
+    position: absolute; top: 14px; right: 14px;
+    width: 24px; height: 24px; border-radius: 6px;
+    background: #1a1a1a; border: 1px solid #2a2a2a;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700; color: #666;
+  }
+  .selected .letter-badge { background: #ff6b35; color: #000; border-color: #ff6b35; }
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;600;700&family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&family=Rajdhani:wght@400;500;600;700&family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono&family=JetBrains+Mono&family=Fira+Code&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<h2>Font Direction</h2>
+<p class="subtitle">Same mock content, 4 type systems. Click to select. Logos use Doto (kept regardless).</p>
+
+<div class="grid">
+
+  <!-- A: Sharp Editorial -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter-badge">A</div>
+    <div class="tag">Sharp Editorial</div>
+    <div class="font-a-display preview-stat">34.2</div>
+    <div class="font-a-body preview-label">Points · Last 10</div>
+    <div class="font-a-display preview-player">LeBron James</div>
+    <div class="font-a-body preview-sub">LAL · SF</div>
+    <div class="font-a-body preview-badge">↑ OVER 29.5 PTS</div>
+    <div class="font-a-mono preview-row">
+      <span style="color:#aaa;font-size:11px">vs DEN — Apr 21</span>
+      <span class="preview-hit">38 ✓</span>
+    </div>
+    <div class="font-a-mono preview-row">
+      <span style="color:#aaa;font-size:11px">vs GSW — Apr 19</span>
+      <span class="preview-hit">31 ✓</span>
+    </div>
+    <div class="font-a-mono preview-row">
+      <span style="color:#aaa;font-size:11px">vs PHX — Apr 17</span>
+      <span class="preview-miss">22 ✗</span>
+    </div>
+    <div style="margin-top:12px;font-size:10px;color:#444;font-family:'Inter',sans-serif">Oswald (headers) · Inter (body) · JetBrains Mono (stats)</div>
+  </div>
+
+  <!-- B: Premium Finance -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter-badge">B</div>
+    <div class="tag">Premium Finance</div>
+    <div class="font-b-display preview-stat">34.2</div>
+    <div class="font-b-body preview-label">Points · Last 10</div>
+    <div class="font-b-display preview-player">LeBron James</div>
+    <div class="font-b-body preview-sub">LAL · SF</div>
+    <div class="font-b-body preview-badge">↑ OVER 29.5 PTS</div>
+    <div class="font-b-mono preview-row">
+      <span style="color:#aaa;font-size:11px">vs DEN — Apr 21</span>
+      <span class="preview-hit">38 ✓</span>
+    </div>
+    <div class="font-b-mono preview-row">
+      <span style="color:#aaa;font-size:11px">vs GSW — Apr 19</span>
+      <span class="preview-hit">31 ✓</span>
+    </div>
+    <div class="font-b-mono preview-row">
+      <span style="color:#aaa;font-size:11px">vs PHX — Apr 17</span>
+      <span class="preview-miss">22 ✗</span>
+    </div>
+    <div style="margin-top:12px;font-size:10px;color:#444;font-family:'Space Grotesk',sans-serif">Space Grotesk (all) · Space Mono (stats)</div>
+  </div>
+
+  <!-- C: Pro Sports Data -->
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter-badge">C</div>
+    <div class="tag">Pro Sports Data</div>
+    <div class="font-c-display preview-stat">34.2</div>
+    <div class="font-c-body preview-label">Points · Last 10</div>
+    <div class="font-c-display preview-player">LeBron James</div>
+    <div class="font-c-body preview-sub">LAL · SF</div>
+    <div class="font-c-body preview-badge">↑ OVER 29.5 PTS</div>
+    <div class="font-c-mono preview-row">
+      <span style="color:#aaa;font-size:11px">vs DEN — Apr 21</span>
+      <span class="preview-hit">38 ✓</span>
+    </div>
+    <div class="font-c-mono preview-row">
+      <span style="color:#aaa;font-size:11px">vs GSW — Apr 19</span>
+      <span class="preview-hit">31 ✓</span>
+    </div>
+    <div class="font-c-mono preview-row">
+      <span style="color:#aaa;font-size:11px">vs PHX — Apr 17</span>
+      <span class="preview-miss">22 ✗</span>
+    </div>
+    <div style="margin-top:12px;font-size:10px;color:#444;font-family:'DM Sans',sans-serif">Rajdhani (headers) · DM Sans (body) · Fira Code (stats)</div>
+  </div>
+
+  <!-- D: Keep + Refine -->
+  <div class="card" data-choice="d" onclick="toggleSelect(this)">
+    <div class="letter-badge">D</div>
+    <div class="tag">Keep + Refine</div>
+    <div class="font-d-display preview-stat" style="font-family:'Bebas Neue',sans-serif">34.2</div>
+    <div class="font-d-body preview-label">Points · Last 10</div>
+    <div style="font-family:'Bebas Neue',sans-serif" class="preview-player">LeBron James</div>
+    <div class="font-d-body preview-sub">LAL · SF</div>
+    <div class="font-d-body preview-badge">↑ OVER 29.5 PTS</div>
+    <div style="font-family:'IBM Plex Mono',monospace" class="preview-row">
+      <span style="color:#aaa;font-size:11px">vs DEN — Apr 21</span>
+      <span class="preview-hit">38 ✓</span>
+    </div>
+    <div style="font-family:'IBM Plex Mono',monospace" class="preview-row">
+      <span style="color:#aaa;font-size:11px">vs GSW — Apr 19</span>
+      <span class="preview-hit">31 ✓</span>
+    </div>
+    <div style="font-family:'IBM Plex Mono',monospace" class="preview-row">
+      <span style="color:#aaa;font-size:11px">vs PHX — Apr 17</span>
+      <span class="preview-miss">22 ✗</span>
+    </div>
+    <div style="margin-top:12px;font-size:10px;color:#444;font-family:'IBM Plex Sans',sans-serif">Bebas Neue (headers) · IBM Plex Sans (body) · IBM Plex Mono (stats)</div>
+  </div>
+
+</div>
+
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
+</body>
+</html>

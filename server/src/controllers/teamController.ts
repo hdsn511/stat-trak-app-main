@@ -1,3 +1,4 @@
+import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabaseAdmin';
 
 function computeRecord(games: any[], teamId: number) {
@@ -12,7 +13,7 @@ function computeRecord(games: any[], teamId: number) {
   return { w, l };
 }
 
-export async function getTeamById(req: any, res: any) {
+export async function getTeamById(req: Request<{ id: string }>, res: Response) {
   try {
     const teamId = parseInt(req.params.id, 10);
     if (isNaN(teamId)) {

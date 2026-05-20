@@ -11,7 +11,7 @@ jobs:
   pipeline:
     name: Nightly Pipeline
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
 
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -49,13 +49,15 @@ jobs:
       - name: Nightly batch
         run: python -m analytics.batch.nightly --date "$(date -u +%Y-%m-%d)"
 
-      # Step 2 — insert game rows for the next 7 days so Kalshi tickers can match
+      # Step 2 — insert game rows for the next 7 days so Kalshi tickers can match.
+      # --slate-only skips reconcile + backfill (already done above); only syncs
+      # the game slate and computes daily_conditions for each future date.
       - name: Slate sync (next 7 days)
         run: |
           for i in 1 2 3 4 5 6 7; do
             d=$(date -u -d "+${i} days" +%Y-%m-%d)
             echo "--- Syncing slate for $d ---"
-            python -m analytics.batch.nightly --date "$d" || echo "WARN: slate sync failed for $d"
+            python -m analytics.batch.nightly --slate-only --date "$d" || echo "WARN: slate sync failed for $d"
           done
 
       # Step 3 — recompute z-scores and rolling averages with fresh stats

@@ -1,0 +1,64 @@
+<h2>NBA Page — Layout Options</h2>
+<p class="subtitle">All components must fit: 4× POTD cards, Props (player + game), Streaks, TrendFinder, TopTrending</p>
+
+<div class="options">
+
+  <!-- OPTION A -->
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Sequential Scroll</h3>
+      <p>One column of sections, top to bottom. Each section gets full width. Clearest hierarchy, easiest to build.</p>
+      <div style="margin-top:10px;background:#0d0d0d;border:1px solid #222;border-radius:6px;padding:10px;font-size:11px;color:#888;font-family:monospace;line-height:2">
+        <div style="background:#1a2a1a;padding:4px 8px;border-radius:3px;color:#7fff7f;margin-bottom:4px">[ Player POTD · Spread POTD · Total POTD · ML POTD ]  ← 4-card row</div>
+        <div style="background:#1a1a2a;padding:4px 8px;border-radius:3px;color:#818cf8;margin-bottom:4px">[ Top 10 Player Props | Top 5 Spread / Top 5 Total ]  ← tabs + % filter</div>
+        <div style="background:#2a1a1a;padding:4px 8px;border-radius:3px;color:#f87171;margin-bottom:4px">[ Top 10 Streaks — PTS/REB/AST/3PM × L3/L5/L10 ]</div>
+        <div style="background:#1a1a1a;padding:4px 8px;border-radius:3px;color:#aaa;margin-bottom:4px">[ TrendFinder ]</div>
+        <div style="background:#1a1a1a;padding:4px 8px;border-radius:3px;color:#aaa">[ TopTrending ]</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- OPTION B -->
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Split: Hero + Data</h3>
+      <p>Top half = 4 POTD cards (prominent). Below = 2-col grid: left Props, right Streaks + TrendFinder stacked.</p>
+      <div style="margin-top:10px;background:#0d0d0d;border:1px solid #222;border-radius:6px;padding:10px;font-size:11px;color:#888;font-family:monospace;line-height:2">
+        <div style="background:#1a2a1a;padding:4px 8px;border-radius:3px;color:#7fff7f;margin-bottom:6px">[ Player POTD · Spread POTD · Total POTD · ML POTD ]  ← full-width hero row</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+          <div>
+            <div style="background:#1a1a2a;padding:4px 8px;border-radius:3px;color:#818cf8;margin-bottom:4px">[ Props + % filter ]</div>
+            <div style="background:#1a1a1a;padding:4px 8px;border-radius:3px;color:#aaa">[ TopTrending ]</div>
+          </div>
+          <div>
+            <div style="background:#2a1a1a;padding:4px 8px;border-radius:3px;color:#f87171;margin-bottom:4px">[ Streaks ]</div>
+            <div style="background:#1a1a1a;padding:4px 8px;border-radius:3px;color:#aaa">[ TrendFinder ]</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- OPTION C -->
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Tabbed Dashboard</h3>
+      <p>Tabs at top: <b>Overview</b> (4 POTDs + top streaks) · <b>Props</b> (all props with filter) · <b>Trends</b> (TrendFinder + TopTrending). Compact, everything reachable in one click.</p>
+      <div style="margin-top:10px;background:#0d0d0d;border:1px solid #222;border-radius:6px;padding:10px;font-size:11px;color:#888;font-family:monospace;line-height:2">
+        <div style="background:#1a1a1a;padding:4px 8px;border-radius:3px;color:#fff;margin-bottom:6px">[ Overview | Props | Trends ]  ← tab bar</div>
+        <div style="background:#1a2a1a;padding:4px 8px;border-radius:3px;color:#7fff7f;margin-bottom:4px">Overview: 4 POTDs + top 5 streaks snapshot</div>
+        <div style="background:#1a1a2a;padding:4px 8px;border-radius:3px;color:#818cf8;margin-bottom:4px">Props: full player + game props table with % slider</div>
+        <div style="background:#1a1a1a;padding:4px 8px;border-radius:3px;color:#aaa">Trends: TrendFinder + TopTrending</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div style="margin-top:16px;background:#111;border:1px solid #2a2a2a;border-radius:8px;padding:12px">
+  <div class="label">% Filter note (all options)</div>
+  <p style="color:#888;font-size:12px;margin:6px 0 0">Props table has a range slider: <b style="color:#fff">50% → 90%</b>. At 50% you see standard even-money lines. As you slide toward 90% you reveal alt lines. Sorts by model edge within the selected range.</p>
+</div>

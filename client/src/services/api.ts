@@ -109,6 +109,7 @@ export interface TopPickGame {
   away_team: string | null
   pick_type: 'safe' | 'value'
   line: number | null
+  spread_team: string | null
   hit_rate: number
   confidence: number
   edge: number
@@ -186,6 +187,39 @@ export interface PerfectStreaksResponse<T> {
   rows: T[]
 }
 
+export interface GameRosterPlayer {
+  player_id: number
+  name: string
+  position: string
+  /** Averages vs this opponent specifically (if h2h games exist) or season avg */
+  pts: number | null
+  reb: number | null
+  ast: number | null
+  season_pts: number | null
+  season_reb: number | null
+  season_ast: number | null
+  vs_opp_games: number
+  games_played: number
+}
+
+export interface GameInjury {
+  player_id: number
+  status: 'out' | 'gtd' | 'questionable'
+  name: string | null
+  team: string | null
+  position: string | null
+}
+
+export interface GameH2HEntry {
+  game_id: number
+  game_date: string
+  home_team: { id: number; abbreviation: string; name: string }
+  away_team: { id: number; abbreviation: string; name: string }
+  home_score: number
+  away_score: number
+  winner_team_id: number
+}
+
 export interface GameDetail {
   game: {
     id: number
@@ -231,6 +265,15 @@ export interface GameDetail {
     prop_type: string
     player_name: string | null
   }>
+  injury_report: GameInjury[]
+  head_to_head: GameH2HEntry[]
+  rest: { home_days: number | null; away_days: number | null }
+  rosters: {
+    home: GameRosterPlayer[]
+    away: GameRosterPlayer[]
+    /** Describes the context of pts/reb/ast shown — e.g. "vs opp avg (3G)" or "season avg" */
+    stat_context: string
+  }
 }
 
 export interface TeamGameEntry {
@@ -313,6 +356,31 @@ export interface PerformanceSummary {
   recentPicks: PickOutcome[]
 }
 
+export interface StreakOutcomeRow {
+  player_id: number
+  player_name: string | null
+  team: string | null
+  stat: string
+  stat_label: string
+  game_date: string
+  line_100: number
+  line_90: number
+  line_80: number
+  line_70: number
+  actual: number | null
+  hit_100: boolean | null
+  hit_90: boolean | null
+  hit_80: boolean | null
+  hit_70: boolean | null
+  /** true=hit 10/10, false=missed 10/10, null=pending */
+  did_hit: boolean | null
+}
+
+export interface StreakOutcomeSummary {
+  period: { days: number; from: string; to: string }
+  rows: StreakOutcomeRow[]
+}
+
 export interface StreakTierStats {
   tier: '10/10' | '9/10' | '8/10' | '7/10'
   hits: number
@@ -391,4 +459,7 @@ export const performanceApi = {
 
   getStreakPerformance: (days: number, stat: string): Promise<StreakPerformanceSummary> =>
     get(`${BASE}/performance/streaks?days=${days}&stat=${stat}`),
+
+  getStreakOutcomes: (days: number): Promise<StreakOutcomeSummary> =>
+    get(`${BASE}/performance/streak-outcomes?days=${days}`),
 }

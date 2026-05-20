@@ -45,7 +45,11 @@ MIN_SAMPLE_SIZE = 8
 
 # ── Base confidence (preserved) ──────────────────────────────────────────────────
 
-SAMPLE_WEIGHT_TARGET = 25
+SAMPLE_WEIGHT_TARGET = 15
+# Tuned 2026-05-19: lowered from 25. Playoff matched samples (10-15 games) are
+# as reliable as 25 regular-season samples given the higher signal density.
+# With target=25 and n=9-11, sample_weight (0.36-0.44) was killing confidence
+# on clearly valid high-hit-rate picks (88%+ hit, failing at conf=43).
 CONDITION_BONUS_MAX  = 8
 EDGE_BONUS_SCALE     = 150
 EDGE_BONUS_CAP       = 10

@@ -402,64 +402,83 @@ async function get<T>(url: string): Promise<T> {
   return json.data as T
 }
 
-export const nbaApi = {
-  getTopTrending: (): Promise<TrendingPlayer[]> =>
-    get(`${BASE}/nba/trends/top`),
+// Per-league API client factory. Every endpoint is mounted at /api/{league}/*
+// on the server, so the same method set works for any sport.
+export function createLeagueApi(slug: string) {
+  return {
+    slug,
 
-  getTrends: (params: { stat?: string; window?: number; threshold?: number }): Promise<TrendingPlayer[]> => {
-    const q = new URLSearchParams()
-    if (params.stat) q.set('stat', params.stat)
-    if (params.window) q.set('window', String(params.window))
-    if (params.threshold !== undefined && params.threshold > 0) q.set('threshold', String(params.threshold))
-    return get(`${BASE}/nba/trends?${q}`)
-  },
+    getTopTrending: (): Promise<TrendingPlayer[]> =>
+      get(`${BASE}/${slug}/trends/top`),
 
-  searchPlayers: (query: string): Promise<PlayerSearchResult[]> =>
-    get(`${BASE}/nba/players/search?q=${encodeURIComponent(query)}`),
+    getTrends: (params: { stat?: string; window?: number; threshold?: number }): Promise<TrendingPlayer[]> => {
+      const q = new URLSearchParams()
+      if (params.stat) q.set('stat', params.stat)
+      if (params.window) q.set('window', String(params.window))
+      if (params.threshold !== undefined && params.threshold > 0) q.set('threshold', String(params.threshold))
+      return get(`${BASE}/${slug}/trends?${q}`)
+    },
 
-  getPlayerProfile: (id: number): Promise<PlayerProfile> =>
-    get(`${BASE}/nba/players/${id}/games`),
+    searchPlayers: (query: string): Promise<PlayerSearchResult[]> =>
+      get(`${BASE}/${slug}/players/search?q=${encodeURIComponent(query)}`),
 
-  getTodaysGames: (): Promise<TodaysGame[]> =>
-    get(`${BASE}/nba/games/today`),
+    getPlayerProfile: (id: number): Promise<PlayerProfile> =>
+      get(`${BASE}/${slug}/players/${id}/games`),
 
-  getTodaysPicks: (): Promise<TodaysPicks> =>
-    get(`${BASE}/nba/picks/today`),
+    getTodaysGames: (): Promise<TodaysGame[]> =>
+      get(`${BASE}/${slug}/games/today`),
 
-  getPlayerPicks: (playerId: number): Promise<Pick[]> =>
-    get(`${BASE}/nba/picks/player/${playerId}`),
+    getTodaysPicks: (): Promise<TodaysPicks> =>
+      get(`${BASE}/${slug}/picks/today`),
 
-  getTopPicks: (limit: number = 5): Promise<TopPicksResponse> =>
-    get(`${BASE}/nba/picks/top?limit=${limit}`),
+    getPlayerPicks: (playerId: number): Promise<Pick[]> =>
+      get(`${BASE}/${slug}/picks/player/${playerId}`),
 
-  getPotd: (): Promise<PotdResponse | null> =>
-    get(`${BASE}/nba/picks/potd`),
+    getTopPicks: (limit: number = 5): Promise<TopPicksResponse> =>
+      get(`${BASE}/${slug}/picks/top?limit=${limit}`),
 
-  getPlayerStreaks: (
-    stat: 'pts' | 'reb' | 'ast' | 'fg3m'
-  ): Promise<PerfectStreaksResponse<PlayerStreakRow>> =>
-    get(`${BASE}/nba/streaks/perfect?type=player&stat=${stat}`),
+    getPotd: (): Promise<PotdResponse | null> =>
+      get(`${BASE}/${slug}/picks/potd`),
 
-  getGameStreaks: (
-    stat: 'cover_spread' | 'over_total' | 'winner',
-    window: 3 | 5 | 10
-  ): Promise<PerfectStreaksResponse<GameStreakRow>> =>
-    get(`${BASE}/nba/streaks/perfect?type=game&stat=${stat}&window=${window}`),
+    getPlayerStreaks: (
+      stat: string
+    ): Promise<PerfectStreaksResponse<PlayerStreakRow>> =>
+      get(`${BASE}/${slug}/streaks/perfect?type=player&stat=${stat}`),
 
-  getGame: (id: number): Promise<GameDetail> =>
-    get(`${BASE}/nba/games/${id}`),
+    getGameStreaks: (
+      stat: 'cover_spread' | 'over_total' | 'winner',
+      window: 3 | 5 | 10
+    ): Promise<PerfectStreaksResponse<GameStreakRow>> =>
+      get(`${BASE}/${slug}/streaks/perfect?type=game&stat=${stat}&window=${window}`),
 
-  getTeam: (id: number): Promise<TeamDetail> =>
-    get(`${BASE}/nba/teams/${id}`),
+    getGame: (id: number): Promise<GameDetail> =>
+      get(`${BASE}/${slug}/games/${id}`),
+
+    getTeam: (id: number): Promise<TeamDetail> =>
+      get(`${BASE}/${slug}/teams/${id}`),
+  }
 }
 
-export const performanceApi = {
-  getSummary: (days: number = 30): Promise<PerformanceSummary> =>
-    get(`${BASE}/performance/summary?days=${days}`),
+export type LeagueApi = ReturnType<typeof createLeagueApi>
 
-  getStreakPerformance: (days: number, stat: string): Promise<StreakPerformanceSummary> =>
-    get(`${BASE}/performance/streaks?days=${days}&stat=${stat}`),
+export const nbaApi = createLeagueApi('nba')
+export const mlbApi = createLeagueApi('mlb')
 
-  getStreakOutcomes: (days: number): Promise<StreakOutcomeSummary> =>
-    get(`${BASE}/performance/streak-outcomes?days=${days}`),
+// Performance API. NBA keeps the legacy /api/performance prefix; other leagues
+// use /api/{league}/performance.
+function createPerformanceApi(prefix: string) {
+  return {
+    getSummary: (days: number = 30): Promise<PerformanceSummary> =>
+      get(`${BASE}/${prefix}/summary?days=${days}`),
+
+    getStreakPerformance: (days: number, stat: string): Promise<StreakPerformanceSummary> =>
+      get(`${BASE}/${prefix}/streaks?days=${days}&stat=${stat}`),
+
+    getStreakOutcomes: (days: number): Promise<StreakOutcomeSummary> =>
+      get(`${BASE}/${prefix}/streak-outcomes?days=${days}`),
+  }
 }
+
+export type PerformanceApi = ReturnType<typeof createPerformanceApi>
+export const performanceApi = createPerformanceApi('performance')
+export const mlbPerformanceApi = createPerformanceApi('mlb/performance')

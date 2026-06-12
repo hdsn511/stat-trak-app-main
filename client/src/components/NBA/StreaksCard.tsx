@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { nbaApi, PlayerStreakRow, TopPickPlayer } from '@/services/api'
+import { nbaApi, PlayerStreakRow, TopPickPlayer, LeagueApi } from '@/services/api'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 
-type StatKey = 'pts' | 'reb' | 'ast' | 'fg3m'
 type CardView = 'streaks' | 'picks'
 
-const STAT_TABS: { key: StatKey; label: string }[] = [
+export type StatTab = { key: string; label: string }
+
+const NBA_STAT_TABS: StatTab[] = [
   { key: 'pts',  label: 'PTS' },
   { key: 'reb',  label: 'REB' },
   { key: 'ast',  label: 'AST' },
@@ -71,9 +72,12 @@ function PickStatus({ pick }: { pick: TopPickPlayer }) {
 
 const COL_W = 'w-14'
 
-export default function StreaksCard() {
+export default function StreaksCard(
+  { api = nbaApi, statTabs = NBA_STAT_TABS }: { api?: LeagueApi; statTabs?: StatTab[] }
+) {
+  const STAT_TABS = statTabs
   const [view, setView] = useState<CardView>('streaks')
-  const [stat, setStat] = useState<StatKey>('pts')
+  const [stat, setStat] = useState<string>(STAT_TABS[0].key)
   const [streakRows, setStreakRows] = useState<PlayerStreakRow[]>([])
   const [picks, setPicks] = useState<TopPickPlayer[]>([])
   const [streakLoading, setStreakLoading] = useState(true)
@@ -82,20 +86,20 @@ export default function StreaksCard() {
 
   useEffect(() => {
     setStreakLoading(true)
-    nbaApi.getPlayerStreaks(stat)
+    api.getPlayerStreaks(stat)
       .then(res => setStreakRows(res.rows.slice(0, 10)))
       .catch(() => setStreakRows([]))
       .finally(() => setStreakLoading(false))
-  }, [stat])
+  }, [stat, api])
 
   useEffect(() => {
     if (view !== 'picks' || picksFetched) return
     setPicksLoading(true)
-    nbaApi.getTopPicks(20)
+    api.getTopPicks(20)
       .then(res => setPicks(res.player))
       .catch(() => setPicks([]))
       .finally(() => { setPicksLoading(false); setPicksFetched(true) })
-  }, [view, picksFetched])
+  }, [view, picksFetched, api])
 
   const cardTabs: { key: CardView; label: string }[] = [
     { key: 'streaks', label: 'Streaks' },

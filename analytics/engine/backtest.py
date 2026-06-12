@@ -24,6 +24,8 @@ import sys
 from typing import Optional
 
 from analytics.db.connection import supabase, POSITION_GROUP_MAP  # noqa: F401
+from analytics.engine.common import rest_category as _rest_category
+from analytics.engine.common import weighted_hit_rate as _weighted_hit_rate_generic
 
 # ── Tunable constants ────────────────────────────────────────────────────────────
 
@@ -141,42 +143,13 @@ STAT_OPP_RANK_COL = {
 
 # ── Helper functions ─────────────────────────────────────────────────────────────
 
-def _rest_category(days_rest: int) -> str:
-    """
-    Bucket days of rest into four qualitative categories.
-
-    0    days -> "b2b"      (back-to-back; highest fatigue)
-    1    day  -> "short"    (minimal recovery)
-    2-3  days -> "normal"   (standard rest between games)
-    4+   days -> "extended" (extra recovery after long breaks)
-    """
-    if days_rest == 0:
-        return "b2b"
-    if days_rest == 1:
-        return "short"
-    if days_rest <= 3:
-        return "normal"
-    return "extended"
+# _rest_category is imported from analytics.engine.common (sport-neutral).
 
 
 def _weighted_hit_rate(historical_results: list[tuple[str, bool]]) -> float:
-    """
-    Inputs: list of (game_date, hit) tuples sorted by game_date DESCENDING
-            (most recent first).
-    Returns: weighted hit rate where weight_i = HIT_RATE_DECAY ** i,
-             i = 0 for the most recent game.
-    """
-    if not historical_results:
-        return 0.0
-    weights = [HIT_RATE_DECAY ** i for i in range(len(historical_results))]
-    total_w = sum(weights)
-    if total_w == 0:
-        return 0.0
-    weighted_hits = sum(
-        w * (1 if hit else 0)
-        for w, (_, hit) in zip(weights, historical_results)
-    )
-    return weighted_hits / total_w
+    """NBA wrapper around the shared recency-weighted hit rate, pinned to this
+    engine's HIT_RATE_DECAY. Kept as a thin alias so call sites are unchanged."""
+    return _weighted_hit_rate_generic(historical_results, HIT_RATE_DECAY)
 
 
 def _history_with_teammate_intersect(

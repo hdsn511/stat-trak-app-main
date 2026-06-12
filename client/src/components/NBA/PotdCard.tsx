@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { nbaApi, PotdResponse } from '@/services/api'
+import { nbaApi, PotdResponse, LeagueApi } from '@/services/api'
+
+// Human labels for condition-breakdown keys across leagues (NBA + MLB).
+const CONDITION_LABELS: Record<string, string> = {
+  usg_pct: 'Usage', pace: 'Pace', home_away: 'Home / Away', matchup_rank: 'Matchup', rest: 'Rest',
+  opportunity: 'Opportunity', handedness: 'Handedness',
+}
 
 function renderBullet(text: string): React.ReactNode[] {
   const parts: React.ReactNode[] = []
@@ -33,15 +39,15 @@ function formatDate(iso: string): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
-export default function PotdCard() {
+export default function PotdCard({ api = nbaApi }: { api?: LeagueApi }) {
   const navigate = useNavigate()
   const [potd, setPotd] = useState<PotdResponse | null | undefined>(undefined)
 
   useEffect(() => {
-    nbaApi.getPotd()
+    api.getPotd()
       .then(setPotd)
       .catch(() => setPotd(null))
-  }, [])
+  }, [api])
 
   if (potd === undefined) {
     return (
@@ -78,14 +84,15 @@ export default function PotdCard() {
   if (potd.position) metaParts.push(potd.position)
   if (potd.opponent?.team) metaParts.push(`vs ${potd.opponent.team}`)
 
-  const cond = potd.condition_breakdown
-  const conditions: { label: string; active: boolean }[] = [
-    { label: 'Usage',       active: cond?.usg_pct === 'active' },
-    { label: 'Pace',        active: cond?.pace === 'active' },
-    { label: 'Home / Away', active: cond?.home_away === 'active' },
-    { label: 'Matchup',     active: cond?.matchup_rank === 'active' },
-    { label: 'Rest',        active: cond?.rest === 'active' },
-  ]
+  // Derive condition dots from the breakdown keys so it works for any league
+  // (NBA usage/pace/… or MLB opportunity/handedness/home_away).
+  const cond = (potd.condition_breakdown ?? {}) as Record<string, string>
+  const conditions: { label: string; active: boolean }[] = Object.entries(cond).map(
+    ([key, val]) => ({
+      label: CONDITION_LABELS[key] ?? key.replace(/_/g, ' '),
+      active: typeof val === 'string' && val.startsWith('active'),
+    })
+  )
 
   const isClickable = potd.prop_type === 'player' && potd.player_id != null
 

@@ -48,15 +48,18 @@ export default function PropsTable({ picks }: PropsTableProps) {
     .sort((a, b) => b.edge - a.edge)
     .slice(0, 20)
 
+  // Game props (spread/total) are value bets that often sit below the 50% market
+  // bucket (e.g. an underpriced over) — show all of them ranked by edge rather
+  // than bucket-filtering, which is meant for player props.
   const spreadRows: TopPickGame[] = (picks?.game ?? [])
-    .filter(g => g.prop_type === 'spread' && g.implied_prob != null && inBucket(g.implied_prob!, bucket))
+    .filter(g => g.prop_type === 'spread')
     .sort((a, b) => b.edge - a.edge)
-    .slice(0, 5)
+    .slice(0, 10)
 
   const totalRows: TopPickGame[] = (picks?.game ?? [])
-    .filter(g => g.prop_type === 'total' && g.implied_prob != null && inBucket(g.implied_prob!, bucket))
+    .filter(g => g.prop_type === 'total')
     .sort((a, b) => b.edge - a.edge)
-    .slice(0, 5)
+    .slice(0, 10)
 
   const isEmpty =
     propTab === 'player' ? playerRows.length === 0 :

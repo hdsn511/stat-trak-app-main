@@ -69,3 +69,28 @@ POSITION_GROUP_MAP = {
 
 # NBA league_id in the local DB (integer FK, not string)
 NBA_LEAGUE_ID = 1
+
+# ── MLB ────────────────────────────────────────────────────────────
+# MLB league_id in the local DB. The `leagues` table is empty and league_id
+# is used as a magic integer (no enforced FK), mirroring NBA_LEAGUE_ID=1.
+MLB_LEAGUE_ID = 2
+
+# MLB seasons are single calendar years (season runs ~Apr–Oct within one year),
+# so the season int for a date is simply its year.
+MLB_SEASONS = [2021, 2022, 2023, 2024, 2025, 2026]
+
+def mlb_season_for_date(date_str: str) -> int:
+    """MLB season = calendar year of the date (YYYY-MM-DD)."""
+    return int(date_str[:4])
+
+# MLB stat key -> mlb_player_stats column name.
+# Batter props + the marquee pitcher prop (strikeouts). Mirrors the NBA
+# STAT_COLUMN_MAP pattern in analytics/engine/backtest.py.
+MLB_STAT_COLUMN_MAP = {
+    "hits": "hits",
+    "tb":   "total_bases",
+    "rbi":  "rbi",
+    "runs": "runs",
+    "hr":   "home_runs",
+    "ks":   "strikeouts_pitched",   # pitcher strikeouts
+}

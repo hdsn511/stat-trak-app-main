@@ -51,6 +51,58 @@ GAME_PROP_SERIES = [
 
 TARGET_NBA_SERIES = PLAYER_PROP_SERIES + GAME_PROP_SERIES
 
+# ── MLB series (multi-sport) ────────────────────────────────────────────────────
+# Confirmed live via /series (see memory: kalshi-mlb-series). For MLB the stat is
+# derived directly from the series prefix (more robust than title keyword scan).
+MLB_PLAYER_PROP_SERIES = [
+    "KXMLBHIT",   # hits
+    "KXMLBHR",    # home runs
+    "KXMLBRBI",   # RBIs
+    "KXMLBKS",    # pitcher strikeouts
+]
+MLB_GAME_PROP_SERIES = [
+    "KXMLBGAME",   # winner
+    "KXMLBSPREAD", # run line
+    "KXMLBTOTAL",  # total runs
+    # Excluded (mirror NBA): KXMLBTEAMTOTAL, KXMLBF5* (first-5-innings).
+]
+TARGET_MLB_SERIES = MLB_PLAYER_PROP_SERIES + MLB_GAME_PROP_SERIES
+
+# Series prefix -> stat key (MLB). Used in parse_player_props instead of title scan.
+MLB_SERIES_STAT_MAP = {
+    "KXMLBHIT": "hits",
+    "KXMLBHR":  "hr",
+    "KXMLBRBI": "rbi",
+    "KXMLBKS":  "ks",
+}
+
+# Title keyword -> stat (MLB fallback when prefix is ambiguous). Longest first.
+MLB_STAT_KEYWORDS = {
+    "strikeout":     "ks",
+    "home run":      "hr",
+    "homer":         "hr",
+    "run batted in": "rbi",
+    "rbi":           "rbi",
+    "hit":           "hits",
+}
+
+# MLB game-prop series prefix -> prop type.
+MLB_GAME_SERIES_TYPE = {
+    "KXMLBGAME":   "winner",
+    "KXMLBTOTAL":  "total",
+    "KXMLBSPREAD": "spread",
+}
+
+
+def _extract_team_abbr_mlb(ticker: str) -> Optional[str]:
+    """MLB game tickers end with the team for winner/spread markets, e.g.
+    'KXMLBGAME-26JUN141920TEXBOS-TEX' -> 'TEX',
+    'KXMLBSPREAD-26JUN111905SEABAL-BAL8' -> 'BAL'.
+    Total markets end in a number ('-18') -> None."""
+    suffix = ticker.split("-")[-1] if "-" in ticker else ""
+    letters = re.match(r"^([A-Z]{2,3})\d*$", suffix)
+    return letters.group(1) if letters else None
+
 # Number of retry attempts for transient HTTP errors
 MAX_RETRIES = 3
 
@@ -118,11 +170,27 @@ class KalshiClient:
                Automatically enabled if the key file is not found.
     """
 
-    def __init__(self, api_key: str = "", key_path: str = "", mock: bool = False):
+    def __init__(self, api_key: str = "", key_path: str = "", mock: bool = False,
+                 sport: str = "nba"):
         self.api_key  = api_key  or KALSHI_API_KEY
         self.key_path = key_path or KALSHI_PRIVATE_KEY_PATH
         self.mock     = mock
         self._private_key = None
+
+        # Sport-aware series + parsing. NBA is the default; behavior unchanged.
+        self.sport = sport
+        if sport == "mlb":
+            self.player_prop_series   = MLB_PLAYER_PROP_SERIES
+            self.game_prop_series     = MLB_GAME_PROP_SERIES
+            self.target_series        = TARGET_MLB_SERIES
+            self.series_stat_map      = MLB_SERIES_STAT_MAP   # prefix -> stat
+            self.game_series_type_map = MLB_GAME_SERIES_TYPE  # prefix -> prop type
+        else:
+            self.player_prop_series   = PLAYER_PROP_SERIES
+            self.game_prop_series     = GAME_PROP_SERIES
+            self.target_series        = TARGET_NBA_SERIES
+            self.series_stat_map      = None  # NBA uses title keyword detection
+            self.game_series_type_map = None
 
         if not self.mock:
             self._private_key = self._load_private_key(self.key_path)
@@ -239,18 +307,18 @@ class KalshiClient:
         endpoint fails.
         """
         if self.mock:
-            return list(TARGET_NBA_SERIES)
+            return list(self.target_series)
 
         data = self._request("GET", "/series")
         if data:
             existing = {s["ticker"] for s in (data.get("series") or [])}
-            confirmed = [t for t in TARGET_NBA_SERIES if t in existing]
+            confirmed = [t for t in self.target_series if t in existing]
             if confirmed:
                 print(f"[KalshiClient] Confirmed {len(confirmed)} prop series: {confirmed}")
                 return confirmed
             print(f"[KalshiClient] /series did not confirm any target tickers — using full target list")
 
-        return list(TARGET_NBA_SERIES)
+        return list(self.target_series)
 
     # ── Market Fetching ────────────────────────────────────────────────────────
 
@@ -349,7 +417,8 @@ class KalshiClient:
         Returns None if no keyword matches.
         """
         title_lower = title.lower()
-        for keyword, stat in STAT_KEYWORDS.items():
+        keywords = MLB_STAT_KEYWORDS if self.series_stat_map else STAT_KEYWORDS
+        for keyword, stat in keywords.items():
             if keyword in title_lower:
                 return stat
         return None
@@ -448,12 +517,13 @@ class KalshiClient:
             list of {line, price, implied_prob, ticker}
         """
         result: dict[tuple[str, str], list[dict]] = {}
-        player_series_set = set(PLAYER_PROP_SERIES)
+        player_series_set = set(self.player_prop_series)
         skipped_first_half = 0
 
         for market in markets:
             ticker = market.get("ticker", "")
-            if self._series_prefix(ticker) not in player_series_set:
+            prefix = self._series_prefix(ticker)
+            if prefix not in player_series_set:
                 continue
 
             title = market.get("title", "")
@@ -465,7 +535,9 @@ class KalshiClient:
                 skipped_first_half += 1
                 continue
 
-            stat = self._detect_stat(title)
+            # MLB: derive stat from the series prefix (robust). NBA: title keywords.
+            stat = (self.series_stat_map.get(prefix) if self.series_stat_map
+                    else self._detect_stat(title))
             if not stat:
                 continue
 
@@ -517,6 +589,10 @@ class KalshiClient:
         """
         series = self._series_prefix(ticker)
 
+        # MLB: prop type is the series prefix (robust). NBA: keep keyword logic.
+        if self.game_series_type_map and series in self.game_series_type_map:
+            return self.game_series_type_map[series]
+
         if series in ("KXNBATEAMTOTAL", "KXNBA1HTOTAL", "KXNBA2HTOTAL"):
             return "total"
         if series == "KXNBASPREAD":
@@ -563,7 +639,7 @@ class KalshiClient:
             list of {line, price, implied_prob, ticker, is_first_half}
         """
         result: dict[tuple[str, str], list[dict]] = {}
-        game_series_set = set(GAME_PROP_SERIES)
+        game_series_set = set(self.game_prop_series)
 
         for market in markets:
             ticker = market.get("ticker", "")
@@ -582,7 +658,8 @@ class KalshiClient:
 
             event_key = self._extract_event_key(market)
             key = (event_key, prop_type)
-            team_abbr = _extract_team_abbr(ticker)
+            team_abbr = (_extract_team_abbr_mlb(ticker) if self.game_series_type_map
+                         else _extract_team_abbr(ticker))
             entry = {
                 "line":          line,
                 "price":         price,

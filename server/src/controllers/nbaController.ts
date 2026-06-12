@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabaseAdmin';
-import { STAT_LABELS, TREND_STAT_NAMES, VALID_STAT_IDS } from '../constants/stats';
-import { findNearestConditionsDate } from '../utils/dateQueries';
+import { findNearestConditionsDate, findNearestPickDate } from '../utils/dateQueries';
+import { league as resolveLeague, LeagueConfig } from '../config/leagues';
 
 // Build trend driver chips for a player given their conditions row + injury flag.
 function buildTrendDrivers(
@@ -32,6 +32,18 @@ function buildTrendDrivers(
   return drivers;
 }
 
+// MLB trend drivers: baseball-relevant context chips from mlb_daily_conditions.
+function buildMLBTrendDrivers(cond: any): string[] {
+  const drivers: string[] = [];
+  if (!cond) return drivers;
+  if (cond.opp_starter_hand === 'L') drivers.push('vs LHP');
+  else if (cond.opp_starter_hand === 'R') drivers.push('vs RHP');
+  const pf = cond.park_factor;
+  if (pf != null && pf > 1.05) drivers.push('HITTER PARK');
+  else if (pf != null && pf < 0.95) drivers.push('PITCHER PARK');
+  return drivers;
+}
+
 // Shared core: build the trending-player list with drivers, locked to window=10,
 // pre-filtered to today's slate teams, with `out` players removed.
 async function buildTrendingPayload(opts: {
@@ -39,7 +51,7 @@ async function buildTrendingPayload(opts: {
   thresholdMin?: number;        // optional rolling_avg floor
   limit: number;                // final result size after dedupe
   dedupePerPlayer: boolean;     // true for top-trending (one entry per player)
-}) {
+}, lg: LeagueConfig) {
   const today = new Date().toISOString().slice(0, 10);
 
   // Step 1: today's slate (DB) + games for availability lookup
@@ -48,8 +60,8 @@ async function buildTrendingPayload(opts: {
       .from('games')
       .select('id, home_team_id, away_team_id')
       .eq('game_date', today)
-      .eq('league_id', 1),
-    findNearestConditionsDate(today),
+      .eq('league_id', lg.leagueId),
+    findNearestConditionsDate(today, lg.dailyConditionsTable),
   ]);
 
   const todayGamesRaw = (gamesResult.data || []) as any[];
@@ -92,11 +104,11 @@ async function buildTrendingPayload(opts: {
 
   // Step 2: query trends — locked to window_size=10
   let trendsQuery = supabaseAdmin
-    .from('nba_trends')
+    .from(lg.trendsTable)
     .select('player_id, stat, window_size, trend_val, rolling_avg, season_avg, players!inner(name, team, position)')
     .order('trend_val', { ascending: false })
     .eq('window_size', 10)
-    .in('stat', VALID_STAT_IDS)
+    .in('stat', lg.validStatIds)
     .limit(300);
 
   if (opts.statFilter !== undefined) {
@@ -131,15 +143,19 @@ async function buildTrendingPayload(opts: {
   const top = filtered.slice(0, opts.limit);
   const playerIds = top.map((r) => r.player_id);
 
-  // Step 3: fetch daily_conditions rows for those players for the chosen date
+  // Step 3: fetch conditions rows for those players for the chosen date.
+  // Column set is league-specific (NBA usage/pace vs MLB handedness/park).
+  const condSelect = lg.slug === 'mlb'
+    ? 'player_id, game_id, opp_starter_hand, park_factor, rolling_pa_5g'
+    : 'player_id, game_id, rolling_usg_5g, season_avg_usg, rolling_min_5g, rolling_pace_5g';
   const condByPlayerId = new Map<number, any>();
   if (playerIds.length > 0) {
     const { data: condRows } = await supabaseAdmin
-      .from('daily_conditions')
-      .select('player_id, game_id, rolling_usg_5g, season_avg_usg, rolling_min_5g, rolling_pace_5g')
+      .from(lg.dailyConditionsTable)
+      .select(condSelect)
       .eq('game_date', conditionsDate)
       .in('player_id', playerIds);
-    for (const r of (condRows || [])) {
+    for (const r of ((condRows || []) as any[])) {
       // Latest wins if multiple — there should only be one per (player, date)
       condByPlayerId.set(r.player_id, r);
     }
@@ -159,14 +175,16 @@ async function buildTrendingPayload(opts: {
         injuryBoost = others.length > 0;
       }
     }
-    const drivers = buildTrendDrivers(cond, injuryBoost);
+    const drivers = lg.slug === 'mlb'
+      ? buildMLBTrendDrivers(cond)
+      : buildTrendDrivers(cond, injuryBoost);
 
     return {
       playerId: row.player_id,
       playerName: row.players?.name,
       team: row.players?.team,
       position: row.players?.position,
-      stat: TREND_STAT_NAMES[row.stat],
+      stat: lg.trendStatNames[row.stat],
       statId: row.stat,
       zScore: Number(row.trend_val),
       rollingAvg: Number(row.rolling_avg),
@@ -181,10 +199,11 @@ async function buildTrendingPayload(opts: {
 
 export async function getTopTrending(_req: Request, res: Response) {
   try {
+    const lg = resolveLeague(res);
     const result = await buildTrendingPayload({
       limit: 10,
       dedupePerPlayer: true,
-    });
+    }, lg);
     res.json({ success: true, data: result });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
@@ -193,12 +212,13 @@ export async function getTopTrending(_req: Request, res: Response) {
 
 export async function getTrends(req: Request<{}, {}, {}, { stat?: string; window?: string; threshold?: string }>, res: Response) {
   try {
+    const lg = resolveLeague(res);
     // window is hard-locked to 10 — the legacy `window` query param is ignored.
     const { stat, threshold = '0' } = req.query;
 
     let statFilter: number | undefined;
     if (stat !== undefined) {
-      const statEntry = Object.entries(TREND_STAT_NAMES).find(([, name]) => name === stat);
+      const statEntry = Object.entries(lg.trendStatNames).find(([, name]) => name === stat);
       if (statEntry) statFilter = parseInt(statEntry[0]);
     }
 
@@ -209,7 +229,7 @@ export async function getTrends(req: Request<{}, {}, {}, { stat?: string; window
       thresholdMin: thresholdNum > 0 ? thresholdNum : undefined,
       limit: 50,
       dedupePerPlayer: false,
-    });
+    }, lg);
 
     res.json({ success: true, data: result });
   } catch (err: any) {
@@ -219,6 +239,7 @@ export async function getTrends(req: Request<{}, {}, {}, { stat?: string; window
 
 export async function searchPlayers(req: Request<{}, {}, {}, { q?: string }>, res: Response) {
   try {
+    const lg = resolveLeague(res);
     const { q = '' } = req.query;
     if (q.trim().length < 2) {
       return res.json({ success: true, data: [] });
@@ -228,7 +249,7 @@ export async function searchPlayers(req: Request<{}, {}, {}, { q?: string }>, re
       .from('players')
       .select('id, name, team, position')
       .ilike('name', `%${q}%`)
-      .eq('league', 'nba')
+      .eq('league', lg.playerLeagueTag)
       .eq('is_active', true)
       .limit(10);
 
@@ -241,13 +262,17 @@ export async function searchPlayers(req: Request<{}, {}, {}, { q?: string }>, re
 
 export async function getPlayerGames(req: Request<{ id: string }>, res: Response) {
   try {
+    const lg = resolveLeague(res);
     const { id } = req.params;
 
+    // Season start: NBA seasons span Oct–Jun; MLB is a single calendar year.
     const seasonStart = (() => {
       const today = new Date();
+      if (lg.slug === 'mlb') return `${today.getFullYear()}-01-01`;
       const year = today.getMonth() >= 9 ? today.getFullYear() : today.getFullYear() - 1;
       return `${year}-10-01`;
     })();
+    const gameTypes = lg.slug === 'mlb' ? ['regular', 'postseason'] : ['regular', 'playoff', 'playin'];
 
     const [playerResult, statsResult, trendsResult, allSeasonStats] = await Promise.all([
       supabaseAdmin
@@ -256,25 +281,25 @@ export async function getPlayerGames(req: Request<{ id: string }>, res: Response
         .eq('id', parseInt(id))
         .single(),
       supabaseAdmin
-        .from('nba_player_stats')
-        .select('game_id, team_id, points, rebounds, assists, three_points_made, fouls, minutes_played, game_date, games!inner(game_type)')
+        .from(lg.statsTable)
+        .select(lg.playerGameSelect)
         .eq('player_id', parseInt(id))
-        .in('games.game_type', ['regular', 'playoff', 'playin'])
-        .gt('minutes_played', 0)
+        .in('games.game_type', gameTypes)
+        .gt(lg.playedGate.col, lg.playedGate.min)
         .order('game_date', { ascending: false })
         .limit(20),
       supabaseAdmin
-        .from('nba_trends')
+        .from(lg.trendsTable)
         .select('stat, trend_val, rolling_avg, window_size')
         .eq('player_id', parseInt(id))
         .eq('window_size', 10),
       supabaseAdmin
-        .from('nba_player_stats')
-        .select('points, rebounds, assists, three_points_made, games!inner(game_type)')
+        .from(lg.statsTable)
+        .select(lg.playerGameSelect)
         .eq('player_id', parseInt(id))
         .gte('game_date', seasonStart)
-        .in('games.game_type', ['regular', 'playoff', 'playin'])
-        .gt('minutes_played', 0),
+        .in('games.game_type', gameTypes)
+        .gt(lg.playedGate.col, lg.playedGate.min),
     ]);
 
     if (playerResult.error) throw playerResult.error;
@@ -284,21 +309,25 @@ export async function getPlayerGames(req: Request<{ id: string }>, res: Response
     const zScores: Record<string, number> = {};
     const rollingAvgs: Record<string, number> = {};
     for (const t of (trendsResult.data || [])) {
-      const statName = TREND_STAT_NAMES[t.stat];
+      const statName = lg.trendStatNames[t.stat];
       if (statName) {
         zScores[statName] = t.trend_val;
         rollingAvgs[statName] = t.rolling_avg;
       }
     }
 
+    // Per-league season-average columns (DB column -> output stat name)
+    const seasonAvgCols: Record<string, string> = lg.slug === 'mlb'
+      ? { hits: 'hits', total_bases: 'total_bases', rbi: 'rbi', runs: 'runs', home_runs: 'home_runs' }
+      : { points: 'points', rebounds: 'rebounds', assists: 'assists', three_points_made: 'threes' };
+
     const seasonRows = allSeasonStats.data || [];
     const seasonAvgs: Record<string, number> = {};
     if (seasonRows.length > 0) {
       const sum = (key: string) => seasonRows.reduce((acc: number, r: any) => acc + (r[key] ?? 0), 0);
-      seasonAvgs['points']   = Math.round((sum('points')            / seasonRows.length) * 10) / 10;
-      seasonAvgs['rebounds'] = Math.round((sum('rebounds')          / seasonRows.length) * 10) / 10;
-      seasonAvgs['assists']  = Math.round((sum('assists')           / seasonRows.length) * 10) / 10;
-      seasonAvgs['threes']   = Math.round((sum('three_points_made') / seasonRows.length) * 10) / 10;
+      for (const [col, name] of Object.entries(seasonAvgCols)) {
+        seasonAvgs[name] = Math.round((sum(col) / seasonRows.length) * 10) / 10;
+      }
     }
 
     // Resolve opponent abbreviations for the recent games
@@ -340,17 +369,30 @@ export async function getPlayerGames(req: Request<{ id: string }>, res: Response
       data: {
         player: playerResult.data,
         teamId: playerTeamId,
-        games: statsRows.map((g: any) => ({
-          gameId: g.game_id,
-          date: g.game_date,
-          opponent: opponentByGameId[g.game_id] ?? undefined,
-          points: g.points,
-          rebounds: g.rebounds,
-          assists: g.assists,
-          threes: g.three_points_made,
-          fouls: g.fouls,
-          minutes: g.minutes_played,
-        })),
+        games: statsRows.map((g: any) => {
+          const base = {
+            gameId: g.game_id,
+            date: g.game_date,
+            opponent: opponentByGameId[g.game_id] ?? undefined,
+          };
+          if (lg.slug === 'mlb') {
+            return {
+              ...base,
+              hits: g.hits, totalBases: g.total_bases, rbi: g.rbi,
+              runs: g.runs, homeRuns: g.home_runs, strikeouts: g.strikeouts,
+              plateAppearances: g.plate_appearances,
+            };
+          }
+          return {
+            ...base,
+            points: g.points,
+            rebounds: g.rebounds,
+            assists: g.assists,
+            threes: g.three_points_made,
+            fouls: g.fouls,
+            minutes: g.minutes_played,
+          };
+        }),
         zScores,
         rollingAvgs,
         seasonAvgs,
@@ -362,8 +404,52 @@ export async function getPlayerGames(req: Request<{ id: string }>, res: Response
   }
 }
 
+// ESPN uses different abbreviations than the NBA API (which our DB stores).
+// This map normalizes ESPN abbreviations to match DB values.
+const ESPN_TO_DB_ABBR: Record<string, string> = {
+  GS:   'GSW',
+  NO:   'NOP',
+  NY:   'NYK',
+  SA:   'SAS',
+  UTAH: 'UTA',
+  WSH:  'WAS',
+};
+
+// MLB today's games served from the DB games table (populated by the nightly
+// slate sync). Mirrors the ESPN-backed NBA shape: { gameId, dbId, time, status,
+// home/away {team, score} }.
+async function getMLBTodaysGames(res: Response) {
+  const lg = resolveLeague(res);
+  const today = new Date().toISOString().slice(0, 10);
+  const { data: dbGames } = await supabaseAdmin
+    .from('games')
+    .select('id, ext_id, status, home_team_id, away_team_id, home_score, away_score')
+    .eq('game_date', today)
+    .eq('league_id', lg.leagueId);
+  const teamIds = new Set<number>();
+  for (const g of (dbGames || [])) { teamIds.add(g.home_team_id); teamIds.add(g.away_team_id); }
+  const { data: teamRows } = teamIds.size
+    ? await supabaseAdmin.from('teams').select('id, abbreviation').in('id', [...teamIds])
+    : { data: [] as any[] };
+  const abbrById: Record<number, string> = {};
+  for (const t of (teamRows || [])) abbrById[t.id] = t.abbreviation;
+  const statusLabel = (s: number) => (s === 2 ? 'Final' : s === 1 ? 'Live' : 'Scheduled');
+  const games = (dbGames || []).map((g: any) => ({
+    gameId: g.ext_id,
+    dbId: g.id,
+    time: null,
+    status: statusLabel(g.status),
+    home: { team: abbrById[g.home_team_id] ?? '', score: g.home_score ?? '' },
+    away: { team: abbrById[g.away_team_id] ?? '', score: g.away_score ?? '' },
+  }));
+  res.json({ success: true, data: games });
+}
+
 export async function getTodaysGames(_req: Request, res: Response) {
   try {
+    if (resolveLeague(res).slug === 'mlb') {
+      return await getMLBTodaysGames(res);
+    }
     const response = await fetch(
       'https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard'
     );
@@ -393,8 +479,10 @@ export async function getTodaysGames(_req: Request, res: Response) {
       const comp = event.competitions?.[0];
       const home = comp?.competitors?.find((c: any) => c.homeAway === 'home');
       const away = comp?.competitors?.find((c: any) => c.homeAway === 'away');
-      const homeAbbr = home?.team?.abbreviation || '';
-      const awayAbbr = away?.team?.abbreviation || '';
+      const rawHomeAbbr = home?.team?.abbreviation || '';
+      const rawAwayAbbr = away?.team?.abbreviation || '';
+      const homeAbbr = ESPN_TO_DB_ABBR[rawHomeAbbr] ?? rawHomeAbbr;
+      const awayAbbr = ESPN_TO_DB_ABBR[rawAwayAbbr] ?? rawAwayAbbr;
       const homeId = teamIdByAbbr[homeAbbr];
       const awayId = teamIdByAbbr[awayAbbr];
       const dbId = (homeId != null && awayId != null) ? dbGameByPair[`${homeId}-${awayId}`] : undefined;
@@ -418,30 +506,12 @@ export async function getTodaysGames(_req: Request, res: Response) {
 
 export async function getTodaysPicks(_req: Request, res: Response) {
   try {
+    const lg = resolveLeague(res);
     const today = new Date().toISOString().slice(0, 10);
 
-    // Find nearest upcoming date that has picks, so a late-night UTC rollover
-    // doesn't blank the card when the pipeline ran for the previous calendar day.
-    const { data: nearestRow } = await supabaseAdmin
-      .from('pick_results')
-      .select('game_date')
-      .gte('game_date', today)
-      .order('game_date', { ascending: true })
-      .limit(1)
-      .maybeSingle();
-
-    // Fall back to the most recent past date if nothing upcoming
-    const { data: pastRow } = !nearestRow
-      ? await supabaseAdmin
-          .from('pick_results')
-          .select('game_date')
-          .lt('game_date', today)
-          .order('game_date', { ascending: false })
-          .limit(1)
-          .maybeSingle()
-      : { data: null };
-
-    const pickDate = nearestRow?.game_date ?? pastRow?.game_date ?? today;
+    // Find nearest date (upcoming first, else past) WITH picks for this league,
+    // so a late-night UTC rollover doesn't blank the card.
+    const pickDate = await findNearestPickDate(today, lg.leagueId);
 
     const { data: pickRows, error } = await supabaseAdmin
       .from('pick_results')
@@ -452,6 +522,7 @@ export async function getTodaysPicks(_req: Request, res: Response) {
       )
       .eq('game_date', pickDate)
       .eq('prop_type', 'player')
+      .eq('league_id', lg.leagueId)
       .order('confidence_score', { ascending: false });
 
     if (error) throw error;
@@ -473,7 +544,7 @@ export async function getTodaysPicks(_req: Request, res: Response) {
       .from('games')
       .select('id')
       .eq('game_date', today)
-      .eq('league_id', 1);
+      .eq('league_id', lg.leagueId);
 
     const todayGameIds = (todayGames || []).map((g: any) => g.id);
 
@@ -499,7 +570,7 @@ export async function getTodaysPicks(_req: Request, res: Response) {
           team: player.team ?? null,
           position: player.position ?? null,
           stat: row.stat,
-          statLabel: STAT_LABELS[row.stat] ?? row.stat.toUpperCase(),
+          statLabel: lg.statLabels[row.stat] ?? row.stat.toUpperCase(),
           pickType: row.pick_type,
           recommendedLine: row.recommended_line,
           confidence: row.confidence_score,
@@ -527,6 +598,7 @@ export async function getTodaysPicks(_req: Request, res: Response) {
 
 export async function getPlayerPicks(req: Request<{ id: string }>, res: Response) {
   try {
+    const lg = resolveLeague(res);
     const { id } = req.params;
     const from = new Date();
     from.setDate(from.getDate() - 30);
@@ -540,6 +612,7 @@ export async function getPlayerPicks(req: Request<{ id: string }>, res: Response
       )
       .eq('entity_id', parseInt(id))
       .eq('prop_type', 'player')
+      .eq('league_id', lg.leagueId)
       .gte('game_date', fromDate)
       .order('game_date', { ascending: false });
 
@@ -549,7 +622,7 @@ export async function getPlayerPicks(req: Request<{ id: string }>, res: Response
       pickId: row.id,
       date: row.game_date,
       stat: row.stat,
-      statLabel: STAT_LABELS[row.stat] ?? row.stat.toUpperCase(),
+      statLabel: lg.statLabels[row.stat] ?? row.stat.toUpperCase(),
       pickType: row.pick_type,
       recommendedLine: row.recommended_line,
       confidence: row.confidence_score,

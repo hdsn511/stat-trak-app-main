@@ -1,9 +1,12 @@
 import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabaseAdmin';
-import { STAT_LABELS, STAT_COLUMNS } from '../constants/stats';
+import { league as resolveLeague, LeagueConfig } from '../config/leagues';
 
-// Streak tracking started on this date — never count games before it as current entries.
-const STREAK_START_DATE = '2026-04-28';
+// Build the stats SELECT for streak computation from the league's streak stats.
+function streakStatsSelect(lg: LeagueConfig): string {
+  const cols = lg.streakStats.map((s) => lg.statConfig[s].col);
+  return `player_id, game_date, ${cols.join(', ')}, ${lg.playedGate.col}`;
+}
 
 function toKalshiLine(value: number): number {
   const half = Math.floor(value * 2) / 2;
@@ -32,6 +35,7 @@ function aggregate(picks: any[]) {
 
 export async function getPerformanceSummary(req: Request<{}, {}, {}, { days?: string }>, res: Response) {
   try {
+    const lg = resolveLeague(res);
     const days = Math.min(365, Math.max(1, parseInt(req.query.days ?? '1', 10) || 1));
     const today = new Date().toISOString().slice(0, 10);
     // days=1 → today only; days=7 → last 7 days including today
@@ -48,6 +52,7 @@ export async function getPerformanceSummary(req: Request<{}, {}, {}, { days?: st
         'recommended_line,hit_rate,confidence_score,implied_prob,edge,' +
         'did_hit,actual_result,modifiers'
       )
+      .eq('league_id', lg.leagueId)
       .gte('game_date', cutoff)
       .lte('game_date', today)
       .order('game_date', { ascending: false });
@@ -140,7 +145,7 @@ export async function getPerformanceSummary(req: Request<{}, {}, {}, { days?: st
         player_name: displayName,
         team: displayTeam,
         stat: p.stat ?? null,
-        stat_label: p.stat ? (STAT_LABELS[p.stat] ?? p.stat.toUpperCase()) : null,
+        stat_label: p.stat ? (lg.statLabels[p.stat] ?? p.stat.toUpperCase()) : null,
         prop_type: p.prop_type,
         pick_type: p.pick_type,
         line: p.recommended_line ?? null,
@@ -217,13 +222,14 @@ async function paginateStats(
 
 export async function getStreakOutcomes(req: Request<{}, {}, {}, { days?: string }>, res: Response) {
   try {
+    const lg = resolveLeague(res);
     const days = Math.min(365, Math.max(1, parseInt(req.query.days ?? '1', 10) || 1));
     const today = new Date().toISOString().slice(0, 10);
     const rawCutoff = days === 1
       ? today
       : new Date(Date.now() - (days - 1) * 86400000).toISOString().slice(0, 10);
     // Never show streak rows before tracking began
-    const cutoff = rawCutoff < STREAK_START_DATE ? STREAK_START_DATE : rawCutoff;
+    const cutoff = rawCutoff < lg.streakStartDate ? lg.streakStartDate : rawCutoff;
     const extCutoff = new Date(Date.parse(cutoff + 'T00:00:00Z') - 180 * 86400000)
       .toISOString().slice(0, 10);
 
@@ -232,8 +238,8 @@ export async function getStreakOutcomes(req: Request<{}, {}, {}, { days?: string
     //    For historical dates: use the games table + player_availability.
 
     const [{ data: teamRows }, { data: allPlayerRows }] = await Promise.all([
-      supabaseAdmin.from('teams').select('id, abbreviation'),
-      supabaseAdmin.from('players').select('id, name, team, position').eq('league', 'nba'),
+      supabaseAdmin.from('teams').select('id, abbreviation').eq('league_id', lg.leagueId),
+      supabaseAdmin.from('players').select('id, name, team, position').eq('league', lg.playerLeagueTag),
     ]);
 
     const teamIdToAbbr = new Map<number, string>();
@@ -256,7 +262,7 @@ export async function getStreakOutcomes(req: Request<{}, {}, {}, { days?: string
       .from('games')
       .select('id, home_team_id, away_team_id')
       .eq('game_date', today)
-      .eq('league_id', 1);
+      .eq('league_id', lg.leagueId);
     const todaySlateTeamIds = new Set<number>();
     for (const g of (todaySlateGames ?? [])) {
       todaySlateTeamIds.add(g.home_team_id);
@@ -274,7 +280,7 @@ export async function getStreakOutcomes(req: Request<{}, {}, {}, { days?: string
         .from('games')
         .select('id')
         .eq('game_date', today)
-        .eq('league_id', 1);
+        .eq('league_id', lg.leagueId);
       const todayGameIds = (todayGames ?? []).map((g: any) => g.id);
       const todayOuts = new Set<number>();
       if (todayGameIds.length > 0) {
@@ -301,7 +307,7 @@ export async function getStreakOutcomes(req: Request<{}, {}, {}, { days?: string
         .select('id, game_date, home_team_id, away_team_id')
         .gte('game_date', cutoff)
         .lt('game_date', today)
-        .eq('league_id', 1);
+        .eq('league_id', lg.leagueId);
 
       const teamAbbrsByDate = new Map<string, Set<string>>();
       const gameIdToDate = new Map<number, string>();
@@ -360,9 +366,9 @@ export async function getStreakOutcomes(req: Request<{}, {}, {}, { days?: string
     const allRows: OutcomeRow[] = [];
     const seen = new Set<string>();
 
-    for (const stat of ['pts', 'reb', 'ast', 'fg3m'] as const) {
-      const col = STAT_COLUMNS[stat];
-      const statLabel = STAT_LABELS[stat];
+    for (const stat of lg.streakStats) {
+      const col = lg.statConfig[stat].col;
+      const statLabel = lg.statLabels[stat];
 
       const statsData = await paginateStats(
         () => supabaseAdmin
@@ -497,22 +503,23 @@ export async function getStreakOutcomes(req: Request<{}, {}, {}, { days?: string
 
 export async function getStreakPerformance(req: Request<{}, {}, {}, { days?: string; stat?: string }>, res: Response) {
   try {
+    const lg = resolveLeague(res);
     const days = Math.min(365, Math.max(1, parseInt(req.query.days ?? '30', 10) || 30));
-    const stat = (req.query.stat ?? 'pts').toLowerCase();
-    const col = STAT_COLUMNS[stat];
+    const stat = (req.query.stat ?? lg.streakStats[0]).toLowerCase();
+    const col = lg.statConfig[stat]?.col;
     if (!col) return res.status(400).json({ success: false, error: `invalid stat: ${stat}` });
 
     const today = new Date().toISOString().slice(0, 10);
     const rawCutoff = days === 1
       ? today
       : new Date(Date.now() - (days - 1) * 86400000).toISOString().slice(0, 10);
-    const cutoff = rawCutoff < STREAK_START_DATE ? STREAK_START_DATE : rawCutoff;
+    const cutoff = rawCutoff < lg.streakStartDate ? lg.streakStartDate : rawCutoff;
     const extCutoff = new Date(Date.parse(cutoff + 'T00:00:00Z') - 180 * 86400000).toISOString().slice(0, 10);
 
     // ── Build eligibleByDate — same logic as getStreakOutcomes ────────────────
     const [{ data: teamRows }, { data: allPlayerRows }] = await Promise.all([
-      supabaseAdmin.from('teams').select('id, abbreviation'),
-      supabaseAdmin.from('players').select('id, name, team, position').eq('league', 'nba'),
+      supabaseAdmin.from('teams').select('id, abbreviation').eq('league_id', lg.leagueId),
+      supabaseAdmin.from('players').select('id, name, team, position').eq('league', lg.playerLeagueTag),
     ]);
 
     const teamIdToAbbr = new Map<number, string>();
@@ -532,7 +539,7 @@ export async function getStreakPerformance(req: Request<{}, {}, {}, { days?: str
       .from('games')
       .select('id, home_team_id, away_team_id')
       .eq('game_date', today)
-      .eq('league_id', 1);
+      .eq('league_id', lg.leagueId);
     const todaySlateTeamIds2 = new Set<number>();
     for (const g of (todaySlateGames2 ?? [])) {
       todaySlateTeamIds2.add(g.home_team_id);
@@ -544,7 +551,7 @@ export async function getStreakPerformance(req: Request<{}, {}, {}, { days?: str
       if (abbr) todayTeamAbbrs.add(abbr);
     }
     if (todayTeamAbbrs.size > 0) {
-      const { data: todayGames } = await supabaseAdmin.from('games').select('id').eq('game_date', today).eq('league_id', 1);
+      const { data: todayGames } = await supabaseAdmin.from('games').select('id').eq('game_date', today).eq('league_id', lg.leagueId);
       const todayGameIds = (todayGames ?? []).map((g: any) => g.id);
       const todayOuts = new Set<number>();
       if (todayGameIds.length > 0) {
@@ -561,7 +568,7 @@ export async function getStreakPerformance(req: Request<{}, {}, {}, { days?: str
     }
 
     if (cutoff < today) {
-      const { data: gameRows } = await supabaseAdmin.from('games').select('id, game_date, home_team_id, away_team_id').gte('game_date', cutoff).lt('game_date', today).eq('league_id', 1);
+      const { data: gameRows } = await supabaseAdmin.from('games').select('id, game_date, home_team_id, away_team_id').gte('game_date', cutoff).lt('game_date', today).eq('league_id', lg.leagueId);
       const teamAbbrsByDate = new Map<string, Set<string>>();
       const gameIdToDate = new Map<number, string>();
       for (const g of (gameRows ?? [])) {
@@ -600,12 +607,12 @@ export async function getStreakPerformance(req: Request<{}, {}, {}, { days?: str
     // ── Fetch stats for this stat, paginated ──────────────────────────────────
     const statsData = await paginateStats(
       () => supabaseAdmin
-        .from('nba_player_stats')
-        .select('player_id, game_date, points, rebounds, assists, three_points_made, minutes_played')
+        .from(lg.statsTable)
+        .select(streakStatsSelect(lg))
         .in('player_id', relevantIds)
         .gte('game_date', extCutoff)
         .lte('game_date', today)
-        .gt('minutes_played', 0)
+        .gt(lg.playedGate.col, lg.playedGate.min)
         .order('game_date', { ascending: true }),
       col,
     );

@@ -463,33 +463,53 @@ def compute_daily_conditions(games: list[dict], probables: dict[int, dict],
 
 # ── Step 0: reconcile ──────────────────────────────────────────────────────────
 
-def reconcile_picks(yesterday: date) -> None:
-    yest = _date_str(yesterday)
-    picks = (supabase.table("pick_results").select("*")
-             .eq("game_date", yest).eq("league_id", MLB_LEAGUE_ID)
-             .is_("actual_result", "null").execute()).data or []
-    if not picks:
-        print(f"[Step 0] No unresolved MLB picks for {yest}.")
+def reconcile_picks(through_date: date) -> None:
+    """Settle every unresolved MLB player pick whose game is already final
+    (game_date on or before `through_date`, and strictly before today).
+
+    Self-healing: this sweeps ALL unresolved past player picks, not just one
+    date, so a box score that lands late still settles on a later run.
+
+    Auto-voiding: a pick on a past (final) game with no stat line means the
+    player never appeared — a scratched probable starter (K props) or a DNP.
+    The market voids those, and they can never be graded, so we remove them so
+    they don't sit "pending" forever. Mirrors how injury_check invalidates
+    picks. Game props (spread/total/winner) have no stat key and are settled
+    elsewhere, so they're skipped here.
+    """
+    # Never grade today's games (some may still be in progress); cap at yesterday.
+    cutoff = _date_str(min(through_date, date.today() - timedelta(days=1)))
+    picks = (supabase.table("pick_results")
+             .select("id,entity_id,stat,game_date,recommended_line")
+             .eq("league_id", MLB_LEAGUE_ID)
+             .is_("actual_result", "null")
+             .lte("game_date", cutoff)
+             .execute()).data or []
+    # Only player props carry a stat column we can grade.
+    gradeable = [p for p in picks if MLB_STAT_COLUMN_MAP.get((p.get("stat") or "").lower())]
+    if not gradeable:
+        print(f"[Step 0] No unresolved MLB player picks through {cutoff}.")
         return
-    print(f"[Step 0] Reconciling {len(picks)} MLB pick(s) for {yest}")
+    print(f"[Step 0] Reconciling {len(gradeable)} unresolved MLB player pick(s) through {cutoff}")
     resolved = 0
-    for pick in picks:
-        stat_key = (pick.get("stat") or "").lower()
-        col = MLB_STAT_COLUMN_MAP.get(stat_key)
-        if not col:
-            continue
+    voided = 0
+    for pick in gradeable:
+        col = MLB_STAT_COLUMN_MAP[(pick["stat"]).lower()]
         srow = (supabase.table("mlb_player_stats").select(col)
-                .eq("player_id", pick["entity_id"]).eq("game_date", yest)
+                .eq("player_id", pick["entity_id"]).eq("game_date", pick["game_date"])
                 .limit(1).execute()).data
-        if not srow or srow[0].get(col) is None:
-            continue
-        actual = float(srow[0][col])
-        line = pick.get("recommended_line")
-        did_hit = (actual > float(line)) if line is not None else None
-        supabase.table("pick_results").update(
-            {"actual_result": actual, "did_hit": did_hit}).eq("id", pick["id"]).execute()
-        resolved += 1
-    print(f"  Resolved {resolved}/{len(picks)} picks.")
+        if srow and srow[0].get(col) is not None:
+            actual = float(srow[0][col])
+            line = pick.get("recommended_line")
+            did_hit = (actual > float(line)) if line is not None else None
+            supabase.table("pick_results").update(
+                {"actual_result": actual, "did_hit": did_hit}).eq("id", pick["id"]).execute()
+            resolved += 1
+        else:
+            # Final game, no stat line → un-gradeable (scratched starter / DNP). Void.
+            supabase.table("pick_results").delete().eq("id", pick["id"]).execute()
+            voided += 1
+    print(f"  Resolved {resolved}, voided {voided} un-gradeable of {len(gradeable)}.")
 
 
 # ── Orchestrator ───────────────────────────────────────────────────────────────

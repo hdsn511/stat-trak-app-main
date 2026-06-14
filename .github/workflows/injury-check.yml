@@ -33,5 +33,9 @@ jobs:
       - name: Install Python deps
         run: pip install -r analytics/requirements.txt
 
-      - name: Run injury check
-        run: python -m analytics.batch.injury_check --date "$(date -u +%Y-%m-%d)"
+      - name: Run injury check (NBA)
+        run: python -m analytics.batch.injury_check --league nba --date "$(date -u +%Y-%m-%d)"
+
+      - name: Run injury check (MLB)
+        if: always()
+        run: python -m analytics.batch.injury_check --league mlb --date "$(date -u +%Y-%m-%d)"

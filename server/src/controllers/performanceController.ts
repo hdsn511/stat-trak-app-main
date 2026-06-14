@@ -366,18 +366,25 @@ export async function getStreakOutcomes(req: Request<{}, {}, {}, { days?: string
     const allRows: OutcomeRow[] = [];
     const seen = new Set<string>();
 
+    // League-tuned line: Kalshi snap, then clamp to the league floor (MLB shows
+    // "1+" rather than "0+"). Mirrors getPerfectStreaks in picksController.
+    const lineFor = (v: number) =>
+      lg.streakLineFloor !== undefined
+        ? Math.max(lg.streakLineFloor, toKalshiLine(v))
+        : toKalshiLine(v);
+
     for (const stat of lg.streakStats) {
       const col = lg.statConfig[stat].col;
       const statLabel = lg.statLabels[stat];
 
       const statsData = await paginateStats(
         () => supabaseAdmin
-          .from('nba_player_stats')
-          .select('player_id, game_date, points, rebounds, assists, three_points_made, minutes_played')
+          .from(lg.statsTable)
+          .select(streakStatsSelect(lg))
           .in('player_id', relevantIds)
           .gte('game_date', extCutoff)
           .lte('game_date', today)
-          .gt('minutes_played', 0)
+          .gt(lg.playedGate.col, lg.playedGate.min)
           .order('game_date', { ascending: true }),
         col,
       );
@@ -412,7 +419,7 @@ export async function getStreakOutcomes(req: Request<{}, {}, {}, { days?: string
             if (priorGames.length < 10) continue;
 
             const prior10 = priorGames.slice(-10).map(g => g.value).sort((a, b) => a - b);
-            if (prior10[0] <= 0) continue;
+            if (prior10[lg.streakGateTierIndex] <= 0) continue;
 
             seen.add(key);
             const player = playerMap.get(playerId);
@@ -422,10 +429,10 @@ export async function getStreakOutcomes(req: Request<{}, {}, {}, { days?: string
               team: player?.team ?? null,
               stat, stat_label: statLabel,
               game_date: today,
-              line_100: toKalshiLine(prior10[0]),
-              line_90:  toKalshiLine(prior10[1]),
-              line_80:  toKalshiLine(prior10[2]),
-              line_70:  toKalshiLine(prior10[3]),
+              line_100: lineFor(prior10[0]),
+              line_90:  lineFor(prior10[1]),
+              line_80:  lineFor(prior10[2]),
+              line_70:  lineFor(prior10[3]),
               actual: null,
               hit_100: null, hit_90: null, hit_80: null, hit_70: null,
               did_hit: null,
@@ -442,7 +449,7 @@ export async function getStreakOutcomes(req: Request<{}, {}, {}, { days?: string
           if (gameIdx < 10) continue; // need at least 10 prior games
 
           const prior10 = games.slice(gameIdx - 10, gameIdx).map(g => g.value).sort((a, b) => a - b);
-          if (prior10[0] <= 0) continue;
+          if (prior10[lg.streakGateTierIndex] <= 0) continue;
 
           const key = `${playerId}|${stat}|${date}`;
           if (seen.has(key)) continue;
@@ -450,22 +457,26 @@ export async function getStreakOutcomes(req: Request<{}, {}, {}, { days?: string
 
           const actual = games[gameIdx].value;
           const player = playerMap.get(playerId);
+          const l100 = lineFor(prior10[0]);
+          const l90  = lineFor(prior10[1]);
+          const l80  = lineFor(prior10[2]);
+          const l70  = lineFor(prior10[3]);
           const row: OutcomeRow = {
             player_id: playerId,
             player_name: player?.name ?? null,
             team: player?.team ?? null,
             stat, stat_label: statLabel,
             game_date: date,
-            line_100: toKalshiLine(prior10[0]),
-            line_90:  toKalshiLine(prior10[1]),
-            line_80:  toKalshiLine(prior10[2]),
-            line_70:  toKalshiLine(prior10[3]),
+            line_100: l100,
+            line_90:  l90,
+            line_80:  l80,
+            line_70:  l70,
             actual,
-            hit_100: actual > toKalshiLine(prior10[0]),
-            hit_90:  actual > toKalshiLine(prior10[1]),
-            hit_80:  actual > toKalshiLine(prior10[2]),
-            hit_70:  actual > toKalshiLine(prior10[3]),
-            did_hit: actual > toKalshiLine(prior10[0]),
+            hit_100: actual > l100,
+            hit_90:  actual > l90,
+            hit_80:  actual > l80,
+            hit_70:  actual > l70,
+            did_hit: actual > l100,
           };
           const rollingAvg = prior10.reduce((a, b) => a + b, 0) / 10;
           if (!candidatesByDate.has(date)) candidatesByDate.set(date, []);
@@ -508,6 +519,12 @@ export async function getStreakPerformance(req: Request<{}, {}, {}, { days?: str
     const stat = (req.query.stat ?? lg.streakStats[0]).toLowerCase();
     const col = lg.statConfig[stat]?.col;
     if (!col) return res.status(400).json({ success: false, error: `invalid stat: ${stat}` });
+
+    // League-tuned line: Kalshi snap + clamp to floor. Mirrors getPerfectStreaks.
+    const lineFor = (v: number) =>
+      lg.streakLineFloor !== undefined
+        ? Math.max(lg.streakLineFloor, toKalshiLine(v))
+        : toKalshiLine(v);
 
     const today = new Date().toISOString().slice(0, 10);
     const rawCutoff = days === 1
@@ -651,9 +668,9 @@ export async function getStreakPerformance(req: Request<{}, {}, {}, { days?: str
           const priorGames = games.filter(g => g.game_date < today);
           if (priorGames.length < 10) continue;
           const prior10 = priorGames.slice(-10).map(g => g.value).sort((a, b) => a - b);
-          if (prior10[0] <= 0) continue;
+          if (prior10[lg.streakGateTierIndex] <= 0) continue;
           seen.add(key);
-          const lines = [toKalshiLine(prior10[0]), toKalshiLine(prior10[1]), toKalshiLine(prior10[2]), toKalshiLine(prior10[3])];
+          const lines = [lineFor(prior10[0]), lineFor(prior10[1]), lineFor(prior10[2]), lineFor(prior10[3])];
           candidates.push({ lines, actual: null, rollingAvg: prior10.reduce((a, b) => a + b, 0) / 10, line100: lines[0] });
           continue;
         }
@@ -662,11 +679,11 @@ export async function getStreakPerformance(req: Request<{}, {}, {}, { days?: str
         const gameIdx = games.findIndex(g => g.game_date === date);
         if (gameIdx < 10) continue;
         const prior10 = games.slice(gameIdx - 10, gameIdx).map(g => g.value).sort((a, b) => a - b);
-        if (prior10[0] <= 0) continue;
+        if (prior10[lg.streakGateTierIndex] <= 0) continue;
         const key = `${playerId}|${stat}|${date}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        const lines = [toKalshiLine(prior10[0]), toKalshiLine(prior10[1]), toKalshiLine(prior10[2]), toKalshiLine(prior10[3])];
+        const lines = [lineFor(prior10[0]), lineFor(prior10[1]), lineFor(prior10[2]), lineFor(prior10[3])];
         candidates.push({ lines, actual: games[gameIdx].value, rollingAvg: prior10.reduce((a, b) => a + b, 0) / 10, line100: lines[0] });
       }
 

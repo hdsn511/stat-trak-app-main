@@ -1,20 +1,20 @@
 """
 analytics/batch/injury_check.py
 
-Injury validation for StatTrak.
+Injury validation for StatTrak. League-agnostic: pass --league nba|mlb.
 
 Steps:
   1. Load today's games from local DB — this is the source of truth for which
      teams are playing.
-  2. Fetch injury reports from ESPN injuries endpoint.
-  3. Identify Out/Doubtful players whose team is in today's games.
+  2. Fetch injury reports from the league's ESPN injuries endpoint.
+  3. Identify "out" players (league-specific rule) whose team plays today.
   4. Upsert player_availability rows for affected players.
-  5. Delete pick_results rows for Out/Doubtful players today.
+  5. Delete pick_results rows for those players today.
 
 CLI:
-    python -m analytics.batch.injury_check
-    python -m analytics.batch.injury_check --date 2026-04-14
-    python -m analytics.batch.injury_check --verify
+    python -m analytics.batch.injury_check                      # NBA (default)
+    python -m analytics.batch.injury_check --league mlb --date 2026-06-14
+    python -m analytics.batch.injury_check --league mlb --verify
 """
 
 from __future__ import annotations
@@ -22,17 +22,53 @@ from __future__ import annotations
 import argparse
 import sys
 from datetime import date, datetime
-from typing import Optional
+from typing import Callable, Optional
 
 import requests
 
-from analytics.db.connection import NBA_LEAGUE_ID, supabase
-
-ESPN_INJURIES_URL = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/injuries"
-
-OUT_STATUSES = {"Out", "Doubtful"}
+from analytics.db.connection import MLB_LEAGUE_ID, NBA_LEAGUE_ID, supabase
 
 REQUEST_TIMEOUT = 10
+
+
+# ── Per-league config ────────────────────────────────────────────────────────────
+# ESPN normalises injury status differently per sport:
+#   NBA → "Out" / "Doubtful" / "Day-To-Day" / "Questionable"
+#   MLB → "10-Day-IL" / "15-Day-IL" / "60-Day-IL" / "Day-To-Day"
+# We only remove players who are definitively not playing. For NBA that's
+# Out/Doubtful; for MLB that's any IL designation ("Day-To-Day" players usually
+# still play, mirroring how we keep NBA "Questionable").
+
+def _nba_is_out(status: str) -> bool:
+    return status in {"Out", "Doubtful"}
+
+
+def _mlb_is_out(status: str) -> bool:
+    return "IL" in status
+
+
+class LeagueConfig:
+    def __init__(self, slug: str, league_id: int, league_tag: str,
+                 espn_url: str, is_out: Callable[[str], bool]):
+        self.slug = slug
+        self.league_id = league_id
+        self.league_tag = league_tag
+        self.espn_url = espn_url
+        self.is_out = is_out
+
+
+LEAGUES: dict[str, LeagueConfig] = {
+    "nba": LeagueConfig(
+        "nba", NBA_LEAGUE_ID, "nba",
+        "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/injuries",
+        _nba_is_out,
+    ),
+    "mlb": LeagueConfig(
+        "mlb", MLB_LEAGUE_ID, "mlb",
+        "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/injuries",
+        _mlb_is_out,
+    ),
+}
 
 
 def _espn_get(url: str, params: Optional[dict] = None) -> Optional[dict]:
@@ -45,9 +81,9 @@ def _espn_get(url: str, params: Optional[dict] = None) -> Optional[dict]:
         return None
 
 
-def fetch_injuries() -> list[dict]:
+def fetch_injuries(espn_url: str) -> list[dict]:
     """
-    Fetch injury data from ESPN injuries endpoint.
+    Fetch injury data from an ESPN injuries endpoint.
 
     Returns list of team-level dicts:
     [
@@ -62,22 +98,23 @@ def fetch_injuries() -> list[dict]:
       ...
     ]
     """
-    data = _espn_get(ESPN_INJURIES_URL)
+    data = _espn_get(espn_url)
     if not data:
         return []
     return data.get("injuries") or []
 
 
-def run_injury_check(target_date: date) -> None:
+def run_injury_check(target_date: date, league: str = "nba") -> None:
+    cfg = LEAGUES[league]
     date_str = target_date.strftime("%Y-%m-%d")
-    print(f"[injury_check] {date_str}")
+    print(f"[injury_check] {cfg.slug.upper()} {date_str}")
 
     # Step 1: Load today's games — source of truth for which teams are playing
     game_rows = (
         supabase.table("games")
         .select("id,home_team_id,away_team_id")
         .eq("game_date", date_str)
-        .eq("league_id", NBA_LEAGUE_ID)
+        .eq("league_id", cfg.league_id)
         .execute()
     )
     today_games = game_rows.data or []
@@ -88,7 +125,7 @@ def run_injury_check(target_date: date) -> None:
     team_rows = (
         supabase.table("teams")
         .select("id,abbreviation")
-        .eq("league_id", NBA_LEAGUE_ID)
+        .eq("league_id", cfg.league_id)
         .execute()
     )
     db_id_to_abbr: dict[int, str] = {r["id"]: r["abbreviation"] for r in (team_rows.data or [])}
@@ -106,16 +143,16 @@ def run_injury_check(target_date: date) -> None:
     print(f"  Teams playing today: {sorted(playing_abbrs)}")
 
     # Step 2: Fetch ESPN injuries
-    injury_entries = fetch_injuries()
+    injury_entries = fetch_injuries(cfg.espn_url)
     if not injury_entries:
         print("  No injury data available. Skipping.")
         return
 
-    # Step 3: Collect Out/Doubtful player names from all teams in today's games
+    # Step 3: Collect "out" player names from all teams in today's games
     player_rows = (
         supabase.table("players")
         .select("id,name,team")
-        .eq("league", "nba")
+        .eq("league", cfg.league_tag)
         .eq("is_active", True)
         .execute()
     )
@@ -127,7 +164,7 @@ def run_injury_check(target_date: date) -> None:
     for team_entry in injury_entries:
         for inj in team_entry.get("injuries") or []:
             status = inj.get("status", "")
-            if status not in OUT_STATUSES:
+            if not cfg.is_out(status):
                 continue
             name = (inj.get("athlete") or {}).get("displayName", "")
             if not name:
@@ -142,7 +179,7 @@ def run_injury_check(target_date: date) -> None:
             affected.append(player)
 
     if not affected:
-        print("  No Out/Doubtful players on today's teams.")
+        print("  No out players on today's teams.")
         return
 
     affected_ids = [p["id"] for p in affected]
@@ -164,11 +201,12 @@ def run_injury_check(target_date: date) -> None:
         ).execute()
         print(f"  Updated player_availability: {len(avail_rows)} row(s).")
 
-    # Step 5: Remove pick_results for Out/Doubtful players today
+    # Step 5: Remove pick_results for out players today
     picks_res = (
         supabase.table("pick_results")
         .select("id,entity_id,stat")
         .eq("game_date", date_str)
+        .eq("league_id", cfg.league_id)
         .in_("entity_id", affected_ids)
         .execute()
     )
@@ -183,6 +221,8 @@ def run_injury_check(target_date: date) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="StatTrak injury validation")
+    parser.add_argument("--league", type=str, default="nba", choices=sorted(LEAGUES),
+                        help="League to check (default: nba)")
     parser.add_argument("--date", type=str, default=None, help="YYYY-MM-DD (default: today)")
     parser.add_argument(
         "--verify",
@@ -191,9 +231,11 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    cfg = LEAGUES[args.league]
+
     if args.verify:
         import json
-        data = _espn_get(ESPN_INJURIES_URL)
+        data = _espn_get(cfg.espn_url)
         print(json.dumps(data, indent=2)[:5000])
         return 0
 
@@ -206,7 +248,7 @@ def main() -> int:
     else:
         target_date = date.today()
 
-    run_injury_check(target_date)
+    run_injury_check(target_date, league=args.league)
     return 0
 
 

@@ -162,12 +162,16 @@ def generate_picks(game_date: date) -> list[dict]:
             if h and a and h in eu and a in eu:
                 event_to_game[ek] = c["game_id"]; break
 
-    # Game props are scored on EDGE, not the 0.55 "safe" hit-rate floor used for
-    # player props: a value over priced at 20% that the model hits 30% of the
-    # time is +EV even though it's a longshot. Quality is protected by a solid
-    # edge bar + sample size.
+    # Game props need BOTH positive edge AND a respectable market price. A 15%
+    # edge on a 20-30% alt line is still a longshot we don't want: the model's
+    # tail (run-environment / margin) estimates are least reliable there
+    # (6/13: totals priced ~32% hit only ~17%), and heavy alt spreads/totals are
+    # high-variance. So we floor implied prob the same way player props do, and
+    # pick the qualifying line CLOSEST to the main number (highest implied prob),
+    # not the biggest-edge longshot.
     GAME_MIN_EDGE = 0.07
     GAME_MIN_SAMPLE = 12
+    GAME_MIN_IMPLIED_PROB = 0.47   # no heavy alt lines; mirrors player MIN_IMPLIED_PROB
     game_results: list[dict] = []
     for (ek, prop_type), lines in game_props.items():
         game_id = event_to_game.get(ek)
@@ -177,6 +181,8 @@ def generate_picks(game_date: date) -> list[dict]:
         for le in lines:
             line_val, implied = le["line"], le["implied_prob"]
             if implied > 0.92:   # near-certain markets: no value
+                continue
+            if implied < GAME_MIN_IMPLIED_PROB:   # heavy alt longshot: skip
                 continue
             bt = backtest_game_mlb(game_id, prop_type, line_val, date_str, team_abbr=le.get("team_abbr"))
             if bt is None or bt["sample_size"] < GAME_MIN_SAMPLE:
@@ -198,7 +204,9 @@ def generate_picks(game_date: date) -> list[dict]:
                 "modifiers": {"team_abbr": le.get("team_abbr")} if le.get("team_abbr") else {},
                 "alt_lines_tested": None,
             }
-            if best is None or cand["edge"] > best["edge"]:
+            # Prefer the qualifying line closest to the main number (highest
+            # implied prob), tie-broken by edge — never the longest-shot alt.
+            if best is None or (cand["implied_prob"], cand["edge"]) > (best["implied_prob"], best["edge"]):
                 best = cand
         if best is not None:
             game_results.append(best)

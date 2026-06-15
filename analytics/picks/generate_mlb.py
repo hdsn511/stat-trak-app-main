@@ -179,8 +179,18 @@ def generate_picks(game_date: date) -> list[dict]:
     GAME_MIN_EDGE = 0.07
     GAME_MIN_SAMPLE = 12
     GAME_MIN_IMPLIED_PROB = 0.47   # no heavy alt lines; mirrors player MIN_IMPLIED_PROB
+    # Totals are disabled: a 4,448-game backtest (2024+) showed both the pooled
+    # model AND a pitcher-aware run projection (team offense × opposing-starter
+    # recent ER, log5) correlate only ~0.08-0.10 with actual game totals — i.e.
+    # they barely beat guessing the league mean (8.76) and are badly miscalibrated
+    # (projects 6.2 for games that average 8.2). The market already prices these
+    # public features plus weather/lineups/bullpen, so there's no residual edge.
+    # Re-enable only if a model with real out-of-sample signal is built + validated.
+    ENABLE_TOTAL_PICKS = False
     game_results: list[dict] = []
     for (ek, prop_type), lines in game_props.items():
+        if prop_type == "total" and not ENABLE_TOTAL_PICKS:
+            continue
         game_id = event_to_game.get(ek)
         if game_id is None:
             continue

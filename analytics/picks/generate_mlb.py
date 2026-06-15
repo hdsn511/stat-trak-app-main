@@ -29,6 +29,12 @@ from analytics.screener.screen_mlb import screen_player_candidates, screen_game_
 MIN_CONFIDENCE = 55
 MIN_IMPLIED_PROB = 0.47
 
+# Shrink the (overconfident, selection-biased) backtest hit rate toward the
+# better-calibrated market implied prob: calibrated = w*model + (1-w)*market.
+# Audit 2026-06-14: model predicted 58.8% vs 39.3% actual; the market (45.0%)
+# was far closer. Applied to BOTH player props (via score()) and game props.
+CALIBRATION_WEIGHT = 0.5
+
 # Minimum prop line per stat — filter garbage low markets.
 MIN_PROP_LINE = {"hits": 0.5, "hr": 0.5, "rbi": 0.5, "ks": 3.5}
 
@@ -59,7 +65,7 @@ def _store_picks(game_date: str, picks: list[dict]) -> None:
     rows = [{
         "game_date": game_date, "prop_type": p.get("prop_type", "player"), "entity_id": p["entity_id"],
         "stat": p["stat"], "pick_type": p["pick_type"], "recommended_line": p["line"],
-        "hit_rate": p["hit_rate"], "sample_size": p["sample_size"],
+        "hit_rate": p.get("hit_rate_adjusted") or p["hit_rate"], "sample_size": p["sample_size"],
         "confidence_score": p["confidence"], "implied_prob": p["implied_prob"],
         "edge": p["edge"], "conditions_matched": p["conditions_matched"],
         "total_conditions": p["total_conditions"], "key_conditions": p.get("condition_breakdown"),
@@ -121,7 +127,8 @@ def generate_picks(game_date: date) -> list[dict]:
                 sc = score(hit_rate=bt["hit_rate"], sample_size=bt["sample_size"],
                            conditions_matched=bt["conditions_matched"],
                            total_conditions=bt["total_conditions"],
-                           implied_prob=implied, days_rest=3, stat=stat)
+                           implied_prob=implied, days_rest=3, stat=stat,
+                           calibration_weight=CALIBRATION_WEIGHT)
                 alt_lines.append({"line": line_val, "hit_rate": bt["hit_rate"],
                                   "confidence": sc.get("confidence", 0), "edge": sc.get("edge", 0)})
                 if "reason" in sc or sc["confidence"] < MIN_CONFIDENCE or sc["edge"] < MIN_EDGE:
@@ -187,7 +194,9 @@ def generate_picks(game_date: date) -> list[dict]:
             bt = backtest_game_mlb(game_id, prop_type, line_val, date_str, team_abbr=le.get("team_abbr"))
             if bt is None or bt["sample_size"] < GAME_MIN_SAMPLE:
                 continue
-            edge = bt["hit_rate"] - implied
+            # Calibrate toward market (same blend as player props), gate edge on it.
+            cal = CALIBRATION_WEIGHT * bt["hit_rate"] + (1.0 - CALIBRATION_WEIGHT) * implied
+            edge = cal - implied
             if edge < GAME_MIN_EDGE:
                 continue
             # Conservative confidence for game props — the run-environment / margin
@@ -196,7 +205,7 @@ def generate_picks(game_date: date) -> list[dict]:
             cand = {
                 "entity_id": game_id, "entity_name": ek, "prop_type": prop_type,
                 "stat": prop_type, "pick_type": "game", "line": line_val,
-                "implied_prob": implied, "hit_rate": bt["hit_rate"],
+                "implied_prob": implied, "hit_rate": cal,
                 "sample_size": bt["sample_size"], "conditions_matched": bt["conditions_matched"],
                 "total_conditions": bt["total_conditions"],
                 "condition_breakdown": bt.get("condition_breakdown"),

@@ -86,6 +86,7 @@ def score(
     days_rest: int,
     stat: str,
     recent_opp_form: Optional[float] = None,
+    calibration_weight: float = 1.0,
 ) -> dict:
     """
     Evaluate a backtest result and return a confidence score and edge.
@@ -116,12 +117,20 @@ def score(
     if implied_prob > MAX_IMPLIED_PROB:
         return {"confidence": 0, "edge": 0, "reason": "high_implied_prob", "modifiers": {}}
 
-    edge = hit_rate - implied_prob
+    # ── Calibration ───────────────────────────────────────────────────────────
+    # The market is better-calibrated than the raw backtest hit rate (which is
+    # overconfident and selection-biased), so shrink the model probability
+    # toward the market implied, then gate edge + score on the CALIBRATED value.
+    # calibration_weight=1.0 reproduces the prior behavior exactly (NBA default);
+    # MLB passes <1.0 to temper overconfidence and adverse edge.
+    cal = calibration_weight * hit_rate + (1.0 - calibration_weight) * implied_prob
+
+    edge = cal - implied_prob
     if edge < MIN_EDGE:
         return {"confidence": 0, "edge": round(edge, 4), "reason": "insufficient_edge", "modifiers": {}}
 
     # ── Base confidence formula ───────────────────────────────────────────────
-    base = hit_rate * 100
+    base = cal * 100
     sample_weight = min(1.0, sample_size / SAMPLE_WEIGHT_TARGET)
     condition_bonus = (conditions_matched / total_conditions) * CONDITION_BONUS_MAX
     edge_bonus = min(edge * EDGE_BONUS_SCALE, float(EDGE_BONUS_CAP))
@@ -153,7 +162,7 @@ def score(
     return {
         "confidence":        round(confidence, 2),
         "edge":              round(edge, 4),
-        "hit_rate_adjusted": round(hit_rate, 4),  # v2: passthrough; backtest already weighted
+        "hit_rate_adjusted": round(cal, 4),  # market-calibrated model probability
         "modifiers":         modifiers,
     }
 

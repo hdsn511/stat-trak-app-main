@@ -87,6 +87,7 @@ def score(
     stat: str,
     recent_opp_form: Optional[float] = None,
     calibration_weight: float = 1.0,
+    calibrated_prob: Optional[float] = None,
 ) -> dict:
     """
     Evaluate a backtest result and return a confidence score and edge.
@@ -118,12 +119,17 @@ def score(
         return {"confidence": 0, "edge": 0, "reason": "high_implied_prob", "modifiers": {}}
 
     # ── Calibration ───────────────────────────────────────────────────────────
-    # The market is better-calibrated than the raw backtest hit rate (which is
-    # overconfident and selection-biased), so shrink the model probability
-    # toward the market implied, then gate edge + score on the CALIBRATED value.
-    # calibration_weight=1.0 reproduces the prior behavior exactly (NBA default);
-    # MLB passes <1.0 to temper overconfidence and adverse edge.
-    cal = calibration_weight * hit_rate + (1.0 - calibration_weight) * implied_prob
+    # Gate the quality floor (MIN_HIT_RATE) on the RAW backtest hit rate above,
+    # but compute edge + score on a CALIBRATED probability. Two sources:
+    #   1. calibrated_prob — an empirical predicted->actual curve fit from history
+    #      (analytics/engine/calibration.py); preferred when supplied (MLB player
+    #      props). Removes the model's recency over-extrapolation directly.
+    #   2. else a linear shrink toward the (better-calibrated) market implied;
+    #      calibration_weight=1.0 reproduces prior behavior (NBA default).
+    if calibrated_prob is not None:
+        cal = calibrated_prob
+    else:
+        cal = calibration_weight * hit_rate + (1.0 - calibration_weight) * implied_prob
 
     edge = cal - implied_prob
     if edge < MIN_EDGE:

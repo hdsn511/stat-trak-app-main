@@ -23,16 +23,17 @@ from analytics.db.connection import supabase, MLB_LEAGUE_ID
 from analytics.engine.backtest_mlb import backtest_player as backtest_player_mlb
 from analytics.engine.backtest_mlb import backtest_game as backtest_game_mlb
 from analytics.engine.scorer import score, MIN_EDGE
+from analytics.engine.calibration import apply_calibration
 from analytics.kalshi.client import KalshiClient
 from analytics.screener.screen_mlb import screen_player_candidates, screen_game_candidates
 
 MIN_CONFIDENCE = 55
 MIN_IMPLIED_PROB = 0.47
 
-# Shrink the (overconfident, selection-biased) backtest hit rate toward the
-# better-calibrated market implied prob: calibrated = w*model + (1-w)*market.
-# Audit 2026-06-14: model predicted 58.8% vs 39.3% actual; the market (45.0%)
-# was far closer. Applied to BOTH player props (via score()) and game props.
+# Market-shrink fallback for GAME props (spreads), which have no empirical
+# calibration curve: calibrated = w*model + (1-w)*market. Player props instead
+# use the per-stat empirical predicted->actual curve (analytics/engine/
+# calibration.py), which de-biases the recency over-extrapolation directly.
 CALIBRATION_WEIGHT = 0.5
 
 # Minimum prop line per stat — filter garbage low markets.
@@ -124,11 +125,15 @@ def generate_picks(game_date: date) -> list[dict]:
                 bt = backtest_player_mlb(player_id, stat, line_val, date_str)
                 if bt is None:
                     continue
+                # Empirical predicted->actual calibration (per stat) de-biases the
+                # backtest hit rate's recency over-extrapolation; edge is computed
+                # on the calibrated value. Quality floor still gates on raw hit_rate.
+                cal_hr = apply_calibration(stat, bt["hit_rate"])
                 sc = score(hit_rate=bt["hit_rate"], sample_size=bt["sample_size"],
                            conditions_matched=bt["conditions_matched"],
                            total_conditions=bt["total_conditions"],
                            implied_prob=implied, days_rest=3, stat=stat,
-                           calibration_weight=CALIBRATION_WEIGHT)
+                           calibrated_prob=cal_hr)
                 alt_lines.append({"line": line_val, "hit_rate": bt["hit_rate"],
                                   "confidence": sc.get("confidence", 0), "edge": sc.get("edge", 0)})
                 if "reason" in sc or sc["confidence"] < MIN_CONFIDENCE or sc["edge"] < MIN_EDGE:

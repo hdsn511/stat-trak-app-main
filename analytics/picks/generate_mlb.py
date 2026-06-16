@@ -181,9 +181,17 @@ def generate_picks(game_date: date) -> list[dict]:
     # high-variance. So we floor implied prob the same way player props do, and
     # pick the qualifying line CLOSEST to the main number (highest implied prob),
     # not the biggest-edge longshot.
-    GAME_MIN_EDGE = 0.07
+    # Game lines are efficiently priced, so the model's real edge is small and
+    # lives in near-even games (it leans a coin-flip), NOT strong favorites
+    # (where the market's extra info wins and our edge goes negative). So require
+    # a small POSITIVE calibrated edge — never a negative/contrarian pick — and
+    # cap to the few strongest per slate. Tuned to surface ~2-3 moneylines on a
+    # full slate without dipping into no-edge picks.
+    GAME_MIN_EDGE = 0.02
     GAME_MIN_SAMPLE = 12
     GAME_MIN_IMPLIED_PROB = 0.47   # no heavy alt lines; mirrors player MIN_IMPLIED_PROB
+    MAX_WINNER_PICKS = 3
+    MAX_SPREAD_PICKS = 2
     # Totals are disabled: a 4,448-game backtest (2024+) showed both the pooled
     # model AND a pitcher-aware run projection (team offense × opposing-starter
     # recent ER, log5) correlate only ~0.08-0.10 with actual game totals — i.e.
@@ -234,7 +242,14 @@ def generate_picks(game_date: date) -> list[dict]:
                 best = cand
         if best is not None:
             game_results.append(best)
-    print(f"  Game prop picks passing filters: {len(game_results)}")
+    # Surface only the strongest few game picks per slate (ranked by edge).
+    winners = sorted([r for r in game_results if r["prop_type"] == "winner"],
+                     key=lambda r: -r["edge"])[:MAX_WINNER_PICKS]
+    spreads = sorted([r for r in game_results if r["prop_type"] == "spread"],
+                     key=lambda r: -r["edge"])[:MAX_SPREAD_PICKS]
+    game_results = winners + spreads
+    print(f"  Game prop picks passing filters: {len(game_results)} "
+          f"({len(winners)} ML, {len(spreads)} spread)")
     picks.extend(game_results)
 
     picks.sort(key=lambda x: x["confidence"], reverse=True)

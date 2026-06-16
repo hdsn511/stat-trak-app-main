@@ -123,7 +123,9 @@ export default function PropsTable({ picks }: PropsTableProps) {
       {/* Table */}
       {isEmpty ? (
         <div className="px-4 py-8 text-center text-[11px] text-gray-700 font-condensed">
-          {`No props in the ${bucket}–${bucket + 9}% range today`}
+          {propTab === 'player'
+            ? `No props in the ${bucket}–${bucket + 9}% range today`
+            : `No ${PROP_TABS.find(t => t.key === propTab)?.label.toLowerCase()} picks today`}
         </div>
       ) : (
         <div>

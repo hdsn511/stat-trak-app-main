@@ -59,6 +59,8 @@ MLB_PLAYER_PROP_SERIES = [
     "KXMLBHR",    # home runs
     "KXMLBRBI",   # RBIs
     "KXMLBKS",    # pitcher strikeouts
+    "KXMLBTB",    # total bases
+    "KXMLBHRR",   # hits + runs + RBIs (combo)
 ]
 MLB_GAME_PROP_SERIES = [
     "KXMLBGAME",   # winner
@@ -74,6 +76,8 @@ MLB_SERIES_STAT_MAP = {
     "KXMLBHR":  "hr",
     "KXMLBRBI": "rbi",
     "KXMLBKS":  "ks",
+    "KXMLBTB":  "tb",
+    "KXMLBHRR": "hrr",   # hits + runs + RBIs (derived: see MLB_STAT_COLUMN_MAP)
 }
 
 # Title keyword -> stat (MLB fallback when prefix is ambiguous). Longest first.

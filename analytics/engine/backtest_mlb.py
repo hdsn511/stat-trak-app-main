@@ -27,7 +27,7 @@ import math
 import sys
 from typing import Optional
 
-from analytics.db.connection import supabase, MLB_LEAGUE_ID, MLB_STAT_COLUMN_MAP
+from analytics.db.connection import supabase, MLB_LEAGUE_ID, MLB_STAT_COLUMN_MAP, mlb_value_cols
 from analytics.engine.common import weighted_hit_rate
 
 # ── Tunables ────────────────────────────────────────────────────────────────────
@@ -62,7 +62,7 @@ def _home_away_for_games(player_id: int, game_ids: list[int]) -> dict[int, str]:
 
 # ── Batter props ────────────────────────────────────────────────────────────────
 
-def _backtest_batter(player_id: int, stat: str, stat_col: str, line: float,
+def _backtest_batter(player_id: int, stat: str, stat_cols: list[str], line: float,
                      game_date: str) -> Optional[dict]:
     dc = (supabase.table("mlb_daily_conditions")
           .select("rolling_pa_5g,opp_starter_hand,home_away,game_id")
@@ -105,7 +105,7 @@ def _backtest_batter(player_id: int, stat: str, stat_col: str, line: float,
         droppable[BATTER_DROP_ORDER[drop_idx]] = False
         drop_idx += 1
 
-    return _finish(player_id, stat_col, line, filtered_game_ids,
+    return _finish(player_id, stat_cols, line, filtered_game_ids,
                    conditions_active=1 + sum(1 for v in droppable.values() if v),
                    total_conditions=BATTER_TOTAL_CONDITIONS,
                    breakdown={
@@ -152,7 +152,7 @@ def _backtest_pitcher_ks(player_id: int, line: float, game_date: str) -> Optiona
         droppable[PITCHER_DROP_ORDER[drop_idx]] = False
         drop_idx += 1
 
-    return _finish(player_id, "strikeouts_pitched", line, filtered_game_ids,
+    return _finish(player_id, ["strikeouts_pitched"], line, filtered_game_ids,
                    conditions_active=1 + sum(1 for v in droppable.values() if v),
                    total_conditions=PITCHER_TOTAL_CONDITIONS,
                    breakdown={
@@ -163,19 +163,21 @@ def _backtest_pitcher_ks(player_id: int, line: float, game_date: str) -> Optiona
 
 # ── Shared finish: fetch outcomes, weighted hit rate ─────────────────────────────
 
-def _finish(player_id: int, stat_col: str, line: float, game_ids: list[int],
+def _finish(player_id: int, stat_cols: list[str], line: float, game_ids: list[int],
             conditions_active: int, total_conditions: int,
             breakdown: dict) -> Optional[dict]:
     if not game_ids:
         return None
+    sel = ",".join([*stat_cols, "game_date", "game_id"])
     rows: list[dict] = []
     for i in range(0, len(game_ids), 200):
         chunk = game_ids[i:i + 200]
         rows.extend((supabase.table("mlb_player_stats")
-                     .select(f"{stat_col},game_date,game_id").eq("player_id", player_id)
+                     .select(sel).eq("player_id", player_id)
                      .in_("game_id", chunk).execute()).data or [])
-    valid = [(r["game_date"], r[stat_col]) for r in rows
-             if r.get(stat_col) is not None and r.get("game_date")]
+    # value = SUM of component columns (1 col for normal stats, 3 for HRR combo)
+    valid = [(r["game_date"], sum(r[c] for c in stat_cols)) for r in rows
+             if all(r.get(c) is not None for c in stat_cols) and r.get("game_date")]
     if len(valid) < MIN_SAMPLE_SIZE:
         return None
     valid.sort(key=lambda x: x[0], reverse=True)
@@ -194,13 +196,13 @@ def _finish(player_id: int, stat_col: str, line: float, game_ids: list[int],
 # ── Public entry point (same signature as NBA backtest_player) ───────────────────
 
 def backtest_player(player_id: int, stat: str, line: float, game_date: str) -> Optional[dict]:
-    stat_col = MLB_STAT_COLUMN_MAP.get(stat)
-    if stat_col is None:
-        print(f"  ERROR: unsupported MLB stat '{stat}'. Valid: {list(MLB_STAT_COLUMN_MAP)}")
+    cols = mlb_value_cols(stat)
+    if not cols:
+        print(f"  ERROR: unsupported MLB stat '{stat}'.")
         return None
     if stat in PITCHER_STATS:
         return _backtest_pitcher_ks(player_id, line, game_date)
-    return _backtest_batter(player_id, stat, stat_col, line, game_date)
+    return _backtest_batter(player_id, stat, cols, line, game_date)
 
 
 # ── Game props (totals + run line) ───────────────────────────────────────────────

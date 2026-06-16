@@ -32,9 +32,15 @@ BATTER_STAT_FLOORS = {
     "hits": 0.5,
     "rbi":  0.4,
     "hr":   0.10,
+    "tb":   0.6,   # total bases (KXMLBTB)
+    "hrr":  0.8,   # hits + runs + RBIs combo (KXMLBHRR)
 }
 ROLLING_COL = {
     "hits": "rolling_hits_5g", "rbi": "rolling_rbi_5g", "hr": "rolling_hr_5g",
+    "tb":   "rolling_tb_5g",
+    # combo screened off TB rolling (a proxy for offensive volume); HRR has no
+    # dedicated rolling column.
+    "hrr":  "rolling_tb_5g",
 }
 
 

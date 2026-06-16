@@ -37,7 +37,7 @@ MIN_IMPLIED_PROB = 0.47
 CALIBRATION_WEIGHT = 0.5
 
 # Minimum prop line per stat — filter garbage low markets.
-MIN_PROP_LINE = {"hits": 0.5, "hr": 0.5, "rbi": 0.5, "ks": 3.5}
+MIN_PROP_LINE = {"hits": 0.5, "hr": 0.5, "rbi": 0.5, "ks": 3.5, "tb": 0.5, "hrr": 0.5}
 
 
 def _store_daily_lines(game_date: str, player_props: dict, name_to_id: dict) -> None:

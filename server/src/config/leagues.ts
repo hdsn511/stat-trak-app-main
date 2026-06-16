@@ -67,7 +67,7 @@ const MLB: LeagueConfig = {
   statsTable: 'mlb_player_stats',
   dailyConditionsTable: 'mlb_daily_conditions',
   // pick stat keys (from generate_mlb) + streak/trend stat keys
-  statLabels: { hits: 'H', hr: 'HR', rbi: 'RBI', ks: 'K', tb: 'TB', runs: 'R' },
+  statLabels: { hits: 'H', hr: 'HR', rbi: 'RBI', ks: 'K', tb: 'TB', runs: 'R', hrr: 'H+R+RBI' },
   trendStatNames: { 0: 'hits', 1: 'total_bases', 2: 'rbi', 3: 'runs', 4: 'home_runs' },
   validStatIds: [0, 1, 2, 3, 4],
   statConfig: {

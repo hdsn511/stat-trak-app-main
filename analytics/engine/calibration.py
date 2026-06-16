@@ -63,6 +63,8 @@ STAT_SPEC: dict[str, tuple[str, str, list[float]]] = {
     "runs": ("runs", "plate_appearances", [0.5, 1.5]),
     "hr":   ("home_runs", "plate_appearances", [0.5, 1.5]),
     "ks":   ("strikeouts_pitched", "batters_faced", [3.5, 4.5, 5.5, 6.5, 7.5]),
+    # combo: hits + runs + RBIs (KXMLBHRR); the 'hrr' column is derived in _load_stats
+    "hrr":  ("hrr", "plate_appearances", [0.5, 1.5, 2.5, 3.5, 4.5]),
 }
 
 _CURVES_CACHE: Optional[dict] = None
@@ -108,6 +110,9 @@ def _load_stats() -> pd.DataFrame:
             break
         page += 1
     df = pd.DataFrame(rows)
+    # derived combo column for the KXMLBHRR market
+    if {"hits", "runs", "rbi"}.issubset(df.columns):
+        df["hrr"] = df["hits"] + df["runs"] + df["rbi"]
     print(f"  Loaded {len(df)} mlb_player_stats rows (>= {HIST_START}).")
     return df
 

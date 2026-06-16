@@ -31,6 +31,7 @@ from analytics.db.connection import (
     MLB_LEAGUE_ID,
     MLB_STAT_COLUMN_MAP,
     mlb_season_for_date,
+    mlb_value_cols,
     supabase,
 )
 from analytics.data.mlb import client as mlb
@@ -510,7 +511,7 @@ def reconcile_picks(through_date: date) -> None:
              .lte("game_date", cutoff)
              .execute()).data or []
     # Only player props carry a stat column we can grade.
-    gradeable = [p for p in picks if MLB_STAT_COLUMN_MAP.get((p.get("stat") or "").lower())]
+    gradeable = [p for p in picks if mlb_value_cols((p.get("stat") or "").lower())]
     if not gradeable:
         print(f"[Step 0] No unresolved MLB player picks through {cutoff}.")
         return
@@ -540,12 +541,12 @@ def reconcile_picks(through_date: date) -> None:
     print(f"[Step 0] Reconciling {len(gradeable)} unresolved MLB player pick(s) through {cutoff}")
     resolved = voided = deferred = 0
     for pick in gradeable:
-        col = MLB_STAT_COLUMN_MAP[(pick["stat"]).lower()]
-        srow = (supabase.table("mlb_player_stats").select(col)
+        cols = mlb_value_cols((pick["stat"]).lower())
+        srow = (supabase.table("mlb_player_stats").select(",".join(cols))
                 .eq("player_id", pick["entity_id"]).eq("game_date", pick["game_date"])
                 .limit(1).execute()).data
-        if srow and srow[0].get(col) is not None:
-            actual = float(srow[0][col])
+        if srow and all(srow[0].get(c) is not None for c in cols):
+            actual = float(sum(srow[0][c] for c in cols))
             line = pick.get("recommended_line")
             did_hit = (actual > float(line)) if line is not None else None
             supabase.table("pick_results").update(

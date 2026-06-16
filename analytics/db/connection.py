@@ -94,3 +94,17 @@ MLB_STAT_COLUMN_MAP = {
     "hr":   "home_runs",
     "ks":   "strikeouts_pitched",   # pitcher strikeouts
 }
+
+# Combo/derived stats: stat key -> component columns to SUM (no single column).
+# Kalshi lists these as their own markets (e.g. KXMLBHRR = hits + runs + RBIs).
+MLB_DERIVED_STAT_COLS = {
+    "hrr": ["hits", "runs", "rbi"],
+}
+
+def mlb_value_cols(stat: str) -> list[str]:
+    """Columns whose SUM is the value of `stat` for one player-game. Single-column
+    stats come from MLB_STAT_COLUMN_MAP; combos from MLB_DERIVED_STAT_COLS."""
+    if stat in MLB_DERIVED_STAT_COLS:
+        return list(MLB_DERIVED_STAT_COLS[stat])
+    col = MLB_STAT_COLUMN_MAP.get(stat)
+    return [col] if col else []

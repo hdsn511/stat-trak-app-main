@@ -193,8 +193,10 @@ export async function getTopPicks(req: Request<{}, {}, {}, { limit?: string }>, 
       const gm: any = gameMap.get(g.entity_id) ?? {};
       const home = teamMap.get(gm.home_team_id) ?? null;
       const away = teamMap.get(gm.away_team_id) ?? null;
-      const spreadTeam: string | null =
-        g.prop_type === 'spread' ? (g.modifiers?.team_abbr ?? null) : null;
+      // The bet's team — for spread AND moneyline (winner), from modifiers.
+      const pickTeam: string | null =
+        (g.prop_type === 'spread' || g.prop_type === 'winner')
+          ? (g.modifiers?.team_abbr ?? null) : null;
       return {
         game_id: g.entity_id,
         prop_type: g.prop_type,
@@ -202,7 +204,7 @@ export async function getTopPicks(req: Request<{}, {}, {}, { limit?: string }>, 
         away_team: away,
         pick_type: g.pick_type,
         line: g.prop_type === 'winner' ? null : g.recommended_line,
-        spread_team: spreadTeam,
+        spread_team: pickTeam,
         hit_rate: g.hit_rate,
         confidence: g.confidence_score,
         edge: g.edge,

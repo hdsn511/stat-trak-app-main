@@ -3,12 +3,13 @@ import { Link } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { TopPickPlayer, TopPickGame, TopPicksResponse } from '@/services/api'
 
-type PropTab = 'player' | 'spread' | 'total'
+type PropTab = 'player' | 'winner' | 'spread' | 'total'
 type BucketTab = 50 | 60 | 70 | 80
 
 const BUCKET_TABS: BucketTab[] = [50, 60, 70, 80]
 const PROP_TABS: { key: PropTab; label: string }[] = [
   { key: 'player', label: 'Player Props' },
+  { key: 'winner', label: 'Moneyline' },
   { key: 'spread', label: 'Spread' },
   { key: 'total',  label: 'Total' },
 ]
@@ -28,13 +29,16 @@ export default function PropsTable({ picks }: PropsTableProps) {
   const [propTab, setPropTab] = useState<PropTab>('player')
   const [bucket, setBucket] = useState<BucketTab>(70)
 
-  // Auto-select the first bucket that has picks when data loads
+  // Auto-select the bucket holding the MOST picks (ties → higher bucket), so a
+  // sparse slate's picks aren't hidden behind an empty default tab.
   useEffect(() => {
     if (!picks?.player?.length) return
-    const probs = picks.player.map(p => p.implied_prob)
-    for (const b of [70, 80, 60, 50] as BucketTab[]) {
-      if (probs.some(prob => inBucket(prob, b))) { setBucket(b); return }
+    let best: BucketTab = 70, bestCount = -1
+    for (const b of [80, 70, 60, 50] as BucketTab[]) {
+      const c = picks.player.filter(p => inBucket(p.implied_prob, b)).length
+      if (c > bestCount) { bestCount = c; best = b }
     }
+    setBucket(best)
   }, [picks])
 
   // Count picks per bucket for tab labels
@@ -51,18 +55,15 @@ export default function PropsTable({ picks }: PropsTableProps) {
   // Game props (spread/total) are value bets that often sit below the 50% market
   // bucket (e.g. an underpriced over) — show all of them ranked by edge rather
   // than bucket-filtering, which is meant for player props.
-  const spreadRows: TopPickGame[] = (picks?.game ?? [])
-    .filter(g => g.prop_type === 'spread')
-    .sort((a, b) => b.edge - a.edge)
-    .slice(0, 10)
-
-  const totalRows: TopPickGame[] = (picks?.game ?? [])
-    .filter(g => g.prop_type === 'total')
-    .sort((a, b) => b.edge - a.edge)
-    .slice(0, 10)
+  const gameByType = (t: TopPickGame['prop_type']): TopPickGame[] =>
+    (picks?.game ?? []).filter(g => g.prop_type === t).sort((a, b) => b.edge - a.edge).slice(0, 10)
+  const winnerRows = gameByType('winner')
+  const spreadRows = gameByType('spread')
+  const totalRows = gameByType('total')
 
   const isEmpty =
     propTab === 'player' ? playerRows.length === 0 :
+    propTab === 'winner' ? winnerRows.length === 0 :
     propTab === 'spread' ? spreadRows.length === 0 :
     totalRows.length === 0
 
@@ -151,24 +152,27 @@ export default function PropsTable({ picks }: PropsTableProps) {
                 </span>
               </Link>
             ))
-            : (propTab === 'spread' ? spreadRows : totalRows).map((g, i) => (
+            : (propTab === 'winner' ? winnerRows : propTab === 'spread' ? spreadRows : totalRows).map((g, i) => {
+              const label = propTab === 'winner' ? 'Moneyline' : propTab === 'spread' ? 'Spread' : 'Total'
+              const lineDisplay =
+                propTab === 'winner' ? (g.spread_team ? `${g.spread_team} ML` : 'ML')
+                : propTab === 'spread' && g.spread_team && g.line != null ? `${g.spread_team} -${g.line}`
+                : g.line ?? '—'
+              return (
               <div key={i} className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr] gap-2 px-4 py-2.5 border-b border-[#0F0F0F] hover:bg-white/[0.02] transition-colors">
                 <div>
                   <div className="text-[12px] font-semibold text-white font-condensed truncate">{g.away_team} @ {g.home_team}</div>
-                  <div className="text-[10px] text-gray-600 font-condensed">{propTab === 'spread' ? 'Spread' : 'Total'}</div>
+                  <div className="text-[10px] text-gray-600 font-condensed">{label}</div>
                 </div>
-                <span className="text-[12px] font-mono font-bold text-gray-300 self-center">
-                  {propTab === 'spread' && g.spread_team && g.line != null
-                    ? `${g.spread_team} -${g.line}`
-                    : g.line ?? '—'}
-                </span>
+                <span className="text-[12px] font-mono font-bold text-gray-300 self-center">{lineDisplay}</span>
                 <span className="text-[12px] font-mono font-bold text-gray-300 self-center">{g.implied_prob != null ? Math.round(g.implied_prob * 100) + '%' : '—'}</span>
                 <span className="text-[12px] font-mono font-bold text-gray-300 self-center">{Math.round(g.hit_rate * 100)}%</span>
                 <span className={cn('text-[12px] font-mono font-bold self-center', g.edge >= 0.1 ? 'text-mint' : 'text-gray-500')}>
                   +{Math.round(g.edge * 100)}%
                 </span>
               </div>
-            ))
+              )
+            })
           }
         </div>
       )}

@@ -217,10 +217,18 @@ def _fetch_and_insert_box_scores(game_rows: list[dict]) -> int:
         # players). Scheduled/unplayed games would otherwise be written 0-0,
         # making them look complete.
         if side_meta["home"]["parsed"] or side_meta["away"]["parsed"]:
-            score_updates[game_db_id] = {
+            upd = {
                 "home_score": side_meta["home"]["runs"],
                 "away_score": side_meta["away"]["runs"],
             }
+            # A played, past-dated game is final — flip status so logic keyed on
+            # status=2 (health, slate eligibility) sees it. get_slate only sets
+            # status at schedule time (often still 'scheduled'/'live'); re-fetched
+            # past games never got corrected. Guard on date to avoid marking an
+            # in-progress game final.
+            if date_str < _date_str(date.today()):
+                upd["status"] = 2
+            score_updates[game_db_id] = upd
 
     # ── Self-heal any historical players not on a current roster
     _self_heal_players(all_person_ids, team_by_person, player_map, throw_hand)

@@ -657,7 +657,9 @@ class KalshiClient:
 
             line  = self._extract_line(market)
             price = self._parse_price(market)
-            if line is None or price is None:
+            # Moneyline (winner) markets have no strike line — keep them; only
+            # spread/total require a line.
+            if price is None or (line is None and prop_type != "winner"):
                 continue
 
             event_key = self._extract_event_key(market)

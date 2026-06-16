@@ -567,6 +567,51 @@ def reconcile_picks(through_date: date) -> None:
           f"of {len(gradeable)}.")
 
 
+def reconcile_game_picks(through_date: date) -> None:
+    """Settle MLB game-prop picks (winner / spread / total) from final scores.
+    entity_id is the game id; modifiers.team_abbr is the bet side for ML/spread.
+    Player props are graded by reconcile_picks; this is the game-prop analog the
+    MLB pipeline was missing."""
+    cutoff = _date_str(min(through_date, date.today() - timedelta(days=1)))
+    picks = (supabase.table("pick_results")
+             .select("id,entity_id,prop_type,recommended_line,modifiers,game_date")
+             .eq("league_id", MLB_LEAGUE_ID).is_("actual_result", "null")
+             .in_("prop_type", ["winner", "spread", "total"])
+             .lte("game_date", cutoff).execute()).data or []
+    if not picks:
+        print("[Step 0b] No unresolved MLB game picks.")
+        return
+    gids = list({p["entity_id"] for p in picks})
+    games: dict[int, dict] = {}
+    for i in range(0, len(gids), 100):
+        for g in (supabase.table("games")
+                  .select("id,home_team_id,away_team_id,home_score,away_score")
+                  .in_("id", gids[i:i + 100]).execute()).data or []:
+            games[g["id"]] = g
+    _, _, abbr_to_id = _team_maps()
+    resolved = 0
+    for p in picks:
+        g = games.get(p["entity_id"])
+        if not g or g.get("home_score") is None or g.get("away_score") is None:
+            continue  # game not final yet
+        h, a = g["home_score"], g["away_score"]
+        pt = p["prop_type"]
+        line = p.get("recommended_line")
+        if pt == "total":
+            actual = float(h + a)
+            did = actual > line if line is not None else None
+        else:
+            tid = abbr_to_id.get(((p.get("modifiers") or {}).get("team_abbr") or "").upper())
+            is_home = (tid == g["home_team_id"])
+            margin = (h - a) if is_home else (a - h)
+            actual = float(margin)
+            did = (margin > 0) if pt == "winner" else (margin > line if line is not None else None)
+        supabase.table("pick_results").update(
+            {"actual_result": actual, "did_hit": did}).eq("id", p["id"]).execute()
+        resolved += 1
+    print(f"[Step 0b] Resolved {resolved}/{len(picks)} game picks.")
+
+
 # ── Trailing box-score refresh ───────────────────────────────────────────────────
 
 def refetch_recent_boxscores(target_date: date, days: int = REFETCH_WINDOW_DAYS) -> None:
@@ -609,6 +654,10 @@ def run(target_date: date, reconcile_only: bool = False, slate_only: bool = Fals
             reconcile_picks(yesterday)
         except Exception as exc:
             print(f"  ERROR reconcile_picks: {exc}")
+        try:
+            reconcile_game_picks(yesterday)
+        except Exception as exc:
+            print(f"  ERROR reconcile_game_picks: {exc}")
     if reconcile_only:
         print("Reconcile-only complete.")
         return

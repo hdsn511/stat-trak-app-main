@@ -243,17 +243,38 @@ def _abbr_to_team_id(abbr: str) -> Optional[int]:
     return r[0]["id"] if r else None
 
 
+MODEL_SAMPLE = 100  # nominal sample for model-based game probs (passes GAME_MIN_SAMPLE)
+
+
 def backtest_game(game_id: int, prop_type: str, line: float, game_date: str,
                   team_abbr: Optional[str] = None) -> Optional[dict]:
-    """Empirical game-prop backtest.
-      total  -> pool both teams' recent game totals; hit = total > line.
-      spread -> the team_abbr team's recent margins; hit = margin > line
-                ("{team} wins by over {line} runs").
+    """Game-prop probability.
+      winner -> model win prob for the team_abbr side.
+      spread -> model P(team_abbr wins by > line).
+      total  -> empirical pool (disabled in generate; kept for completeness).
     """
     teams = _game_teams(game_id)
     if not teams:
         return None
     home_id, away_id = teams
+
+    if prop_type in ("winner", "spread"):
+        from analytics.engine.mlb_game_model import predict_margin, win_prob, cover_prob
+        pm = predict_margin(home_id, away_id, game_date)
+        if pm is None:
+            return None
+        mu, sigma = pm
+        team_id = _abbr_to_team_id(team_abbr) if team_abbr else home_id
+        is_home = (team_id == home_id)
+        if prop_type == "winner":
+            p = win_prob(mu, sigma) if is_home else (1.0 - win_prob(mu, sigma))
+            breakdown = {"game_model": f"win_prob({team_abbr or 'HOME'})"}
+        else:  # spread: "team_abbr wins by more than `line` runs"
+            p = cover_prob(mu, sigma, line) if is_home else cover_prob(-mu, sigma, line)
+            breakdown = {"game_model": f"cover({team_abbr},{line})"}
+        return {"hit_rate": p, "sample_size": MODEL_SAMPLE,
+                "conditions_matched": 1, "total_conditions": 1,
+                "condition_breakdown": breakdown}
 
     if prop_type == "total":
         pooled = _team_recent_games(home_id, game_date) + _team_recent_games(away_id, game_date)

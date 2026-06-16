@@ -37,6 +37,8 @@ from analytics.data.mlb import client as mlb
 
 ROLLING_WINDOW = 5
 BATTING_ORDER_SLOT_LOOKBACK = 10  # games used to project today's lineup slot
+REFETCH_WINDOW_DAYS = 3  # trailing days of box scores to re-fetch (complete partials)
+MIN_TEAM_BOX_ROWS = 9    # a complete team box score has >= a full batting lineup
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -69,17 +71,31 @@ def _team_maps() -> tuple[dict[str, int], dict[int, str], dict[int, str]]:
     return ext_to_id, id_to_abbr, abbr_to_id
 
 
+def _all_mlb_players(cols: str) -> list[dict]:
+    """Every MLB players row for the given columns, paginated. PostgREST caps a
+    single response at 1000 rows; the MLB players table is ~2k, so an unpaginated
+    fetch silently dropped ~half — which made box-score ingestion skip the players
+    not in the (truncated) map. Always paginate full-table player lookups."""
+    out: list[dict] = []
+    page = 0
+    while True:
+        batch = (supabase.table("players").select(cols)
+                 .eq("league_id", MLB_LEAGUE_ID)
+                 .range(page * 1000, page * 1000 + 999).execute()).data or []
+        out.extend(batch)
+        if len(batch) < 1000:
+            break
+        page += 1
+    return out
+
+
 def _player_map() -> dict[str, int]:
     """MLB player ext_id -> db_id."""
-    rows = (supabase.table("players").select("id,ext_id")
-            .eq("league_id", MLB_LEAGUE_ID).execute()).data or []
-    return {r["ext_id"]: r["id"] for r in rows}
+    return {r["ext_id"]: r["id"] for r in _all_mlb_players("id,ext_id")}
 
 
 def _player_throw_hand() -> dict[int, Optional[str]]:
-    rows = (supabase.table("players").select("id,throw_hand")
-            .eq("league_id", MLB_LEAGUE_ID).execute()).data or []
-    return {r["id"]: r.get("throw_hand") for r in rows}
+    return {r["id"]: r.get("throw_hand") for r in _all_mlb_players("id,throw_hand")}
 
 
 # ── Box score ingestion ────────────────────────────────────────────────────────
@@ -490,9 +506,31 @@ def reconcile_picks(through_date: date) -> None:
     if not gradeable:
         print(f"[Step 0] No unresolved MLB player picks through {cutoff}.")
         return
+
+    # ── Box-score completeness map. We only void a pick (player has no stat line)
+    #    when that player's TEAM box score for the day is complete — i.e. a real
+    #    DNP/scratch. If the team box score is missing/partial (an ingestion gap),
+    #    we DEFER instead of deleting, so the next box-score refetch can fill it.
+    entity_ids = list({p["entity_id"] for p in gradeable})
+    _, _, abbr_to_id = _team_maps()
+    pteam = (supabase.table("players").select("id,team").in_("id", entity_ids).execute()).data or []
+    player_team = {r["id"]: abbr_to_id.get((r.get("team") or "").upper()) for r in pteam}
+    min_date = min(p["game_date"] for p in gradeable)
+    team_day_rows: dict[tuple[str, int], int] = {}
+    page = 0
+    while True:
+        batch = (supabase.table("mlb_player_stats").select("team_id,game_date")
+                 .gte("game_date", min_date).lte("game_date", cutoff)
+                 .range(page * 1000, page * 1000 + 999).execute()).data or []
+        for s in batch:
+            k = (s["game_date"], s["team_id"])
+            team_day_rows[k] = team_day_rows.get(k, 0) + 1
+        if len(batch) < 1000:
+            break
+        page += 1
+
     print(f"[Step 0] Reconciling {len(gradeable)} unresolved MLB player pick(s) through {cutoff}")
-    resolved = 0
-    voided = 0
+    resolved = voided = deferred = 0
     for pick in gradeable:
         col = MLB_STAT_COLUMN_MAP[(pick["stat"]).lower()]
         srow = (supabase.table("mlb_player_stats").select(col)
@@ -505,11 +543,43 @@ def reconcile_picks(through_date: date) -> None:
             supabase.table("pick_results").update(
                 {"actual_result": actual, "did_hit": did_hit}).eq("id", pick["id"]).execute()
             resolved += 1
-        else:
-            # Final game, no stat line → un-gradeable (scratched starter / DNP). Void.
+            continue
+        # No stat line for this player.
+        tid = player_team.get(pick["entity_id"])
+        box_complete = tid is not None and team_day_rows.get((pick["game_date"], tid), 0) >= MIN_TEAM_BOX_ROWS
+        if box_complete:
+            # Complete box score, player absent → genuine DNP/scratch (market voids).
             supabase.table("pick_results").delete().eq("id", pick["id"]).execute()
             voided += 1
-    print(f"  Resolved {resolved}, voided {voided} un-gradeable of {len(gradeable)}.")
+        else:
+            # Missing/partial box score → ingestion gap; keep pending for the refetch.
+            deferred += 1
+    print(f"  Resolved {resolved}, voided {voided}, deferred {deferred} (incomplete box score) "
+          f"of {len(gradeable)}.")
+
+
+# ── Trailing box-score refresh ───────────────────────────────────────────────────
+
+def refetch_recent_boxscores(target_date: date, days: int = REFETCH_WINDOW_DAYS) -> None:
+    """Re-fetch + upsert box scores for the trailing `days` of games (now final).
+
+    Games are first ingested while still in progress, leaving a PARTIAL player set
+    that backfill_completed_games never revisits (it only fills dates with zero
+    rows). This idempotently completes them so reconciliation grades against full
+    box scores and the auto-void doesn't delete gradeable picks. Today is excluded
+    (handled by the live fetch)."""
+    start = _date_str(target_date - timedelta(days=days))
+    end = _date_str(target_date)
+    games = (supabase.table("games")
+             .select("id, ext_id, game_date, home_team_id, away_team_id")
+             .eq("league_id", MLB_LEAGUE_ID)
+             .gte("game_date", start).lt("game_date", end)
+             .execute()).data or []
+    if not games:
+        print(f"[Refetch] No games {start}..{end} to refresh.")
+        return
+    print(f"[Refetch] Completing box scores for {len(games)} game(s) {start}..{end}")
+    _fetch_and_insert_box_scores(games)
 
 
 # ── Orchestrator ───────────────────────────────────────────────────────────────
@@ -521,6 +591,11 @@ def run(target_date: date, reconcile_only: bool = False, slate_only: bool = Fals
     print("=" * 60)
 
     if not slate_only:
+        # Complete any partial recent box scores BEFORE grading picks against them.
+        try:
+            refetch_recent_boxscores(target_date)
+        except Exception as exc:
+            print(f"  ERROR refetch box scores: {exc}")
         try:
             reconcile_picks(yesterday)
         except Exception as exc:

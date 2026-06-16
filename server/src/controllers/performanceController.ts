@@ -220,6 +220,15 @@ async function paginateStats(
   return rows;
 }
 
+/** All players for a league tag, paginated — MLB has ~2k players so the default
+ *  1000-row cap silently truncated streak eligibility to half the league. */
+async function fetchAllPlayers(leagueTag: string): Promise<any[]> {
+  return paginateStats(
+    () => supabaseAdmin.from('players').select('id, name, team, position').eq('league', leagueTag),
+    'id',
+  );
+}
+
 export async function getStreakOutcomes(req: Request<{}, {}, {}, { days?: string }>, res: Response) {
   try {
     const lg = resolveLeague(res);
@@ -237,9 +246,9 @@ export async function getStreakOutcomes(req: Request<{}, {}, {}, { days?: string
     //    For today (pending): use ESPN scoreboard, same as the NBA streaks page.
     //    For historical dates: use the games table + player_availability.
 
-    const [{ data: teamRows }, { data: allPlayerRows }] = await Promise.all([
+    const [{ data: teamRows }, allPlayerRows] = await Promise.all([
       supabaseAdmin.from('teams').select('id, abbreviation').eq('league_id', lg.leagueId),
-      supabaseAdmin.from('players').select('id, name, team, position').eq('league', lg.playerLeagueTag),
+      fetchAllPlayers(lg.playerLeagueTag),
     ]);
 
     const teamIdToAbbr = new Map<number, string>();
@@ -534,9 +543,9 @@ export async function getStreakPerformance(req: Request<{}, {}, {}, { days?: str
     const extCutoff = new Date(Date.parse(cutoff + 'T00:00:00Z') - 180 * 86400000).toISOString().slice(0, 10);
 
     // ── Build eligibleByDate — same logic as getStreakOutcomes ────────────────
-    const [{ data: teamRows }, { data: allPlayerRows }] = await Promise.all([
+    const [{ data: teamRows }, allPlayerRows] = await Promise.all([
       supabaseAdmin.from('teams').select('id, abbreviation').eq('league_id', lg.leagueId),
-      supabaseAdmin.from('players').select('id, name, team, position').eq('league', lg.playerLeagueTag),
+      fetchAllPlayers(lg.playerLeagueTag),
     ]);
 
     const teamIdToAbbr = new Map<number, string>();

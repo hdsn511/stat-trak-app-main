@@ -93,32 +93,35 @@ export default function PropsTable({ picks }: PropsTableProps) {
         ))}
       </div>
 
-      {/* Bucket tabs */}
-      <div className="flex gap-1 px-4 py-2.5 border-b border-[#111]">
-        <span className="text-[9px] text-gray-700 font-condensed uppercase tracking-widest self-center mr-1">Mkt %</span>
-        {BUCKET_TABS.map(b => (
-          <button
-            key={b}
-            onClick={() => setBucket(b)}
-            className={cn(
-              'px-2.5 py-1 rounded-lg text-[11px] font-bold font-mono transition-colors flex items-center gap-1',
-              bucket === b
-                ? 'bg-mint text-black'
-                : 'bg-[#141414] text-gray-600 hover:text-white border border-[#222]'
-            )}
-          >
-            {b}
-            {bucketCounts[b] > 0 && (
-              <span className={cn(
-                'text-[9px] font-bold rounded-full w-3.5 h-3.5 flex items-center justify-center leading-none',
-                bucket === b ? 'bg-black/20 text-black' : 'bg-[#222] text-gray-500'
-              )}>
-                {bucketCounts[b]}
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
+      {/* Market-% buckets apply only to player props (game props aren't
+          bucket-filtered) — hide them on the ML / Spread / Total tabs. */}
+      {propTab === 'player' && (
+        <div className="flex gap-1 px-4 py-2.5 border-b border-[#111]">
+          <span className="text-[9px] text-gray-700 font-condensed uppercase tracking-widest self-center mr-1">Mkt %</span>
+          {BUCKET_TABS.map(b => (
+            <button
+              key={b}
+              onClick={() => setBucket(b)}
+              className={cn(
+                'px-2.5 py-1 rounded-lg text-[11px] font-bold font-mono transition-colors flex items-center gap-1',
+                bucket === b
+                  ? 'bg-mint text-black'
+                  : 'bg-[#141414] text-gray-600 hover:text-white border border-[#222]'
+              )}
+            >
+              {b}
+              {bucketCounts[b] > 0 && (
+                <span className={cn(
+                  'text-[9px] font-bold rounded-full w-3.5 h-3.5 flex items-center justify-center leading-none',
+                  bucket === b ? 'bg-black/20 text-black' : 'bg-[#222] text-gray-500'
+                )}>
+                  {bucketCounts[b]}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Table */}
       {isEmpty ? (

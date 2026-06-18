@@ -1,8 +1,10 @@
 name: Nightly MLB Pipeline
 
-# Runs every morning at 7:00am ET (11:00 UTC during EDT) — after the prior
-# night's games are final. Unlike the NBA pipeline, statsapi.mlb.com is NOT
-# IP-blocked from GitHub Actions, so this runs cleanly with no proxy.
+# Primary run is late morning ET — late enough that day-game lineups are posting
+# and night-game probables are known (so the locked slate uses real lineup info),
+# but still after the prior night's games are final for reconcile. Unlike the NBA
+# pipeline, statsapi.mlb.com is NOT IP-blocked from GitHub Actions, so this runs
+# cleanly with no proxy.
 #
 # GitHub's scheduled runs are frequently delayed or silently SKIPPED under load
 # (observed several-hour delays and at least one no-show), so we fire 3x/day and
@@ -18,9 +20,9 @@ name: Nightly MLB Pipeline
 # (reconcile, box scores, slate/lineup sync, enrich, trends) DO run every firing.
 on:
   schedule:
-    - cron: '0 11 * * *'   # primary  (07:00 ET)
-    - cron: '0 15 * * *'   # backup   (11:00 ET) — covers a skipped/delayed 11:00
-    - cron: '0 19 * * *'   # backup   (15:00 ET)
+    - cron: '0 15 * * *'   # primary  (11:00 ET) — day-game lineups posting
+    - cron: '0 18 * * *'   # backup   (14:00 ET) — covers a skipped/delayed primary
+    - cron: '0 21 * * *'   # backup   (17:00 ET) — last resort before night games
   workflow_dispatch:
 
 concurrency:

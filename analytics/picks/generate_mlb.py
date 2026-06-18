@@ -95,11 +95,27 @@ def _store_picks(game_date: str, picks: list[dict]) -> None:
     print(f"  Stored {len(rows)} pick_results rows (snapshot replace).")
 
 
-def generate_picks(game_date: date) -> list[dict]:
+def generate_picks(game_date: date, force: bool = False) -> list[dict]:
     date_str = game_date.strftime("%Y-%m-%d")
     print("=" * 70)
     print(f"StatTrak MLB Pick Generator  |  date: {date_str}")
     print("=" * 70)
+
+    # One slate per day: the pipeline fires 3x/day so a delayed/skipped primary
+    # cron still produces today's picks, but only the FIRST successful pass should
+    # set the slate — later firings must not churn picks against newer Kalshi
+    # lines / lineups. daily_lines is written on every pass that fetched markets
+    # (even one that yielded zero picks), so its presence means a pass already
+    # locked the day; a pass that got no market data leaves it empty and is
+    # correctly retried by the next firing. Pass --force to regenerate on purpose.
+    if not force:
+        existing = (supabase.table("daily_lines").select("id")
+                    .eq("game_date", date_str).eq("league_id", MLB_LEAGUE_ID)
+                    .limit(1).execute()).data or []
+        if existing:
+            print(f"  A pick pass already ran for {date_str} (daily_lines present) — "
+                  f"skipping to keep one slate/day. Use --force to regenerate.")
+            return []
 
     print("\n[Step 1] Screening candidates ...")
     candidates = screen_player_candidates(game_date)
@@ -339,6 +355,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="StatTrak MLB pick generator")
     parser.add_argument("--date", type=str, default=None)
     parser.add_argument("--today", action="store_true")
+    parser.add_argument("--force", action="store_true",
+                        help="regenerate even if today's slate is already locked")
     args = parser.parse_args()
     if args.date:
         d = datetime.strptime(args.date, "%Y-%m-%d").date()
@@ -347,7 +365,7 @@ def main() -> int:
     else:
         d = date.today()
         print(f"  NOTE: no --date; defaulting to today ({d}).")
-    generate_picks(d)
+    generate_picks(d, force=args.force)
     return 0
 
 

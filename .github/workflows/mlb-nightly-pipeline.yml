@@ -5,14 +5,17 @@ name: Nightly MLB Pipeline
 # IP-blocked from GitHub Actions, so this runs cleanly with no proxy.
 #
 # GitHub's scheduled runs are frequently delayed or silently SKIPPED under load
-# (observed several-hour delays and at least one no-show). The whole pipeline is
-# idempotent: daily_lines and pick_results are SNAPSHOT-REPLACED per date+league
-# (generate_mlb._store_daily_lines / _store_picks), so each firing fully replaces
-# today's slate rather than accumulating. We fire multiple times and let the
-# concurrency guard serialise them — any one firing produces today's slate +
-# picks, and the latest firing is the canonical slate (refreshed against the
-# newest Kalshi lines + confirmed lineups). An empty run is a no-op, so a late
-# firing after games start never wipes a good slate.
+# (observed several-hour delays and at least one no-show), so we fire 3x/day and
+# let the concurrency guard serialise them.
+#
+# PICKS ARE LOCKED TO ONE PASS PER DAY: the FIRST firing that fetches markets
+# generates and locks today's slate; later firings detect that pass (daily_lines
+# present) and SKIP pick generation, so the slate never churns against newer lines
+# or lineups. The backups exist only to cover a skipped/delayed primary — a day
+# that got no market data yet leaves daily_lines empty and is retried by the next
+# firing. generate_mlb still SNAPSHOT-REPLACES per date+league on its single pass
+# (and on a manual --force), so a slate never accumulates. The non-pick steps
+# (reconcile, box scores, slate/lineup sync, enrich, trends) DO run every firing.
 on:
   schedule:
     - cron: '0 11 * * *'   # primary  (07:00 ET)

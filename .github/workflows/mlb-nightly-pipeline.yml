@@ -1,28 +1,27 @@
 name: Nightly MLB Pipeline
 
-# Primary run is late morning ET — late enough that day-game lineups are posting
-# and night-game probables are known (so the locked slate uses real lineup info),
-# but still after the prior night's games are final for reconcile. Unlike the NBA
-# pipeline, statsapi.mlb.com is NOT IP-blocked from GitHub Actions, so this runs
-# cleanly with no proxy.
+# Runs after the prior night's games are final (for reconcile) and then spans the
+# day. Unlike the NBA pipeline, statsapi.mlb.com is NOT IP-blocked from GitHub
+# Actions, so this runs cleanly with no proxy.
 #
-# GitHub's scheduled runs are frequently delayed or silently SKIPPED under load
-# (observed several-hour delays and at least one no-show), so we fire 3x/day and
-# let the concurrency guard serialise them.
+# ADDITIVE-LOCK across the day: Kalshi opens MLB markets PER-GAME close to each
+# game's first pitch, so any single run sees only the games nearest their start
+# (~5 pitchers). generate_mlb freezes each pick at first creation and every firing
+# only ADDS picks for markets that newly opened (see _store_picks), so the 4 runs
+# progressively capture the full day's slate (day games by late morning, night /
+# west-coast games by evening) with no churn and no duplicate stacking. Spacing
+# the runs from late morning to evening is what gives full pitcher coverage.
 #
-# PICKS ARE LOCKED TO ONE PASS PER DAY: the FIRST firing that fetches markets
-# generates and locks today's slate; later firings detect that pass (daily_lines
-# present) and SKIP pick generation, so the slate never churns against newer lines
-# or lineups. The backups exist only to cover a skipped/delayed primary — a day
-# that got no market data yet leaves daily_lines empty and is retried by the next
-# firing. generate_mlb still SNAPSHOT-REPLACES per date+league on its single pass
-# (and on a manual --force), so a slate never accumulates. The non-pick steps
-# (reconcile, box scores, slate/lineup sync, enrich, trends) DO run every firing.
+# Scheduled runs are often delayed or silently SKIPPED under load; the multiple
+# firings + concurrency guard absorb that, and additive-lock makes any overlap
+# harmless. The non-pick steps (reconcile, box scores, slate/lineup sync, enrich,
+# trends) run every firing. Manual --force does a full rebuild of the day.
 on:
   schedule:
-    - cron: '0 15 * * *'   # primary  (11:00 ET) — day-game lineups posting
-    - cron: '0 18 * * *'   # backup   (14:00 ET) — covers a skipped/delayed primary
-    - cron: '0 21 * * *'   # backup   (17:00 ET) — last resort before night games
+    - cron: '0 15 * * *'   # 11:00 ET — day-game lineups/markets posting
+    - cron: '0 18 * * *'   # 14:00 ET — adds early evening games
+    - cron: '0 21 * * *'   # 17:00 ET — adds night-game markets
+    - cron: '0 23 * * *'   # 19:00 ET — adds late / west-coast game markets
   workflow_dispatch:
 
 concurrency:

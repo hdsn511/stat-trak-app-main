@@ -40,7 +40,8 @@ CALIBRATION_WEIGHT = 0.5
 MIN_PROP_LINE = {"hits": 0.5, "hr": 0.5, "rbi": 0.5, "ks": 3.5, "tb": 0.5, "hrr": 0.5}
 
 
-def _store_daily_lines(game_date: str, player_props: dict, name_to_id: dict) -> None:
+def _store_daily_lines(game_date: str, player_props: dict, name_to_id: dict,
+                       force: bool = False) -> None:
     rows = []
     for (player_name, stat), lines in player_props.items():
         entity_id = name_to_id.get(player_name)
@@ -54,20 +55,32 @@ def _store_daily_lines(game_date: str, player_props: dict, name_to_id: dict) -> 
                 "is_first_half": False, "league_id": MLB_LEAGUE_ID,
             })
     if not rows:
-        print("  No daily_lines to store (keeping existing snapshot).")
+        print("  No daily_lines to store.")
         return
-    # Snapshot semantics: each pipeline run REPLACES this date's lines instead of
-    # appending. Kalshi prices/markets drift through the day, so without this the
-    # 3 daily runs stacked ~3x duplicate rows per date. The empty-run guard above
-    # means a late run that finds no markets never wipes a good snapshot.
-    supabase.table("daily_lines").delete().eq("game_date", game_date)\
-        .eq("league_id", MLB_LEAGUE_ID).execute()
-    for i in range(0, len(rows), 500):
-        supabase.table("daily_lines").insert(rows[i:i + 500]).execute()
-    print(f"  Stored {len(rows)} daily_lines rows (snapshot replace).")
+    if force:
+        # Full rebuild: clear the day's lines, then insert fresh.
+        supabase.table("daily_lines").delete().eq("game_date", game_date)\
+            .eq("league_id", MLB_LEAGUE_ID).execute()
+        new_rows = rows
+    else:
+        # Additive: only insert (entity_id, stat, line) combos not already stored
+        # for the day. Kalshi opens markets per-game near first pitch, so the
+        # 3x/day runs progressively capture each game's lines as they list, with
+        # no duplicate rows and the first-seen price kept.
+        existing = (supabase.table("daily_lines").select("entity_id,stat,line")
+                    .eq("game_date", game_date).eq("league_id", MLB_LEAGUE_ID)
+                    .execute()).data or []
+        seen = {(r["entity_id"], r["stat"], r["line"]) for r in existing}
+        new_rows = [r for r in rows if (r["entity_id"], r["stat"], r["line"]) not in seen]
+    if not new_rows:
+        print(f"  No new daily_lines to add ({len(rows)} already present).")
+        return
+    for i in range(0, len(new_rows), 500):
+        supabase.table("daily_lines").insert(new_rows[i:i + 500]).execute()
+    print(f"  Added {len(new_rows)} daily_lines rows ({len(rows) - len(new_rows)} already present).")
 
 
-def _store_picks(game_date: str, picks: list[dict]) -> None:
+def _store_picks(game_date: str, picks: list[dict], force: bool = False) -> None:
     if not picks:
         print("  No picks to store.")
         return
@@ -81,18 +94,33 @@ def _store_picks(game_date: str, picks: list[dict]) -> None:
         "modifiers": p.get("modifiers", {}), "alt_lines_tested": p.get("alt_lines_tested"),
         "league_id": MLB_LEAGUE_ID,
     } for p in picks]
-    # Snapshot semantics: replace this date's *ungraded* MLB picks with the current
-    # run instead of accumulating across the 3 daily pipeline runs. The slate's
-    # inputs (Kalshi markets/prices + confirmed lineups) drift hour-to-hour, so each
-    # run surfaced a different set and the table grew to the union of all runs.
-    # Already-graded rows (actual_result set by reconcile, which runs only for past
-    # dates) are preserved; the empty-run guard above means a late/empty run is a
-    # no-op and never wipes the slate.
-    supabase.table("pick_results").delete().eq("game_date", game_date)\
-        .eq("league_id", MLB_LEAGUE_ID).is_("actual_result", "null").execute()
-    for i in range(0, len(rows), 500):
-        supabase.table("pick_results").insert(rows[i:i + 500]).execute()
-    print(f"  Stored {len(rows)} pick_results rows (snapshot replace).")
+    # ADDITIVE-LOCK: a pick is frozen at first creation and never changed by later
+    # runs; each run only INSERTS picks whose (entity_id, stat, pick_type) isn't
+    # already stored for the day. Kalshi opens MLB markets per-game close to first
+    # pitch, so any single run sees only the games nearest their start (~5
+    # pitchers). The 3x/day runs therefore accumulate each game's pitcher/batter
+    # markets AS THEY OPEN — capturing the full day's slate without ever churning
+    # an existing pick against newer lines or stacking duplicates (the bug that
+    # made one slate balloon to the union of all runs). --force does a full
+    # rebuild of the day's ungraded picks instead.
+    if force:
+        supabase.table("pick_results").delete().eq("game_date", game_date)\
+            .eq("league_id", MLB_LEAGUE_ID).is_("actual_result", "null").execute()
+        new_rows = rows
+    else:
+        existing = (supabase.table("pick_results").select("entity_id,stat,pick_type")
+                    .eq("game_date", game_date).eq("league_id", MLB_LEAGUE_ID)
+                    .execute()).data or []
+        seen = {(r["entity_id"], r["stat"], r["pick_type"]) for r in existing}
+        new_rows = [r for r in rows
+                    if (r["entity_id"], r["stat"], r["pick_type"]) not in seen]
+    if not new_rows:
+        print(f"  No new picks to add — all {len(rows)} already locked.")
+        return
+    for i in range(0, len(new_rows), 500):
+        supabase.table("pick_results").insert(new_rows[i:i + 500]).execute()
+    print(f"  Added {len(new_rows)} pick_results rows "
+          f"({len(rows) - len(new_rows)} already locked).")
 
 
 def generate_picks(game_date: date, force: bool = False) -> list[dict]:
@@ -100,22 +128,8 @@ def generate_picks(game_date: date, force: bool = False) -> list[dict]:
     print("=" * 70)
     print(f"StatTrak MLB Pick Generator  |  date: {date_str}")
     print("=" * 70)
-
-    # One slate per day: the pipeline fires 3x/day so a delayed/skipped primary
-    # cron still produces today's picks, but only the FIRST successful pass should
-    # set the slate — later firings must not churn picks against newer Kalshi
-    # lines / lineups. daily_lines is written on every pass that fetched markets
-    # (even one that yielded zero picks), so its presence means a pass already
-    # locked the day; a pass that got no market data leaves it empty and is
-    # correctly retried by the next firing. Pass --force to regenerate on purpose.
-    if not force:
-        existing = (supabase.table("daily_lines").select("id")
-                    .eq("game_date", date_str).eq("league_id", MLB_LEAGUE_ID)
-                    .limit(1).execute()).data or []
-        if existing:
-            print(f"  A pick pass already ran for {date_str} (daily_lines present) — "
-                  f"skipping to keep one slate/day. Use --force to regenerate.")
-            return []
+    # Additive-lock (see _store_picks): every firing processes the slate and adds
+    # only newly-opened markets; existing picks stay frozen. --force rebuilds.
 
     print("\n[Step 1] Screening candidates ...")
     candidates = screen_player_candidates(game_date)
@@ -135,7 +149,7 @@ def generate_picks(game_date: date, force: bool = False) -> list[dict]:
     name_to_id = {r["name"].lower(): r["id"] for r in rows}
     id_to_name = {r["id"]: r["name"] for r in rows}
 
-    _store_daily_lines(date_str, player_props, name_to_id)
+    _store_daily_lines(date_str, player_props, name_to_id, force=force)
 
     print("\n[Steps 3+4] Backtesting + scoring ...")
     grouped: dict[tuple[int, str], list[dict]] = {}
@@ -332,7 +346,7 @@ def generate_picks(game_date: date, force: bool = False) -> list[dict]:
     print(f"  Final picks: {len(picks)}")
 
     print("\n[Step 5] Storing picks ...")
-    _store_picks(date_str, picks)
+    _store_picks(date_str, picks, force=force)
 
     # summary
     print("\n" + "=" * 70)

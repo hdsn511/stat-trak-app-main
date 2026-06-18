@@ -6,9 +6,13 @@ name: Nightly MLB Pipeline
 #
 # GitHub's scheduled runs are frequently delayed or silently SKIPPED under load
 # (observed several-hour delays and at least one no-show). The whole pipeline is
-# idempotent (every write is an upsert), so we fire multiple times and let the
+# idempotent: daily_lines and pick_results are SNAPSHOT-REPLACED per date+league
+# (generate_mlb._store_daily_lines / _store_picks), so each firing fully replaces
+# today's slate rather than accumulating. We fire multiple times and let the
 # concurrency guard serialise them — any one firing produces today's slate +
-# picks. The later runs also refresh picks against newer Kalshi lines.
+# picks, and the latest firing is the canonical slate (refreshed against the
+# newest Kalshi lines + confirmed lineups). An empty run is a no-op, so a late
+# firing after games start never wipes a good slate.
 on:
   schedule:
     - cron: '0 11 * * *'   # primary  (07:00 ET)

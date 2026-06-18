@@ -53,10 +53,18 @@ def _store_daily_lines(game_date: str, player_props: dict, name_to_id: dict) -> 
                 "implied_prob": e["implied_prob"], "market_ticker": e.get("ticker", ""),
                 "is_first_half": False, "league_id": MLB_LEAGUE_ID,
             })
-    if rows:
-        for i in range(0, len(rows), 500):
-            supabase.table("daily_lines").insert(rows[i:i + 500]).execute()
-    print(f"  Stored {len(rows)} daily_lines rows.")
+    if not rows:
+        print("  No daily_lines to store (keeping existing snapshot).")
+        return
+    # Snapshot semantics: each pipeline run REPLACES this date's lines instead of
+    # appending. Kalshi prices/markets drift through the day, so without this the
+    # 3 daily runs stacked ~3x duplicate rows per date. The empty-run guard above
+    # means a late run that finds no markets never wipes a good snapshot.
+    supabase.table("daily_lines").delete().eq("game_date", game_date)\
+        .eq("league_id", MLB_LEAGUE_ID).execute()
+    for i in range(0, len(rows), 500):
+        supabase.table("daily_lines").insert(rows[i:i + 500]).execute()
+    print(f"  Stored {len(rows)} daily_lines rows (snapshot replace).")
 
 
 def _store_picks(game_date: str, picks: list[dict]) -> None:
@@ -73,10 +81,18 @@ def _store_picks(game_date: str, picks: list[dict]) -> None:
         "modifiers": p.get("modifiers", {}), "alt_lines_tested": p.get("alt_lines_tested"),
         "league_id": MLB_LEAGUE_ID,
     } for p in picks]
+    # Snapshot semantics: replace this date's *ungraded* MLB picks with the current
+    # run instead of accumulating across the 3 daily pipeline runs. The slate's
+    # inputs (Kalshi markets/prices + confirmed lineups) drift hour-to-hour, so each
+    # run surfaced a different set and the table grew to the union of all runs.
+    # Already-graded rows (actual_result set by reconcile, which runs only for past
+    # dates) are preserved; the empty-run guard above means a late/empty run is a
+    # no-op and never wipes the slate.
+    supabase.table("pick_results").delete().eq("game_date", game_date)\
+        .eq("league_id", MLB_LEAGUE_ID).is_("actual_result", "null").execute()
     for i in range(0, len(rows), 500):
-        supabase.table("pick_results").upsert(
-            rows[i:i + 500], on_conflict="game_date,entity_id,stat,pick_type").execute()
-    print(f"  Stored {len(rows)} pick_results rows.")
+        supabase.table("pick_results").insert(rows[i:i + 500]).execute()
+    print(f"  Stored {len(rows)} pick_results rows (snapshot replace).")
 
 
 def generate_picks(game_date: date) -> list[dict]:
@@ -166,32 +182,46 @@ def generate_picks(game_date: date) -> list[dict]:
     id_to_abbr = {r["id"]: (r["abbreviation"] or "").upper() for r in team_rows}
 
     # Match each Kalshi event_key to a scheduled game by team abbreviations.
+    # A doubleheader (two same-team games on one date) is ambiguous by teams
+    # alone, and we don't yet reconcile the event key's start time against a
+    # stored game time — so we SKIP game props for any matchup that resolves to
+    # more than one game, rather than risk pinning a market to the wrong game.
     event_to_game: dict[str, int] = {}
+    ambiguous: set[str] = set()
     for ek, _pt in game_props:
+        if ek in event_to_game or ek in ambiguous:
+            continue
         eu = ek.upper()
-        for c in game_candidates:
-            h = id_to_abbr.get(c["home_team_id"], ""); a = id_to_abbr.get(c["away_team_id"], "")
-            if h and a and h in eu and a in eu:
-                event_to_game[ek] = c["game_id"]; break
+        matches = [
+            c["game_id"] for c in game_candidates
+            if id_to_abbr.get(c["home_team_id"], "") and id_to_abbr.get(c["away_team_id"], "")
+            and id_to_abbr.get(c["home_team_id"], "") in eu
+            and id_to_abbr.get(c["away_team_id"], "") in eu
+        ]
+        if len(matches) == 1:
+            event_to_game[ek] = matches[0]
+        elif len(matches) > 1:
+            ambiguous.add(ek)
+            print(f"  SKIP {ek}: matches {len(matches)} same-day games (doubleheader) — no game prop")
 
-    # Game props need BOTH positive edge AND a respectable market price. A 15%
-    # edge on a 20-30% alt line is still a longshot we don't want: the model's
-    # tail (run-environment / margin) estimates are least reliable there
-    # (6/13: totals priced ~32% hit only ~17%), and heavy alt spreads/totals are
-    # high-variance. So we floor implied prob the same way player props do, and
-    # pick the qualifying line CLOSEST to the main number (highest implied prob),
-    # not the biggest-edge longshot.
-    # Game lines are efficiently priced, so the model's real edge is small and
-    # lives in near-even games (it leans a coin-flip), NOT strong favorites
-    # (where the market's extra info wins and our edge goes negative). So require
-    # a small POSITIVE calibrated edge — never a negative/contrarian pick — and
-    # cap to the few strongest per slate. Tuned to surface ~2-3 moneylines on a
-    # full slate without dipping into no-edge picks.
+    # Game props need BOTH positive edge AND a respectable market price, so we
+    # floor implied prob the same way player props do (excludes heavy longshot
+    # alts). Game lines are efficiently priced, so the model's real edge is small
+    # and lives where the market misprices — require a small POSITIVE calibrated
+    # edge (never a contrarian pick) and cap to the few strongest per slate.
+    #
+    # SPREAD line selection: a 972-game OOS calibration
+    # (analytics/engine/validate_game_lines.py) showed cover_prob is well
+    # calibrated at EVERY run line, incl. the underdog +1.5/+2.5/+3.5 cushions
+    # (gap <=0.03 at the tails). So instead of forcing the line closest to the
+    # main number, we take the best-VALUE alt line per game. One pick per game:
+    # alt lines on the same game are correlated, so we don't stack them.
+    # WINNER keeps the line closest to the main number (highest implied prob).
     GAME_MIN_EDGE = 0.02
     GAME_MIN_SAMPLE = 12
     GAME_MIN_IMPLIED_PROB = 0.47   # no heavy alt lines; mirrors player MIN_IMPLIED_PROB
     MAX_WINNER_PICKS = 3
-    MAX_SPREAD_PICKS = 2
+    MAX_SPREAD_PICKS = 4           # alt run lines now eligible (best-value per game)
     # Totals are disabled: a 4,448-game backtest (2024+) showed both the pooled
     # model AND a pitcher-aware run projection (team offense × opposing-starter
     # recent ER, log5) correlate only ~0.08-0.10 with actual game totals — i.e.
@@ -200,6 +230,41 @@ def generate_picks(game_date: date) -> list[dict]:
     # public features plus weather/lineups/bullpen, so there's no residual edge.
     # Re-enable only if a model with real out-of-sample signal is built + validated.
     ENABLE_TOTAL_PICKS = False
+
+    # game_id -> (home_abbr, away_abbr), used to price the underdog +cushion (the
+    # NO side of the opponent's "wins by more than" market).
+    game_abbrs: dict[int, tuple[str, str]] = {
+        c["game_id"]: (id_to_abbr.get(c["home_team_id"], ""), id_to_abbr.get(c["away_team_id"], ""))
+        for c in game_candidates
+    }
+
+    def add_cand(cands: list, game_id: int, ek: str, prop_type: str,
+                 team_abbr, line_val, implied, model_hit, bt) -> None:
+        """Gate one market side; append a candidate if it clears. `line_val` follows
+        the backtest convention: >0 = team wins by more than line (lays runs),
+        <0 = team +|line| cushion (gets runs)."""
+        if implied is None or implied > 0.92 or implied < GAME_MIN_IMPLIED_PROB:
+            return
+        # Calibrate toward market (same blend as player props), gate edge on it.
+        cal = CALIBRATION_WEIGHT * model_hit + (1.0 - CALIBRATION_WEIGHT) * implied
+        edge = cal - implied
+        if edge < GAME_MIN_EDGE:
+            return
+        # Conservative confidence for game props — the margin model is crude, so
+        # cap below strong player picks (keeps POTD a player).
+        confidence = round(min(72.0, 45.0 + edge * 120.0), 2)
+        cands.append({
+            "entity_id": game_id, "entity_name": ek, "prop_type": prop_type,
+            "stat": prop_type, "pick_type": "game", "line": line_val,
+            "implied_prob": implied, "hit_rate": cal,
+            "sample_size": bt["sample_size"], "conditions_matched": bt["conditions_matched"],
+            "total_conditions": bt["total_conditions"],
+            "condition_breakdown": bt.get("condition_breakdown"),
+            "confidence": confidence, "edge": round(edge, 4),
+            "modifiers": {"team_abbr": team_abbr} if team_abbr else {},
+            "alt_lines_tested": None,
+        })
+
     game_results: list[dict] = []
     for (ek, prop_type), lines in game_props.items():
         if prop_type == "total" and not ENABLE_TOTAL_PICKS:
@@ -207,41 +272,36 @@ def generate_picks(game_date: date) -> list[dict]:
         game_id = event_to_game.get(ek)
         if game_id is None:
             continue
-        best: dict | None = None
+        cands: list[dict] = []
         for le in lines:
-            line_val, implied = le["line"], le["implied_prob"]
-            if implied > 0.92:   # near-certain markets: no value
-                continue
-            if implied < GAME_MIN_IMPLIED_PROB:   # heavy alt longshot: skip
-                continue
-            bt = backtest_game_mlb(game_id, prop_type, line_val, date_str, team_abbr=le.get("team_abbr"))
+            line_val, implied, team_abbr = le["line"], le["implied_prob"], le.get("team_abbr")
+            bt = backtest_game_mlb(game_id, prop_type, line_val, date_str, team_abbr=team_abbr)
             if bt is None or bt["sample_size"] < GAME_MIN_SAMPLE:
                 continue
-            # Calibrate toward market (same blend as player props), gate edge on it.
-            cal = CALIBRATION_WEIGHT * bt["hit_rate"] + (1.0 - CALIBRATION_WEIGHT) * implied
-            edge = cal - implied
-            if edge < GAME_MIN_EDGE:
-                continue
-            # Conservative confidence for game props — the run-environment / margin
-            # model is crude, so cap below strong player picks (keeps POTD a player).
-            confidence = round(min(72.0, 45.0 + edge * 120.0), 2)
-            cand = {
-                "entity_id": game_id, "entity_name": ek, "prop_type": prop_type,
-                "stat": prop_type, "pick_type": "game", "line": line_val,
-                "implied_prob": implied, "hit_rate": cal,
-                "sample_size": bt["sample_size"], "conditions_matched": bt["conditions_matched"],
-                "total_conditions": bt["total_conditions"],
-                "condition_breakdown": bt.get("condition_breakdown"),
-                "confidence": confidence, "edge": round(edge, 4),
-                "modifiers": {"team_abbr": le.get("team_abbr")} if le.get("team_abbr") else {},
-                "alt_lines_tested": None,
-            }
-            # Prefer the qualifying line closest to the main number (highest
-            # implied prob), tie-broken by edge — never the longest-shot alt.
-            if best is None or (cand["implied_prob"], cand["edge"]) > (best["implied_prob"], best["edge"]):
-                best = cand
-        if best is not None:
-            game_results.append(best)
+            model = bt["hit_rate"]
+            # Listed side: "team wins by more than line" (favorite lays runs).
+            add_cand(cands, game_id, ek, prop_type, team_abbr, line_val, implied, model, bt)
+            # Spread complement: the underdog +line cushion (e.g. +1.5/+2.5/+3.5) is
+            # the NO side of this market — opponent gets `line` runs. Margins are
+            # integral so .5 lines never push, making it the exact complement:
+            # P(opp covers +L) = 1 - P(team wins by >L). Implied ~= 1 - YES price.
+            if prop_type == "spread" and line_val is not None and team_abbr:
+                home_ab, away_ab = game_abbrs.get(game_id, ("", ""))
+                opp = away_ab if team_abbr == home_ab else home_ab
+                if opp:
+                    add_cand(cands, game_id, ek, prop_type, opp, -line_val,
+                             1.0 - implied, 1.0 - model, bt)
+        if not cands:
+            continue
+        if prop_type == "spread":
+            # Best-value run line for this game — favorite cover OR underdog cushion;
+            # alt lines are well calibrated (OOS), so trust the biggest edge.
+            best = max(cands, key=lambda c: c["edge"])
+            best["alt_lines_tested"] = len(cands)
+        else:
+            # winner/total: line closest to the main number, tie-broken by edge.
+            best = max(cands, key=lambda c: (c["implied_prob"], c["edge"]))
+        game_results.append(best)
     # Surface only the strongest few game picks per slate (ranked by edge).
     winners = sorted([r for r in game_results if r["prop_type"] == "winner"],
                      key=lambda r: -r["edge"])[:MAX_WINNER_PICKS]
@@ -261,8 +321,14 @@ def generate_picks(game_date: date) -> list[dict]:
     # summary
     print("\n" + "=" * 70)
     for p in picks[:25]:
-        print(f"  {p['entity_name']:<22} {p['stat']:<5} [{p['pick_type']:<5}] "
-              f"line={p['line']:<5} hit={p['hit_rate']:.1%} conf={p['confidence']:.0f} "
+        # Game props (moneyline) have no line, and a name can be missing — keep
+        # the summary print defensive so it never crashes the pipeline.
+        name = p.get("entity_name") or "—"
+        stat = p.get("stat") or "—"
+        line = p.get("line")
+        line_s = f"{line:<5}" if line is not None else "—    "
+        print(f"  {name:<22} {stat:<5} [{p['pick_type']:<5}] "
+              f"line={line_s} hit={p['hit_rate']:.1%} conf={p['confidence']:.0f} "
               f"edge={p['edge']:+.1%} n={p['sample_size']}")
     print("=" * 70)
     print(f"  Total: {len(picks)} MLB picks")

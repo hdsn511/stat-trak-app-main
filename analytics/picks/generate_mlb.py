@@ -114,6 +114,19 @@ def _store_picks(game_date: str, picks: list[dict], force: bool = False) -> None
         seen = {(r["entity_id"], r["stat"], r["pick_type"]) for r in existing}
         new_rows = [r for r in rows
                     if (r["entity_id"], r["stat"], r["pick_type"]) not in seen]
+    # Collapse intra-run duplicates: two Kalshi event keys can resolve to the same
+    # game_id, so a game prop (e.g. "winner") may appear twice with the same
+    # (entity_id, stat, pick_type). The DB-existing filter above doesn't catch
+    # these, and a single batch insert with both would violate the unique
+    # constraint. `rows` is confidence-sorted, so first-wins keeps the strongest.
+    deduped, run_seen = [], set()
+    for r in new_rows:
+        key = (r["entity_id"], r["stat"], r["pick_type"])
+        if key in run_seen:
+            continue
+        run_seen.add(key)
+        deduped.append(r)
+    new_rows = deduped
     if not new_rows:
         print(f"  No new picks to add — all {len(rows)} already locked.")
         return

@@ -22,7 +22,7 @@ from datetime import date, datetime, timedelta
 from analytics.db.connection import supabase, MLB_LEAGUE_ID
 from analytics.engine.backtest_mlb import backtest_player as backtest_player_mlb
 from analytics.engine.backtest_mlb import backtest_game as backtest_game_mlb
-from analytics.engine.scorer import score, MIN_EDGE
+from analytics.engine.scorer import score
 from analytics.engine.calibration import apply_calibration
 from analytics.kalshi.client import KalshiClient
 from analytics.screener.screen_mlb import screen_player_candidates, screen_game_candidates
@@ -38,6 +38,20 @@ CALIBRATION_WEIGHT = 0.5
 
 # Minimum prop line per stat — filter garbage low markets.
 MIN_PROP_LINE = {"hits": 0.5, "hr": 0.5, "rbi": 0.5, "ks": 3.5, "tb": 0.5, "hrr": 0.5}
+
+# Maximum prop line per stat. hrr (hits+runs+RBIs) realises ~58% at the 0.5 line
+# but only ~42% at 1.5+ over settled picks — the alt lines over-extrapolate, so
+# we cap hrr to its over-0.5 market and let other stats run uncapped.
+MAX_PROP_LINE = {"hrr": 0.5}
+
+# Player-prop edge band (on the CALIBRATED edge). Settled pick_results show the
+# model's edge signal only pays inside this window: <0.07 realises ~54% (break-
+# even, pure volume), 0.07-0.15 realises 62-67%, and >=0.15 collapses to ~25% —
+# the classic "false edge" from the model's most over-extrapolated predictions
+# (see analytics/engine/calibration.py). Gate player picks to the band; the
+# scorer's global MIN_EDGE (0.05) still applies as a lower floor inside score().
+PLAYER_MIN_EDGE = 0.07
+PLAYER_MAX_EDGE = 0.15
 
 
 def _store_daily_lines(game_date: str, player_props: dict, name_to_id: dict,
@@ -179,6 +193,8 @@ def generate_picks(game_date: date, force: bool = False) -> list[dict]:
                 line_val, implied = le["line"], le["implied_prob"]
                 if line_val < MIN_PROP_LINE.get(stat, 0):
                     continue
+                if line_val > MAX_PROP_LINE.get(stat, float("inf")):
+                    continue
                 if implied < MIN_IMPLIED_PROB:
                     continue
                 bt = backtest_player_mlb(player_id, stat, line_val, date_str)
@@ -195,7 +211,8 @@ def generate_picks(game_date: date, force: bool = False) -> list[dict]:
                            calibrated_prob=cal_hr)
                 alt_lines.append({"line": line_val, "hit_rate": bt["hit_rate"],
                                   "confidence": sc.get("confidence", 0), "edge": sc.get("edge", 0)})
-                if "reason" in sc or sc["confidence"] < MIN_CONFIDENCE or sc["edge"] < MIN_EDGE:
+                if ("reason" in sc or sc["confidence"] < MIN_CONFIDENCE
+                        or not (PLAYER_MIN_EDGE <= sc["edge"] < PLAYER_MAX_EDGE)):
                     continue
                 stat_passing.append({
                     "entity_id": player_id, "entity_name": id_to_name.get(player_id),

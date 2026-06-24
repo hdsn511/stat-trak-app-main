@@ -44,14 +44,18 @@ MIN_PROP_LINE = {"hits": 0.5, "hr": 0.5, "rbi": 0.5, "ks": 3.5, "tb": 0.5, "hrr"
 # we cap hrr to its over-0.5 market and let other stats run uncapped.
 MAX_PROP_LINE = {"hrr": 0.5}
 
-# Player-prop edge band (on the CALIBRATED edge). Settled pick_results show the
-# model's edge signal only pays inside this window: <0.07 realises ~54% (break-
-# even, pure volume), 0.07-0.15 realises 62-67%, and >=0.15 collapses to ~25% —
-# the classic "false edge" from the model's most over-extrapolated predictions
-# (see analytics/engine/calibration.py). Gate player picks to the band; the
-# scorer's global MIN_EDGE (0.05) still applies as a lower floor inside score().
+# Player-prop edge band (on the CALIBRATED edge). The LOWER bound is well-
+# supported: <0.07 realised ~54% over n=28 (break-even, pure volume) vs 62-67% in
+# 0.07-0.15. The UPPER bound is light insurance, NOT a data-backed filter: the
+# ">=0.15 collapses to ~25%" reading was only n=4 across 3 stats (noise). A high
+# CALIBRATED edge should be a real edge — that's calibration's whole job — so we
+# only guard the extreme tail where the curve has likely under-corrected, and set
+# the ceiling at 0.20 rather than cutting genuinely strong picks at 0.15. Drop the
+# ceiling entirely once calibration is re-fit on settled live pick_results (the
+# tail compresses by construction then). Lower MIN_EDGE (0.05) still applies in
+# score().
 PLAYER_MIN_EDGE = 0.07
-PLAYER_MAX_EDGE = 0.15
+PLAYER_MAX_EDGE = 0.20
 
 
 def _store_daily_lines(game_date: str, player_props: dict, name_to_id: dict,

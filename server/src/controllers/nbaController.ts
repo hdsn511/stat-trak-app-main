@@ -260,6 +260,12 @@ export async function searchPlayers(req: Request<{}, {}, {}, { q?: string }>, re
   }
 }
 
+// MLB pitchers never bat, so their game logs come from the pitching columns of
+// mlb_player_stats and are gated on batters_faced (not plate_appearances).
+const MLB_PITCHER_SELECT =
+  'game_id, team_id, strikeouts_pitched, outs_pitched, earned_runs, hits_allowed, ' +
+  'walks_allowed, home_runs_allowed, batters_faced, game_date, games!inner(game_type)';
+
 export async function getPlayerGames(req: Request<{ id: string }>, res: Response) {
   try {
     const lg = resolveLeague(res);
@@ -274,18 +280,30 @@ export async function getPlayerGames(req: Request<{ id: string }>, res: Response
     })();
     const gameTypes = lg.slug === 'mlb' ? ['regular', 'postseason'] : ['regular', 'playoff', 'playin'];
 
-    const [playerResult, statsResult, trendsResult, allSeasonStats] = await Promise.all([
-      supabaseAdmin
-        .from('players')
-        .select('id, name, team, position')
-        .eq('id', parseInt(id))
-        .single(),
+    // Fetch the player first: for MLB we branch the stat query on whether they
+    // pitch. Pitchers never bat, so the batting "appeared" gate would exclude
+    // them entirely — we chart their pitching line (Ks, outs, ER…) instead.
+    const playerResult = await supabaseAdmin
+      .from('players')
+      .select('id, name, team, position')
+      .eq('id', parseInt(id))
+      .single();
+    if (playerResult.error) throw playerResult.error;
+
+    const isPitcher =
+      lg.slug === 'mlb' &&
+      /^(p|sp|rp|lhp|rhp)$/i.test(((playerResult.data as any)?.position || '').trim());
+
+    const select = isPitcher ? MLB_PITCHER_SELECT : lg.playerGameSelect;
+    const gate = isPitcher ? { col: 'batters_faced', min: 0 } : lg.playedGate;
+
+    const [statsResult, trendsResult, allSeasonStats] = await Promise.all([
       supabaseAdmin
         .from(lg.statsTable)
-        .select(lg.playerGameSelect)
+        .select(select)
         .eq('player_id', parseInt(id))
         .in('games.game_type', gameTypes)
-        .gt(lg.playedGate.col, lg.playedGate.min)
+        .gt(gate.col, gate.min)
         .order('game_date', { ascending: false })
         .limit(20),
       supabaseAdmin
@@ -295,14 +313,13 @@ export async function getPlayerGames(req: Request<{ id: string }>, res: Response
         .eq('window_size', 10),
       supabaseAdmin
         .from(lg.statsTable)
-        .select(lg.playerGameSelect)
+        .select(select)
         .eq('player_id', parseInt(id))
         .gte('game_date', seasonStart)
         .in('games.game_type', gameTypes)
-        .gt(lg.playedGate.col, lg.playedGate.min),
+        .gt(gate.col, gate.min),
     ]);
 
-    if (playerResult.error) throw playerResult.error;
     if (statsResult.error) throw statsResult.error;
     if (trendsResult.error) throw trendsResult.error;
 
@@ -317,7 +334,15 @@ export async function getPlayerGames(req: Request<{ id: string }>, res: Response
     }
 
     // Per-league season-average columns (DB column -> output stat name)
-    const seasonAvgCols: Record<string, string> = lg.slug === 'mlb'
+    const seasonAvgCols: Record<string, string> = isPitcher
+      ? {
+          strikeouts_pitched: 'strikeouts_pitched',
+          outs_pitched: 'outs_pitched',
+          earned_runs: 'earned_runs',
+          hits_allowed: 'hits_allowed',
+          walks_allowed: 'walks_allowed',
+        }
+      : lg.slug === 'mlb'
       ? { hits: 'hits', total_bases: 'total_bases', rbi: 'rbi', runs: 'runs', home_runs: 'home_runs' }
       : { points: 'points', rebounds: 'rebounds', assists: 'assists', three_points_made: 'threes' };
 
@@ -334,6 +359,7 @@ export async function getPlayerGames(req: Request<{ id: string }>, res: Response
     const statsRows = statsResult.data || [];
     const gameIds = [...new Set(statsRows.map((s: any) => s.game_id).filter((g: any) => g != null))];
     const opponentByGameId: Record<number, string> = {};
+    const isHomeByGameId: Record<number, boolean> = {};
     let playerTeamId: number | null = null;
     if (gameIds.length > 0) {
       const { data: gameRows } = await supabaseAdmin
@@ -359,6 +385,7 @@ export async function getPlayerGames(req: Request<{ id: string }>, res: Response
         const myTeamId = (s as any).team_id;
         if (playerTeamId == null) playerTeamId = myTeamId;
         const oppId = g.home_team_id === myTeamId ? g.away_team_id : g.home_team_id;
+        isHomeByGameId[(s as any).game_id] = g.home_team_id === myTeamId;
         const abbr = abbrById[oppId];
         if (abbr) opponentByGameId[(s as any).game_id] = abbr;
       }
@@ -369,12 +396,26 @@ export async function getPlayerGames(req: Request<{ id: string }>, res: Response
       data: {
         player: playerResult.data,
         teamId: playerTeamId,
+        isPitcher,
         games: statsRows.map((g: any) => {
           const base = {
             gameId: g.game_id,
             date: g.game_date,
             opponent: opponentByGameId[g.game_id] ?? undefined,
+            isHome: isHomeByGameId[g.game_id] ?? undefined,
           };
+          if (isPitcher) {
+            return {
+              ...base,
+              strikeoutsPitched: g.strikeouts_pitched,
+              outsPitched: g.outs_pitched,
+              earnedRuns: g.earned_runs,
+              hitsAllowed: g.hits_allowed,
+              walksAllowed: g.walks_allowed,
+              homeRunsAllowed: g.home_runs_allowed,
+              battersFaced: g.batters_faced,
+            };
+          }
           if (lg.slug === 'mlb') {
             return {
               ...base,

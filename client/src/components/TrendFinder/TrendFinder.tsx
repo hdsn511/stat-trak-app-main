@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { nbaApi, TrendingPlayer, LeagueApi } from '@/services/api'
+import { playerPath } from '@/lib/playerPath'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -173,7 +174,7 @@ export default function TrendFinder(
       {!loading && players.map((player, i) => (
         <button
           key={`${player.playerId}-${player.statId}-${i}`}
-          onClick={() => navigate(`/player/${player.playerId}`, { state: { player } })}
+          onClick={() => navigate(playerPath(api.slug, player.playerId), { state: { player } })}
           className="w-full flex items-center gap-4 px-4 py-3.5 bg-[#0D0D0D] border border-[#161616] rounded-xl hover:border-mint/25 hover:bg-[#0D1A14] transition-all text-left group"
         >
           <div className="w-9 h-9 rounded-xl bg-[#161616] flex items-center justify-center text-[11px] font-black text-mint flex-shrink-0 font-condensed group-hover:bg-mint/10 transition-colors">

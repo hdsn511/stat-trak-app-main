@@ -342,6 +342,16 @@ export async function getPerfectStreaks(req: Request<{}, {}, {}, { type?: string
       line_90: number;
       line_80: number;
       line_70: number;
+      // Current active streak = leading consecutive PLAYED games with >=1 of the
+      // stat (a hit/TB/RBI streak), uncapped so >10-game streaks show their true
+      // length. MLB-only; NBA still drives its display off the tiered lines.
+      streak_count: number;
+      // The guaranteed floor of the streak: the MIN stat value across every game
+      // in the run (>=1 by definition). Tells the viewer the streak's level —
+      // "1+ TB" by default, or "2+"/"3+"/... if the player cleared more every game.
+      streak_line: number;
+      // MLB matchup flag: the hitter's opposing probable starter quality.
+      matchup: { tier: 'good' | 'tough'; label: string } | null;
       rolling_avg: number;
       games_used: number;
       opponent: { team: string; league_rank: number | null } | null;
@@ -355,7 +365,13 @@ export async function getPerfectStreaks(req: Request<{}, {}, {}, { type?: string
     // (the previous per-player Promise.all over ~400 players took ~12s). A 60-day
     // window comfortably covers the last 10 games for a daily sport.
     const candidateById = new Map<number, any>(candidates.map((p: any) => [p.id, p]));
-    const windowFloor = new Date(Date.parse(today + 'T00:00:00Z') - 60 * 86400000)
+    // MLB shows true (uncapped) hit-streak length, so it needs deeper history than
+    // the NBA tiered-line model (a fixed 10-game window). A long active streak can
+    // span ~5-6 weeks of near-daily games, so reach back further and keep more rows.
+    const isMlb = lg.slug === 'mlb';
+    const STREAK_FETCH = isMlb ? 60 : STREAKS_WINDOW;
+    const windowDays = isMlb ? 150 : 60;
+    const windowFloor = new Date(Date.parse(today + 'T00:00:00Z') - windowDays * 86400000)
       .toISOString().slice(0, 10);
     const valuesByPlayer = new Map<number, number[]>();  // most-recent-first
     const candidateIds = candidates.map((p: any) => p.id);
@@ -376,7 +392,7 @@ export async function getPerfectStreaks(req: Request<{}, {}, {}, { type?: string
           const v = r[statCfg.col];
           if (v == null || typeof v !== 'number') continue;
           const arr = valuesByPlayer.get(r.player_id) ?? [];
-          if (arr.length < STREAKS_WINDOW) { arr.push(v); valuesByPlayer.set(r.player_id, arr); }
+          if (arr.length < STREAK_FETCH) { arr.push(v); valuesByPlayer.set(r.player_id, arr); }
         }
         if (rowsB.length < 1000) break;
       }
@@ -386,11 +402,48 @@ export async function getPerfectStreaks(req: Request<{}, {}, {}, { type?: string
     const clamp = (v: number) => (floor !== undefined ? Math.max(floor, v) : v);
     const tieredRows: TieredRow[] = [];
     for (const [playerId, values] of valuesByPlayer) {
+      // Active streak: leading consecutive games (most-recent-first) with >=1 of
+      // the stat. A 0 (or no-hit game) breaks it. Only played games are in `values`.
+      // streakMin = the lowest stat value within the run = the level the streak
+      // guarantees ("1+" up to "n+").
+      let streak = 0;
+      let streakMin = 0;
+      for (const v of values) {
+        if (v >= 1) { streakMin = streak === 0 ? v : Math.min(streakMin, v); streak++; }
+        else break;
+      }
+      const p = candidateById.get(playerId);
+      const rollWin = values.slice(0, STREAKS_WINDOW);
+      const rollingAvg = rollWin.reduce((a, b) => a + b, 0) / rollWin.length;
+
+      if (isMlb) {
+        // Surface only players riding an active streak; the top-10 sort below
+        // floats the longest to the top so >10-game streaks stand out.
+        if (streak < 1) continue;
+        tieredRows.push({
+          player_id: playerId,
+          player_name: p?.name,
+          team: p?.team,
+          position: p?.position,
+          line_100: 0, line_90: 0, line_80: 0, line_70: 0,
+          streak_count: streak,
+          streak_line: streakMin,
+          matchup: null,
+          rolling_avg: rollingAvg,
+          games_used: values.length,
+          opponent: null,
+          recent_opp_form: null,
+          key_teammates_out: [],
+          opportunity_trend: null,
+        } as TieredRow);
+        continue;
+      }
+
+      // NBA: tiered-line model over a fixed 10-game window.
       if (values.length < STREAKS_WINDOW) continue;
       const sortedAsc = [...values].sort((a, b) => a - b);
-      // League-tuned inclusion gate (NBA: 10/10 floor > 0; MLB: 7/10 floor > 0).
+      // League-tuned inclusion gate (NBA: 10/10 floor > 0).
       if (sortedAsc[lg.streakGateTierIndex] <= 0) continue;
-      const p = candidateById.get(playerId);
       tieredRows.push({
         player_id: playerId,
         player_name: p?.name,
@@ -400,7 +453,10 @@ export async function getPerfectStreaks(req: Request<{}, {}, {}, { type?: string
         line_90:  clamp(toKalshiLine(sortedAsc[1])),
         line_80:  clamp(toKalshiLine(sortedAsc[2])),
         line_70:  clamp(toKalshiLine(sortedAsc[3])),
-        rolling_avg: values.reduce((a, b) => a + b, 0) / values.length,
+        streak_count: streak,
+        streak_line: streakMin,
+        matchup: null,
+        rolling_avg: rollingAvg,
         games_used: STREAKS_WINDOW,
         opponent: null,
         recent_opp_form: null,
@@ -454,6 +510,39 @@ export async function getPerfectStreaks(req: Request<{}, {}, {}, { type?: string
         for (const r of ((dcRows ?? []) as any[])) dcByPlayer.set(r.player_id, r);
       }
     }
+
+    // MLB matchup signal: map each hitter -> today's opposing probable starter
+    // (mlb_daily_conditions.opp_starter_id — forward-looking from probables; the
+    // post-game mlb_player_game_conditions table is empty pre-game), then to that
+    // starter's quality_rank (1 = best arm ... N = weakest). High rank = weak
+    // opposing arm = good matchup. The MLB analog of NBA's opponent defense rank.
+    const oppStarterByHitter = new Map<number, number>();
+    const starterRankById = new Map<number, number>();
+    let mlbStarterTotal = 0;
+    if (isMlb) {
+      const ids = tieredRows.map((r) => r.player_id);
+      for (let i = 0; i < ids.length; i += 200) {
+        const { data } = await supabaseAdmin
+          .from('mlb_daily_conditions')
+          .select('player_id,opp_starter_id')
+          .in('player_id', ids.slice(i, i + 200))
+          .eq('game_date', linesDate);
+        for (const r of ((data ?? []) as any[])) {
+          if (r.opp_starter_id != null) oppStarterByHitter.set(r.player_id, r.opp_starter_id);
+        }
+      }
+      const { data: pq } = await supabaseAdmin
+        .from('mlb_pitcher_quality')
+        .select('player_id,quality_rank,snapshot_date')
+        .order('snapshot_date', { ascending: false });
+      for (const row of ((pq ?? []) as any[])) {
+        if (row.quality_rank != null && !starterRankById.has(row.player_id)) {
+          starterRankById.set(row.player_id, row.quality_rank);
+        }
+      }
+      mlbStarterTotal = starterRankById.size;
+    }
+
     const formColumn = `recent_opp_${stat}_form`;
 
     const enriched = tieredRows.map((r) => {
@@ -461,6 +550,25 @@ export async function getPerfectStreaks(req: Request<{}, {}, {}, { type?: string
       const teamId = abbrToId.get(teamAbbr);
       const opponentId = teamId != null ? opponentByTeamId.get(teamId) : undefined;
       const opponentAbbr = opponentId != null ? (idToAbbr.get(opponentId) ?? null) : null;
+
+      if (isMlb) {
+        const starterId = oppStarterByHitter.get(r.player_id);
+        const rank = starterId != null ? (starterRankById.get(starterId) ?? null) : null;
+        let matchup: { tier: 'good' | 'tough'; label: string } | null = null;
+        if (rank != null && mlbStarterTotal > 0) {
+          if (rank > mlbStarterTotal * 0.6) matchup = { tier: 'good', label: 'GOOD MATCHUP' };
+          else if (rank <= mlbStarterTotal * 0.25) matchup = { tier: 'tough', label: 'TOUGH ARM' };
+        }
+        return {
+          ...r,
+          opponent: opponentAbbr ? { team: opponentAbbr, league_rank: rank } : null,
+          matchup,
+          recent_opp_form: null,
+          key_teammates_out: [],
+          opportunity_trend: null,
+        };
+      }
+
       const pos = (r.position ?? '').toUpperCase();
       const positionGroup = pos.startsWith('G') ? 'G' : pos.startsWith('F') ? 'F' : 'C';
       const leagueRank =
@@ -486,8 +594,13 @@ export async function getPerfectStreaks(req: Request<{}, {}, {}, { type?: string
       };
     });
 
-    // Sort by line_100 DESC (highest guaranteed floor first), rolling_avg as tiebreaker
+    // MLB: longest active streak first (rolling_avg tiebreaker) so >10-game streaks
+    // top the list. NBA: line_100 DESC (highest guaranteed floor first).
     enriched.sort((a, b) => {
+      if (isMlb) {
+        if (b.streak_count !== a.streak_count) return b.streak_count - a.streak_count;
+        return b.rolling_avg - a.rolling_avg;
+      }
       if (b.line_100 !== a.line_100) return b.line_100 - a.line_100;
       return b.rolling_avg - a.rolling_avg;
     });

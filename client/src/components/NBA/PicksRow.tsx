@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { nbaApi, TopPickPlayer, TopPickGame, TopPicksResponse } from '@/services/api'
 import { Skeleton } from '@/components/ui/skeleton'
 import { TrendingUp, Flame } from 'lucide-react'
+import { formatSpreadLine } from '@/lib/formatSpread'
 
 type CardType = 'player' | 'spread' | 'total' | 'ml'
 
@@ -46,7 +47,7 @@ function PickCard({ label, type, playerPick, gamePick }: PickCardProps) {
   const lineLabel = isPlayer
     ? `OVER ${playerPick!.line} ${playerPick!.stat_label}`
     : type === 'spread' && gamePick!.spread_team && gamePick!.line != null
-    ? `${gamePick!.spread_team} -${gamePick!.line}`
+    ? formatSpreadLine(gamePick!.spread_team, gamePick!.line)
     : gamePick!.line != null ? `${gamePick!.line}` : '—'
 
   return (

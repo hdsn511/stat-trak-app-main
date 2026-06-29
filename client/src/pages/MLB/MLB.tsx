@@ -33,7 +33,7 @@ export default function MLB() {
       <Sidebar api={mlbApi} />
       <main className="flex-1 overflow-y-auto p-5 space-y-4">
         <PotdCard api={mlbApi} />
-        <PropsTable picks={picks} />
+        <PropsTable picks={picks} slug={mlbApi.slug} />
         <StreaksCard api={mlbApi} statTabs={MLB_STREAK_TABS} />
         <div className="bg-[#0D0D0D] border border-[#161616] rounded-2xl p-5">
           <TrendFinder api={mlbApi} stats={MLB_TREND_STATS} />

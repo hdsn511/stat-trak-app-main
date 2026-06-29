@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import { GameDetail } from '@/services/api'
 import { cn } from '@/lib/utils'
+import { formatSpreadLine } from '@/lib/formatSpread'
 
 interface Props { data: GameDetail }
 
@@ -85,7 +86,9 @@ export default function CompletedView({ data }: Props) {
                 <div className="text-[12px] font-condensed text-white">
                   {pick.player_name ?? `Entity ${pick.entity_id}`}
                   {' '}<span className="text-gray-600">·</span>{' '}
-                  {pick.stat.toUpperCase()} <span className="font-mono">{pick.recommended_line}+</span>
+                  {pick.prop_type === 'spread'
+                    ? <span className="font-mono">SPREAD {formatSpreadLine(null, pick.recommended_line)}</span>
+                    : <>{pick.stat.toUpperCase()} <span className="font-mono">{pick.recommended_line}{pick.prop_type === 'player' ? '+' : ''}</span></>}
                 </div>
                 <div className="text-[9px] text-gray-700 font-condensed mt-0.5">
                   Edge <span className="font-mono">+{Math.round(pick.edge * 100)}%</span>

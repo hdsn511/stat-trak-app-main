@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { nbaApi, PlayerStreakRow, TopPickPlayer, LeagueApi } from '@/services/api'
+import { playerPath } from '@/lib/playerPath'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 
@@ -36,6 +37,19 @@ function MatchupChip({ rank }: { rank: number | null }) {
     )
   }
   return null
+}
+
+function MlbMatchupChip({ matchup }: { matchup?: { tier: 'good' | 'tough'; label: string } | null }) {
+  if (!matchup) return null
+  const good = matchup.tier === 'good'
+  return (
+    <span className={cn(
+      'inline-flex items-center px-1 py-0.5 rounded text-[8px] font-bold font-condensed uppercase tracking-wide border',
+      good ? 'bg-over/10 text-over border-over/20' : 'bg-under/10 text-under border-under/20'
+    )}>
+      {good ? '🔥 ' : ''}{matchup.label}
+    </span>
+  )
 }
 
 function PickStatus({ pick }: { pick: TopPickPlayer }) {
@@ -76,8 +90,10 @@ export default function StreaksCard(
   { api = nbaApi, statTabs = NBA_STAT_TABS }: { api?: LeagueApi; statTabs?: StatTab[] }
 ) {
   const STAT_TABS = statTabs
+  const isMlb = api.slug === 'mlb'
   const [view, setView] = useState<CardView>('streaks')
   const [stat, setStat] = useState<string>(STAT_TABS[0].key)
+  const activeLabel = STAT_TABS.find(t => t.key === stat)?.label ?? ''
   const [streakRows, setStreakRows] = useState<PlayerStreakRow[]>([])
   const [picks, setPicks] = useState<TopPickPlayer[]>([])
   const [streakLoading, setStreakLoading] = useState(true)
@@ -128,7 +144,7 @@ export default function StreaksCard(
         ))}
         <div className="flex-1 flex items-center justify-end pr-4">
           <span className="text-[9px] text-gray-700 font-condensed uppercase tracking-widest">
-            {view === 'streaks' ? 'Last 10 games' : 'Today\'s slate'}
+            {view === 'streaks' ? (isMlb ? 'Active streak' : 'Last 10 games') : 'Today\'s slate'}
           </span>
         </div>
       </div>
@@ -159,13 +175,19 @@ export default function StreaksCard(
           {!streakLoading && streakRows.length > 0 && (
             <div className="flex items-center px-4 py-2 border-b border-[#111]">
               <div className="flex-1 min-w-0" />
-              <div className="flex flex-shrink-0 ml-3">
-                {['100%', '90%', '80%', '70%'].map(label => (
-                  <span key={label} className={cn('text-[9px] font-bold text-gray-700 font-condensed uppercase tracking-widest text-right', COL_W)}>
-                    {label}
-                  </span>
-                ))}
-              </div>
+              {isMlb ? (
+                <span className={cn('text-[9px] font-bold text-gray-700 font-condensed uppercase tracking-widest text-right', COL_W)}>
+                  Streak
+                </span>
+              ) : (
+                <div className="flex flex-shrink-0 ml-3">
+                  {['100%', '90%', '80%', '70%'].map(label => (
+                    <span key={label} className={cn('text-[9px] font-bold text-gray-700 font-condensed uppercase tracking-widest text-right', COL_W)}>
+                      {label}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -186,7 +208,7 @@ export default function StreaksCard(
           {!streakLoading && streakRows.map((row, i) => (
             <Link
               key={row.player_id}
-              to={`/player/${row.player_id}`}
+              to={playerPath(api.slug, row.player_id)}
               className="flex items-center px-4 py-3 border-b border-[#0F0F0F] last:border-0 hover:bg-white/[0.03] transition-colors group"
             >
               <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -204,25 +226,41 @@ export default function StreaksCard(
                         <> vs <span className="text-gray-500">{row.opponent.team}</span></>
                       ) : ''}
                     </span>
-                    <MatchupChip rank={row.opponent?.league_rank ?? null} />
+                    {isMlb
+                      ? <MlbMatchupChip matchup={row.matchup} />
+                      : <MatchupChip rank={row.opponent?.league_rank ?? null} />}
                   </div>
                 </div>
               </div>
 
-              <div className="flex flex-shrink-0 ml-3">
-                <span className={cn('text-[15px] font-black text-over font-mono tabular-nums text-right leading-none', COL_W)}>
-                  {fmtLine(row.line_100)}+
-                </span>
-                <span className={cn('text-[15px] font-bold text-white/70 font-mono tabular-nums text-right leading-none', COL_W)}>
-                  {fmtLine(row.line_90)}+
-                </span>
-                <span className={cn('text-[15px] font-bold text-white/50 font-mono tabular-nums text-right leading-none', COL_W)}>
-                  {fmtLine(row.line_80)}+
-                </span>
-                <span className={cn('text-[15px] font-bold text-white/30 font-mono tabular-nums text-right leading-none', COL_W)}>
-                  {fmtLine(row.line_70)}+
-                </span>
-              </div>
+              {isMlb ? (
+                <div className="flex flex-col items-end ml-3 flex-shrink-0 leading-none">
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-[22px] font-black text-over font-mono tabular-nums">
+                      {row.streak_count ?? 0}
+                    </span>
+                    <span className="text-[9px] text-gray-600 font-condensed uppercase">G</span>
+                  </div>
+                  <span className="text-[9px] text-gray-500 font-condensed uppercase tracking-wide mt-1">
+                    {row.streak_line ?? 1}+ {activeLabel}
+                  </span>
+                </div>
+              ) : (
+                <div className="flex flex-shrink-0 ml-3">
+                  <span className={cn('text-[15px] font-black text-over font-mono tabular-nums text-right leading-none', COL_W)}>
+                    {fmtLine(row.line_100)}+
+                  </span>
+                  <span className={cn('text-[15px] font-bold text-white/70 font-mono tabular-nums text-right leading-none', COL_W)}>
+                    {fmtLine(row.line_90)}+
+                  </span>
+                  <span className={cn('text-[15px] font-bold text-white/50 font-mono tabular-nums text-right leading-none', COL_W)}>
+                    {fmtLine(row.line_80)}+
+                  </span>
+                  <span className={cn('text-[15px] font-bold text-white/30 font-mono tabular-nums text-right leading-none', COL_W)}>
+                    {fmtLine(row.line_70)}+
+                  </span>
+                </div>
+              )}
             </Link>
           ))}
         </>
@@ -262,7 +300,7 @@ export default function StreaksCard(
           {!picksLoading && picks.map((pick, i) => (
             <Link
               key={`${pick.player_id}-${pick.stat}`}
-              to={`/player/${pick.player_id}`}
+              to={playerPath(api.slug, pick.player_id)}
               className="flex items-center px-4 py-3 border-b border-[#0F0F0F] last:border-0 hover:bg-white/[0.03] transition-colors group"
             >
               {/* Player */}

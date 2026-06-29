@@ -48,6 +48,43 @@ export interface PlayerProfile {
   gamesPlayed: number
 }
 
+// MLB per-game batting line. Distinct from the NBA-shaped GameStat above —
+// the /api/mlb/players/:id/games endpoint returns these columns.
+export interface MLBGameStat {
+  gameId: number
+  date: string
+  opponent?: string
+  isHome?: boolean
+  // Batting line (present for position players).
+  hits?: number
+  totalBases?: number
+  rbi?: number
+  runs?: number
+  homeRuns?: number
+  strikeouts?: number
+  plateAppearances?: number
+  // Pitching line (present when the player is a pitcher).
+  strikeoutsPitched?: number
+  outsPitched?: number
+  earnedRuns?: number
+  hitsAllowed?: number
+  walksAllowed?: number
+  homeRunsAllowed?: number
+  battersFaced?: number
+}
+
+export interface MLBPlayerProfile {
+  player: PlayerSearchResult
+  teamId?: number | null
+  /** True when the player is a pitcher — games carry the pitching line. */
+  isPitcher?: boolean
+  games: MLBGameStat[]
+  zScores: Record<string, number>
+  rollingAvgs: Record<string, number>
+  seasonAvgs: Record<string, number>
+  gamesPlayed: number
+}
+
 export interface TodaysGame {
   gameId: string
   dbId?: number | null
@@ -168,8 +205,15 @@ export interface PlayerStreakRow {
   line_90: number
   line_80: number
   line_70: number
+  /** MLB: current active streak (consecutive games with 1+ of the stat), uncapped. */
+  streak_count?: number
+  /** MLB: the streak's guaranteed level — min stat value across the run (1+, 2+, …). */
+  streak_line?: number
+  /** MLB: opposing-starter matchup flag (good = weak arm, tough = ace). */
+  matchup?: { tier: 'good' | 'tough'; label: string } | null
   rolling_avg: number       // average over the 10-game window
-  games_used: number        // always 10
+  games_used: number        // NBA: always 10; MLB: games available in window
+  /** For MLB, league_rank is the opposing starter's quality_rank (1=best). */
   opponent: { team: string; league_rank: number | null } | null
 }
 
@@ -463,6 +507,12 @@ export type LeagueApi = ReturnType<typeof createLeagueApi>
 
 export const nbaApi = createLeagueApi('nba')
 export const mlbApi = createLeagueApi('mlb')
+
+// MLB player profile, typed to the baseball game shape. The generic factory's
+// getPlayerProfile is typed to the NBA GameStat; the MLB player view needs the
+// batting columns, so it has its own typed getter against the same endpoint.
+export const getMLBPlayerProfile = (id: number): Promise<MLBPlayerProfile> =>
+  get(`${BASE}/mlb/players/${id}/games`)
 
 // Performance API. NBA keeps the legacy /api/performance prefix; other leagues
 // use /api/{league}/performance.

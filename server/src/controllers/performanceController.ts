@@ -121,14 +121,15 @@ export async function getPerformanceSummary(req: Request<{}, {}, {}, { days?: st
         const teamAbbr: string | null = mods.team_abbr ?? null;
         const line = p.recommended_line;
 
-        if (p.prop_type === 'spread' && teamAbbr && game) {
-          // teamAbbr is the team receiving points in the Kalshi market (underdog side)
-          // Determine sign: if teamAbbr is home team they're favored → negative spread
-          const isHome = teamAbbr === game.homeAbbr;
-          const sign = isHome ? '-' : '+';
-          displayName = `${teamAbbr} ${sign}${line}`;
-          const otherAbbr = isHome ? game.awayAbbr : game.homeAbbr;
-          displayTeam = `vs ${otherAbbr}`;
+        if (p.prop_type === 'spread' && teamAbbr && line != null) {
+          // Stored line is the model's "wins by more than L" value (L>0 favorite,
+          // L<0 cushion); the bettor-facing run line for teamAbbr is the negation.
+          const betting = -line;
+          displayName = `${teamAbbr} ${betting > 0 ? '+' : '-'}${Math.abs(betting)}`;
+          if (game) {
+            const otherAbbr = teamAbbr === game.homeAbbr ? game.awayAbbr : game.homeAbbr;
+            displayTeam = `vs ${otherAbbr}`;
+          }
         } else if (game) {
           displayName = `${game.homeAbbr} vs ${game.awayAbbr}`;
           displayTeam = p.prop_type?.toUpperCase() ?? null;
@@ -216,6 +217,24 @@ async function paginateStats(
     if (!data || data.length === 0) break;
     rows.push(...data);
     if (data.length < 1000) break;
+  }
+  return rows;
+}
+
+/** Like paginateStats, but also chunks a player_id IN-list so the request URL
+ *  never gets too long. MLB has ~2k players, and `.in('player_id', [allIds])`
+ *  blows past the gateway URL limit (~1k ids) and fails the fetch — chunking
+ *  keeps each request small and merges the rows. */
+async function paginateStatsForIds(
+  buildForIds: (ids: number[]) => any,
+  ids: number[],
+  col: string,
+  chunkSize = 400,
+): Promise<any[]> {
+  const rows: any[] = [];
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const chunk = ids.slice(i, i + chunkSize);
+    rows.push(...await paginateStats(() => buildForIds(chunk), col));
   }
   return rows;
 }
@@ -386,15 +405,16 @@ export async function getStreakOutcomes(req: Request<{}, {}, {}, { days?: string
       const col = lg.statConfig[stat].col;
       const statLabel = lg.statLabels[stat];
 
-      const statsData = await paginateStats(
-        () => supabaseAdmin
+      const statsData = await paginateStatsForIds(
+        (chunkIds) => supabaseAdmin
           .from(lg.statsTable)
           .select(streakStatsSelect(lg))
-          .in('player_id', relevantIds)
+          .in('player_id', chunkIds)
           .gte('game_date', extCutoff)
           .lte('game_date', today)
           .gt(lg.playedGate.col, lg.playedGate.min)
           .order('game_date', { ascending: true }),
+        relevantIds,
         col,
       );
 
@@ -631,15 +651,16 @@ export async function getStreakPerformance(req: Request<{}, {}, {}, { days?: str
     const relevantIds = [...new Set([...eligibleByDate.values()].flatMap(s => [...s]))];
 
     // ── Fetch stats for this stat, paginated ──────────────────────────────────
-    const statsData = await paginateStats(
-      () => supabaseAdmin
+    const statsData = await paginateStatsForIds(
+      (chunkIds) => supabaseAdmin
         .from(lg.statsTable)
         .select(streakStatsSelect(lg))
-        .in('player_id', relevantIds)
+        .in('player_id', chunkIds)
         .gte('game_date', extCutoff)
         .lte('game_date', today)
         .gt(lg.playedGate.col, lg.playedGate.min)
         .order('game_date', { ascending: true }),
+      relevantIds,
       col,
     );
 

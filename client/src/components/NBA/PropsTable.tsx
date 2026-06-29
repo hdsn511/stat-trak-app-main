@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { TopPickPlayer, TopPickGame, TopPicksResponse } from '@/services/api'
+import { playerPath } from '@/lib/playerPath'
+import { formatSpreadLine } from '@/lib/formatSpread'
 
 type PropTab = 'player' | 'winner' | 'spread' | 'total'
 type BucketTab = 50 | 60 | 70 | 80
@@ -23,9 +25,11 @@ function inBucket(prob: number, bucket: BucketTab): boolean {
 
 interface PropsTableProps {
   picks: TopPicksResponse | null
+  /** League slug, used to route player rows to the right detail view. */
+  slug?: string
 }
 
-export default function PropsTable({ picks }: PropsTableProps) {
+export default function PropsTable({ picks, slug }: PropsTableProps) {
   const [propTab, setPropTab] = useState<PropTab>('player')
   const [bucket, setBucket] = useState<BucketTab>(70)
 
@@ -142,7 +146,7 @@ export default function PropsTable({ picks }: PropsTableProps) {
             ? playerRows.map((p, i) => (
               <Link
                 key={i}
-                to={`/player/${p.player_id}`}
+                to={playerPath(slug, p.player_id)}
                 className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr] gap-2 px-4 py-2.5 border-b border-[#0F0F0F] hover:bg-white/[0.03] transition-colors group"
               >
                 <div>
@@ -161,7 +165,7 @@ export default function PropsTable({ picks }: PropsTableProps) {
               const label = propTab === 'winner' ? 'Moneyline' : propTab === 'spread' ? 'Spread' : 'Total'
               const lineDisplay =
                 propTab === 'winner' ? (g.spread_team ? `${g.spread_team} ML` : 'ML')
-                : propTab === 'spread' && g.spread_team && g.line != null ? `${g.spread_team} -${g.line}`
+                : propTab === 'spread' && g.spread_team && g.line != null ? formatSpreadLine(g.spread_team, g.line)
                 : g.line ?? '—'
               return (
               <div key={i} className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr] gap-2 px-4 py-2.5 border-b border-[#0F0F0F] hover:bg-white/[0.02] transition-colors">

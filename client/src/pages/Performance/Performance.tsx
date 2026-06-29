@@ -4,6 +4,7 @@ import ComingSoon from "@/components/ComingSoon/ComingSoon";
 import Sidebar from "@/components/Sidebar/Sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { formatSpreadLine } from "@/lib/formatSpread";
 import {
   BucketStats,
   PerformanceSummary,
@@ -171,7 +172,9 @@ function PickHistoryRow({ pick }: { pick: PickOutcome }) {
         {pick.line != null
           ? pick.prop_type === "player"
             ? `${pick.line}+`
-            : `${pick.line}`
+            : pick.prop_type === "spread"
+              ? formatSpreadLine(null, pick.line)
+              : `${pick.line}`
           : "—"}
       </span>
       <span className="text-[11px] font-mono text-gray-600 tabular-nums">

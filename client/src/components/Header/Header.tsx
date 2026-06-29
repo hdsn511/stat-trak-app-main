@@ -5,7 +5,8 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { nbaApi, PlayerSearchResult } from "@/services/api";
+import { mlbApi, nbaApi, PlayerSearchResult } from "@/services/api";
+import { playerPath } from "@/lib/playerPath";
 import { Search } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -28,6 +29,10 @@ export default function Header() {
   const [activeIdx, setActiveIdx] = useState(-1);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
+  // Search the league the user is currently browsing so MLB players are
+  // findable from the MLB pages (and routed to the MLB player view).
+  const searchApi = location.pathname.startsWith("/mlb") ? mlbApi : nbaApi;
+
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setQuery(val);
@@ -40,7 +45,7 @@ export default function Header() {
     }
     debounceRef.current = setTimeout(async () => {
       try {
-        const results = await nbaApi.searchPlayers(val);
+        const results = await searchApi.searchPlayers(val);
         setSuggestions(results);
         setOpen(results.length > 0);
       } catch {
@@ -48,7 +53,7 @@ export default function Header() {
         setOpen(false);
       }
     }, 250);
-  }, []);
+  }, [searchApi]);
 
   const handleSelect = useCallback(
     (player: PlayerSearchResult) => {
@@ -56,9 +61,9 @@ export default function Header() {
       setSuggestions([]);
       setOpen(false);
       setActiveIdx(-1);
-      navigate(`/player/${player.id}`, { state: { player } });
+      navigate(playerPath(searchApi.slug, player.id), { state: { player } });
     },
-    [navigate],
+    [navigate, searchApi.slug],
   );
 
   const handleKeyDown = useCallback(

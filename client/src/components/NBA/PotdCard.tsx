@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { nbaApi, PotdResponse, LeagueApi } from '@/services/api'
+import { playerPath } from '@/lib/playerPath'
 
 // Human labels for condition-breakdown keys across leagues (NBA + MLB).
 const CONDITION_LABELS: Record<string, string> = {
@@ -107,7 +108,7 @@ export default function PotdCard({ api = nbaApi }: { api?: LeagueApi }) {
         background: 'linear-gradient(135deg, #1a0e08 0%, #0a0a0a 55%, #0a0a14 100%)',
       }}
       onClick={() => {
-        if (isClickable) navigate(`/player/${potd.player_id}`)
+        if (isClickable) navigate(playerPath(api.slug, potd.player_id!))
       }}
     >
       {/* Radial glow — right side */}

@@ -146,6 +146,23 @@ STAT_OPP_RANK_COL = {
 # _rest_category is imported from analytics.engine.common (sport-neutral).
 
 
+def _season_start(game_date: str) -> str:
+    """Return the Oct-1 season boundary for the season containing game_date.
+
+    Mirrors currentSeasonStart() in server/src/jobs/computeNBATrends.ts. Used to
+    floor backtest queries so a player's (or team's) prior-season role, team, and
+    form don't pollute the current-season sample. A game on/after Oct 1 belongs to
+    that calendar year's season; before Oct 1 it belongs to the prior year's.
+
+    Tradeoff: very early in a new season this tightens samples and a thin player
+    may fall below MIN_SAMPLE_SIZE and return None (no pick) rather than a pick
+    built on stale cross-season games — the conservative, correct default.
+    """
+    y, m, _d = game_date.split("-")
+    year = int(y) if int(m) >= 10 else int(y) - 1
+    return f"{year}-10-01"
+
+
 def _weighted_hit_rate(historical_results: list[tuple[str, bool]]) -> float:
     """NBA wrapper around the shared recency-weighted hit rate, pinned to this
     engine's HIT_RATE_DECAY. Kept as a thin alias so call sites are unchanged."""
@@ -241,6 +258,10 @@ def backtest_player(
     if stat_col is None:
         print(f"  ERROR: unsupported stat '{stat}'. Valid: {list(STAT_COLUMN_MAP)}")
         return None
+
+    # Floor every historical lookup to the current season so a player's prior
+    # role/team doesn't leak into the matched sample (see _season_start).
+    season_start = _season_start(game_date)
 
     # ── 1. Load today's conditions ───────────────────────────────────────────
     dc_result = (
@@ -343,6 +364,7 @@ def backtest_player(
             supabase.table("player_game_conditions")
             .select("game_id,days_rest,home_away,opponent_team_id,touches,usg_pct")
             .eq("player_id", player_id)
+            .gte("game_date", season_start)  # current-season sample only
             .gte(opp_col, opp_lo)
             .lte(opp_col, opp_hi)
             .gte("pace", pace_lo)
@@ -506,6 +528,13 @@ def load_completed_games(before_date: str) -> list:
     the pace/rating condition filters will naturally select contextually
     similar games regardless of game_type.
 
+    NOTE: deliberately NOT season-floored (unlike the player backtest and
+    _rolling_team_stats). This is the comparison pool for total/spread props,
+    matched purely on pace/off/def ratings — a high-pace game two seasons ago is
+    still a valid high-pace context, and roster identity doesn't enter the match.
+    The volume from prior seasons improves coverage when the bucket filters are
+    strict. Today's team *form*, by contrast, is current-season only.
+
     Uses manual pagination to bypass PostgREST's 1000-row default cap.
     """
     rows: list[dict] = []
@@ -589,6 +618,7 @@ def backtest_game_prop(
             supabase.table("team_game_stats")
             .select("pace,off_rating,def_rating,game_date")
             .eq("team_id", team_id)
+            .gte("game_date", _season_start(game_date))  # current-season form only
             .lt("game_date", game_date)
             .order("game_date", desc=True)
             .limit(10)

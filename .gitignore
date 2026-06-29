@@ -35,3 +35,4 @@ backfill_state.json
 
 # Python venv
 analytics/.venv/
+.venv-local/

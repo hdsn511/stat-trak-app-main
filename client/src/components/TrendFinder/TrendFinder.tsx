@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { nbaApi, TrendingPlayer } from '@/services/api'
+import { nbaApi, TrendingPlayer, LeagueApi } from '@/services/api'
+import { playerPath } from '@/lib/playerPath'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -8,16 +9,16 @@ import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { SlidersHorizontal, ChevronRight, X } from 'lucide-react'
 
-const STATS = [
+export type TrendStat = { id: string; label: string }
+
+const NBA_STATS: TrendStat[] = [
   { id: 'points', label: 'PTS' },
   { id: 'rebounds', label: 'REB' },
   { id: 'assists', label: 'AST' },
   { id: 'threes', label: '3PM' },
-] as const
+]
 
 const WINDOWS = [5, 10, 15, 20] as const
-
-type StatId = typeof STATS[number]['id']
 
 function zBadgeClass(z: number) {
   if (z >= 1.5) return 'bg-mint/10 text-mint border-mint/20'
@@ -25,9 +26,12 @@ function zBadgeClass(z: number) {
   return 'bg-[#1A1A1A] text-gray-600 border-[#222]'
 }
 
-export default function TrendFinder() {
+export default function TrendFinder(
+  { api = nbaApi, stats = NBA_STATS }: { api?: LeagueApi; stats?: TrendStat[] }
+) {
+  const STATS = stats
   const navigate = useNavigate()
-  const [stat, setStat]           = useState<StatId>('points')
+  const [stat, setStat]           = useState<string>(STATS[0].id)
   const [threshold, setThreshold] = useState('')
   const [window, setWindow]       = useState<number>(10)
   const [players, setPlayers]     = useState<TrendingPlayer[]>([])
@@ -38,27 +42,27 @@ export default function TrendFinder() {
   const fetchTrending = useCallback(async () => {
     setLoading(true)
     try {
-      const results = await nbaApi.getTopTrending()
+      const results = await api.getTopTrending()
       setPlayers(results.slice(0, 10))
     } catch {
       setPlayers([])
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [api])
 
   const fetchFiltered = useCallback(async () => {
     setLoading(true)
     try {
       const t = parseFloat(threshold)
-      const results = await nbaApi.getTrends({ stat, window, threshold: t > 0 ? t : undefined })
+      const results = await api.getTrends({ stat, window, threshold: t > 0 ? t : undefined })
       setPlayers(results.slice(0, 10))
     } catch {
       setPlayers([])
     } finally {
       setLoading(false)
     }
-  }, [stat, window, threshold])
+  }, [stat, window, threshold, api])
 
   useEffect(() => {
     if (isFiltered) {
@@ -170,7 +174,7 @@ export default function TrendFinder() {
       {!loading && players.map((player, i) => (
         <button
           key={`${player.playerId}-${player.statId}-${i}`}
-          onClick={() => navigate(`/player/${player.playerId}`, { state: { player } })}
+          onClick={() => navigate(playerPath(api.slug, player.playerId), { state: { player } })}
           className="w-full flex items-center gap-4 px-4 py-3.5 bg-[#0D0D0D] border border-[#161616] rounded-xl hover:border-mint/25 hover:bg-[#0D1A14] transition-all text-left group"
         >
           <div className="w-9 h-9 rounded-xl bg-[#161616] flex items-center justify-center text-[11px] font-black text-mint flex-shrink-0 font-condensed group-hover:bg-mint/10 transition-colors">

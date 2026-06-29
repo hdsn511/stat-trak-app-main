@@ -74,7 +74,7 @@ export async function getGameById(req: Request<{ id: string }>, res: Response) {
       // betting lines for this game date
       supabaseAdmin
         .from('daily_lines')
-        .select('market_ticker, line, implied_prob, prop_type, entity_id, team_id, source, stat')
+        .select('market_ticker, line, implied_prob, prop_type, entity_id, team_id, stat')
         .eq('game_date', g.game_date)
         .order('implied_prob', { ascending: false }),
 
@@ -164,7 +164,17 @@ export async function getGameById(req: Request<{ id: string }>, res: Response) {
     }));
 
     const teamIds = [homeTeamId, awayTeamId].filter(Boolean);
-    const playerIdsInGame = [...new Set(normalizedStats.map((p: any) => p.player_id))];
+    const homeAbbr = (g.home_team as any)?.abbreviation ?? '';
+    const awayAbbr = (g.away_team as any)?.abbreviation ?? '';
+
+    // For completed games, player IDs come from the box score.
+    // For upcoming games, derive them from the already-fetched season stats rosters.
+    const playerIdsInGame: number[] = isCompleted
+      ? [...new Set(normalizedStats.map((p: any) => p.player_id))]
+      : [...new Set([
+          ...(homeSeasonStatsResult.data ?? []).map((p: any) => p.player_id),
+          ...(awaySeasonStatsResult.data ?? []).map((p: any) => p.player_id),
+        ])];
 
     const { data: propPlayers } = await supabaseAdmin
       .from('players')
@@ -174,18 +184,29 @@ export async function getGameById(req: Request<{ id: string }>, res: Response) {
       (propPlayers ?? []).map((p: any) => [p.id, p.name])
     );
 
-    const props = (rawPropsResult.data ?? [])
-      .filter((p: any) => {
-        if (p.prop_type === 'player') return playerIdsInGame.includes(p.entity_id);
-        if (p.team_id != null) return teamIds.includes(p.team_id);
-        return teamIds.includes(p.entity_id);
-      })
-      .slice(0, 30)
+    const matchingProps = (rawPropsResult.data ?? []).filter((p: any) => {
+      if (p.prop_type === 'player') return playerIdsInGame.includes(p.entity_id);
+      if (p.team_id != null) return teamIds.includes(p.team_id);
+      if (p.entity_id != null) return teamIds.includes(p.entity_id) || p.entity_id === gameId;
+      // entity_id and team_id both null: match by market_ticker containing both team abbreviations
+      const ticker = (p.market_ticker ?? '').toUpperCase();
+      return ticker.includes(homeAbbr.toUpperCase()) && ticker.includes(awayAbbr.toUpperCase());
+    });
+
+    // Cap player props at 20 (frontend re-sorts and slices to 10 anyway).
+    // Cap spread lines at 10 most-likely outcomes; always include all winner/total.
+    const playerPropsOut = matchingProps.filter((p: any) => p.prop_type === 'player').slice(0, 20);
+    const spreadPropsOut = matchingProps.filter((p: any) => p.prop_type === 'spread').slice(0, 10);
+    const otherPropsOut  = matchingProps.filter((p: any) => p.prop_type !== 'player' && p.prop_type !== 'spread');
+    const gamePropsOut   = [...spreadPropsOut, ...otherPropsOut];
+    const props = [...playerPropsOut, ...gamePropsOut]
       .map((p: any) => ({ ...p, player_name: p.prop_type === 'player' ? (playerNameMap[p.entity_id] ?? null) : null }));
 
     const filteredPicks = (picksResult.data ?? [])
       .filter((p: any) => {
         if (p.prop_type === 'player') return playerIdsInGame.includes(p.entity_id);
+        // Game picks store entity_id as the game ID
+        if (p.entity_id === gameId) return true;
         return teamIds.includes(p.entity_id);
       })
       .map((p: any) => ({ ...p, player_name: playerNameMap[p.entity_id] ?? null }));

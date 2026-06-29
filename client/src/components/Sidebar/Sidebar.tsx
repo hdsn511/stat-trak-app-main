@@ -1,26 +1,27 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { nbaApi, TodaysGame } from '@/services/api'
+import { nbaApi, TodaysGame, LeagueApi } from '@/services/api'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Card, CardContent } from '@/components/ui/card'
 import { Calendar } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 function isLive(status: string) {
-  return /Q\d|Half|OT/i.test(status)
+  // NBA: "Q3", "Half", "OT"; MLB: "Live", "In Progress".
+  return /Q\d|Half|OT|Live|In Progress/i.test(status)
 }
 
-export default function Sidebar() {
+export default function Sidebar({ api = nbaApi }: { api?: LeagueApi }) {
   const navigate = useNavigate()
   const [games, setGames] = useState<TodaysGame[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    nbaApi.getTodaysGames()
+    api.getTodaysGames()
       .then(setGames)
       .catch(() => setGames([]))
       .finally(() => setLoading(false))
-  }, [])
+  }, [api])
 
   return (
     <aside className="w-52 flex-shrink-0 border-r border-[#141414] bg-[#080808] overflow-y-auto">

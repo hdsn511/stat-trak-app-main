@@ -1,7 +1,8 @@
 import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabaseAdmin';
-import { STAT_LABELS } from '../constants/stats';
+import { STAT_LABELS } from '../constants/stats';   // NBA labels for composeBullets
 import { findNearestPickDate } from '../utils/dateQueries';
+import { league as resolveLeague, LeagueConfig } from '../config/leagues';
 
 const STAT_ROLLING_COL: Record<string, string> = {
   pts: 'rolling_pts_5g',
@@ -9,6 +10,47 @@ const STAT_ROLLING_COL: Record<string, string> = {
   ast: 'rolling_ast_5g',
   fg3m: 'rolling_fg3m_5g',
 };
+
+// MLB rolling-average column per pick stat key (mlb_daily_conditions).
+const MLB_STAT_ROLLING_COL: Record<string, string> = {
+  hits: 'rolling_hits_5g',
+  hr:   'rolling_hr_5g',
+  rbi:  'rolling_rbi_5g',
+  ks:   'rolling_k_pitched_5g',
+};
+
+// MLB three-bullet composer: edge, recent form, matchup context (handedness/park).
+function composeMLBBullets(pick: any, dc: any, oppName: string | null, lg: LeagueConfig): [string, string, string] {
+  const stat = pick.stat ?? '';
+  const statLabel = lg.statLabels[stat] ?? stat.toUpperCase();
+  const hitPct = Math.round((pick.hit_rate ?? 0) * 100);
+  const mktPct = Math.round((pick.implied_prob ?? 0) * 100);
+  const edgePct = Math.round((pick.edge ?? 0) * 100);
+  const n = pick.sample_size ?? 0;
+  const line = pick.recommended_line;
+
+  const bullet1 =
+    `Hit OVER ${line} ${statLabel} in **${hitPct}%** of *${n} comparable games*` +
+    ` — market prices it at *${mktPct}%*, a **+${edgePct}% edge**.`;
+
+  const rollingCol = MLB_STAT_ROLLING_COL[stat];
+  const rollingRaw = rollingCol ? dc?.[rollingCol] : null;
+  const bullet2 = rollingRaw != null
+    ? `Averaging **${Number(rollingRaw).toFixed(1)} ${statLabel}** over his last 5 games.`
+    : `Cleared this line in **${hitPct}%** of *${n} comparable games*.`;
+
+  const hand = dc?.opp_starter_hand;
+  const pf = dc?.park_factor;
+  const homeAway = dc?.home_away;
+  const opp = oppName ?? 'opponent';
+  const handPhrase = hand === 'L' ? 'left-handed starter' : hand === 'R' ? 'right-handed starter' : 'starter';
+  const parkPhrase = pf != null && pf > 1.05 ? ' in a hitter-friendly park'
+    : pf != null && pf < 0.95 ? ' in a pitcher-friendly park' : '';
+  const court = homeAway === 'home' ? 'at home' : homeAway === 'away' ? 'on the road' : '';
+  const bullet3 = `Facing ${opp}'s ${handPhrase}${parkPhrase}${court ? `, ${court}` : ''}.`;
+
+  return [bullet1, bullet2, bullet3];
+}
 
 function composeBullets(
   pick: any,
@@ -104,9 +146,12 @@ function composeBullets(
 
 export async function getPotd(_req: Request, res: Response) {
   try {
+    const lg = resolveLeague(res);
     const today = new Date().toISOString().slice(0, 10);
-    const pickDate = await findNearestPickDate(today);
+    const pickDate = await findNearestPickDate(today, lg.leagueId);
 
+    // POTD is the marquee PLAYER pick — game props have no player name / bullets
+    // and would render as "Unknown", so they are excluded here.
     const { data: pick, error } = await supabaseAdmin
       .from('pick_results')
       .select(
@@ -115,6 +160,8 @@ export async function getPotd(_req: Request, res: Response) {
         'total_conditions,key_conditions'
       )
       .eq('game_date', pickDate)
+      .eq('league_id', lg.leagueId)
+      .eq('prop_type', 'player')
       .order('confidence_score', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -129,13 +176,15 @@ export async function getPotd(_req: Request, res: Response) {
     let oppDisplayName: string | null = null;
 
     if (p.prop_type === 'player') {
-      const { data: dc } = await supabaseAdmin
-        .from('daily_conditions')
-        .select(
-          'rolling_pts_5g,rolling_reb_5g,rolling_ast_5g,rolling_fg3m_5g,' +
+      const condSelect = lg.slug === 'mlb'
+        ? 'rolling_hits_5g,rolling_hr_5g,rolling_rbi_5g,rolling_k_pitched_5g,' +
+          'days_rest,home_away,opp_starter_hand,park_factor'
+        : 'rolling_pts_5g,rolling_reb_5g,rolling_ast_5g,rolling_fg3m_5g,' +
           'rolling_usg_5g,rolling_pace_5g,days_rest,home_away,' +
-          'opp_def_rank_position,position_group'
-        )
+          'opp_def_rank_position,position_group';
+      const { data: dc } = await supabaseAdmin
+        .from(lg.dailyConditionsTable)
+        .select(condSelect)
         .eq('player_id', p.entity_id)
         .eq('game_date', pickDate)
         .maybeSingle();
@@ -187,7 +236,9 @@ export async function getPotd(_req: Request, res: Response) {
       (p.hit_rate ?? 0) >= (p.implied_prob ?? 0.5) ? 'over' : 'under';
 
     const bullets = p.prop_type === 'player'
-      ? composeBullets(p, dailyConditions, oppDisplayName)
+      ? (lg.slug === 'mlb'
+          ? composeMLBBullets(p, dailyConditions, oppDisplayName, lg)
+          : composeBullets(p, dailyConditions, oppDisplayName))
       : ['', '', ''] as [string, string, string];
 
     res.json({
@@ -201,7 +252,7 @@ export async function getPotd(_req: Request, res: Response) {
         position: playerInfo?.position ?? null,
         opponent,
         stat: p.stat,
-        stat_label: STAT_LABELS[p.stat] ?? (p.stat ?? '').toUpperCase(),
+        stat_label: lg.statLabels[p.stat] ?? (p.stat ?? '').toUpperCase(),
         line: p.recommended_line,
         direction,
         hit_rate: p.hit_rate,

@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
-import { performanceApi, StreakTierStats } from '@/services/api'
+import { performanceApi, PerformanceApi, StreakTierStats } from '@/services/api'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import PerformanceSection from './PerformanceSection'
 
-const ALL_STATS = ['pts', 'reb', 'ast', 'fg3m'] as const
+const NBA_STATS = ['pts', 'reb', 'ast', 'fg3m']
 
 function fmtPct(v: number | null): string {
   if (v == null) return '—'
@@ -79,9 +79,13 @@ function mergeTiers(allResults: StreakTierStats[][]): StreakTierStats[] {
 export default function StreakPerformanceCard({
   days,
   bare = false,
+  api = performanceApi,
+  stats = NBA_STATS,
 }: {
   days: number
   bare?: boolean
+  api?: PerformanceApi
+  stats?: string[]
 }) {
   const [tiers, setTiers] = useState<StreakTierStats[]>([])
   const [loading, setLoading] = useState(true)
@@ -90,11 +94,11 @@ export default function StreakPerformanceCard({
   useEffect(() => {
     setLoading(true)
     setError(null)
-    Promise.all(ALL_STATS.map(s => performanceApi.getStreakPerformance(days, s).then(r => r.tiers)))
+    Promise.all(stats.map(s => api.getStreakPerformance(days, s).then(r => r.tiers)))
       .then(results => setTiers(mergeTiers(results)))
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
-  }, [days])
+  }, [days, api, stats])
 
   const inner = (
     <>

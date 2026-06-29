@@ -1,16 +1,18 @@
 import PerformanceSection from "@/components/Performance/PerformanceSection";
 import StreakPerformanceCard from "@/components/Performance/StreakPerformanceCard";
+import ComingSoon from "@/components/ComingSoon/ComingSoon";
 import Sidebar from "@/components/Sidebar/Sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { formatSpreadLine } from "@/lib/formatSpread";
 import {
   BucketStats,
-  performanceApi,
   PerformanceSummary,
   PickOutcome,
   SegmentStats,
   StreakOutcomeRow,
 } from "@/services/api";
+import { LEAGUES, getLeague, LeagueSlug } from "@/config/leagues";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
@@ -57,7 +59,6 @@ function RecordBadge({
 }
 
 function SegmentCard({ label, stats }: { label: string; stats: SegmentStats }) {
-  const edgeVsExpected = null; // no expected rate for general segments
   return (
     <div className="flex flex-col gap-1 px-4 py-3 border-b border-[#0F0F0F] last:border-0">
       <div className="flex items-center justify-between">
@@ -171,7 +172,9 @@ function PickHistoryRow({ pick }: { pick: PickOutcome }) {
         {pick.line != null
           ? pick.prop_type === "player"
             ? `${pick.line}+`
-            : `${pick.line}`
+            : pick.prop_type === "spread"
+              ? formatSpreadLine(null, pick.line)
+              : `${pick.line}`
           : "—"}
       </span>
       <span className="text-[11px] font-mono text-gray-600 tabular-nums">
@@ -196,10 +199,13 @@ function PickHistoryRow({ pick }: { pick: PickOutcome }) {
 }
 
 type PickFilter = "all" | "hit" | "miss" | "pending";
-type StatFilter = "all" | "pts" | "reb" | "ast" | "fg3m";
+// "all" or a league-specific streak stat key (e.g. "pts", "hits")
+type StatFilter = string;
 type BottomView = "streaks" | "picks";
 
 export default function Performance() {
+  const [league, setLeague] = useState<LeagueSlug>("nba");
+  const def = getLeague(league);
   const [days, setDays] = useState(1);
   const [data, setData] = useState<PerformanceSummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -215,9 +221,11 @@ export default function Performance() {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchData = (d: number, silent = false) => {
+    const api = def.perfApi;
+    if (!api) return; // league not yet available (NHL/NFL)
     if (!silent) setLoading(true);
     setError(null);
-    performanceApi
+    api
       .getSummary(d)
       .then((res) => {
         setData(res);
@@ -230,7 +238,7 @@ export default function Performance() {
 
     if (!silent) setStreakLoading(true);
     setStreakError(null);
-    performanceApi
+    api
       .getStreakOutcomes(d)
       .then((res) => setStreakOutcomes(res.rows))
       .catch((e) => setStreakError(e.message))
@@ -239,7 +247,18 @@ export default function Performance() {
       });
   };
 
+  // Switching leagues resets the table/filter state so stale rows never bleed
+  // across sports.
   useEffect(() => {
+    setPickFilter("all");
+    setStreakFilter("all");
+    setStreakStatFilter("all");
+    setStreakOutcomes([]);
+    setData(null);
+  }, [league]);
+
+  useEffect(() => {
+    if (!def.available) return; // coming-soon leagues have no data to fetch
     fetchData(days);
 
     // Poll every 60s on TODAY view — picks get reconciled as games finish
@@ -250,12 +269,43 @@ export default function Performance() {
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [days]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [days, league]);
 
   return (
     <div className="flex h-full">
       <Sidebar />
       <main className="flex-1 overflow-y-auto p-5 space-y-4">
+        {/* League toggle — NBA / MLB live, NHL / NFL coming soon */}
+        <div className="flex items-center gap-1">
+          {LEAGUES.map((l) => {
+            const isActive = league === l.slug;
+            return (
+              <button
+                key={l.slug}
+                onClick={() => setLeague(l.slug)}
+                className={cn(
+                  "relative px-4 py-1.5 rounded-lg text-[11px] font-bold font-condensed tracking-widest uppercase transition-colors",
+                  isActive
+                    ? "bg-mint text-black"
+                    : "bg-[#141414] text-gray-500 hover:text-white border border-[#222]",
+                )}
+              >
+                {l.label}
+                {!l.available && (
+                  <span className="ml-1.5 text-[8px] text-gray-600 tracking-normal align-top">
+                    soon
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {!def.available ? (
+          <ComingSoon league={def.label} />
+        ) : (
+          <>
         {/* Page header + period selector */}
         <div className="flex items-center justify-between">
           <div>
@@ -371,7 +421,11 @@ export default function Performance() {
             </PerformanceSection>
 
             {/* ── Streak tier tracker */}
-            <StreakPerformanceCard days={days} />
+            <StreakPerformanceCard
+              days={days}
+              api={def.perfApi}
+              stats={(def.streakStats ?? []).map((s) => s.key)}
+            />
 
             {/* ── Segments */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -427,10 +481,7 @@ export default function Performance() {
 
               const STAT_FILTERS: { key: StatFilter; label: string }[] = [
                 { key: "all", label: "All" },
-                { key: "pts", label: "PTS" },
-                { key: "reb", label: "REB" },
-                { key: "ast", label: "AST" },
-                { key: "fg3m", label: "3PM" },
+                ...(def.streakStats ?? []).map((s) => ({ key: s.key, label: s.label })),
               ];
 
               function renderStatFilterRow(outcomeFilteredRows: StreakOutcomeRow[]) {
@@ -694,6 +745,8 @@ export default function Performance() {
                 </div>
               );
             })()}
+          </>
+        )}
           </>
         )}
       </main>

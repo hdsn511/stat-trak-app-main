@@ -29,3 +29,10 @@ __pycache__/
 *.pyc
 backfill_state.json
 .claude/scheduled_tasks.lock
+
+# Playwright MCP artifacts
+.playwright-mcp/
+
+# Python venv
+analytics/.venv/
+.venv-local/

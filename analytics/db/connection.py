@@ -69,3 +69,42 @@ POSITION_GROUP_MAP = {
 
 # NBA league_id in the local DB (integer FK, not string)
 NBA_LEAGUE_ID = 1
+
+# ── MLB ────────────────────────────────────────────────────────────
+# MLB league_id in the local DB. The `leagues` table is empty and league_id
+# is used as a magic integer (no enforced FK), mirroring NBA_LEAGUE_ID=1.
+MLB_LEAGUE_ID = 2
+
+# MLB seasons are single calendar years (season runs ~Apr–Oct within one year),
+# so the season int for a date is simply its year.
+MLB_SEASONS = [2021, 2022, 2023, 2024, 2025, 2026]
+
+def mlb_season_for_date(date_str: str) -> int:
+    """MLB season = calendar year of the date (YYYY-MM-DD)."""
+    return int(date_str[:4])
+
+# MLB stat key -> mlb_player_stats column name.
+# Batter props + the marquee pitcher prop (strikeouts). Mirrors the NBA
+# STAT_COLUMN_MAP pattern in analytics/engine/backtest.py.
+MLB_STAT_COLUMN_MAP = {
+    "hits": "hits",
+    "tb":   "total_bases",
+    "rbi":  "rbi",
+    "runs": "runs",
+    "hr":   "home_runs",
+    "ks":   "strikeouts_pitched",   # pitcher strikeouts
+}
+
+# Combo/derived stats: stat key -> component columns to SUM (no single column).
+# Kalshi lists these as their own markets (e.g. KXMLBHRR = hits + runs + RBIs).
+MLB_DERIVED_STAT_COLS = {
+    "hrr": ["hits", "runs", "rbi"],
+}
+
+def mlb_value_cols(stat: str) -> list[str]:
+    """Columns whose SUM is the value of `stat` for one player-game. Single-column
+    stats come from MLB_STAT_COLUMN_MAP; combos from MLB_DERIVED_STAT_COLS."""
+    if stat in MLB_DERIVED_STAT_COLS:
+        return list(MLB_DERIVED_STAT_COLS[stat])
+    col = MLB_STAT_COLUMN_MAP.get(stat)
+    return [col] if col else []

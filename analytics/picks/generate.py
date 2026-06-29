@@ -48,6 +48,17 @@ from analytics.batch.injury_check import run_injury_check
 
 MIN_CONFIDENCE = 55
 
+# Market-calibration weight for the NBA scorer. The raw condition-matched
+# backtest hit rate is overconfident and selection-biased (we keep the best of N
+# alt-lines per stat), so we shrink the model probability toward the market
+# implied before computing edge/confidence:
+#   cal = CALIBRATION_WEIGHT * hit_rate + (1 - CALIBRATION_WEIGHT) * implied_prob
+# 0.7 is less aggressive than MLB's 0.5 (NBA player props have denser per-game
+# signal), but still tempers overconfidence the way the MLB audit fix did.
+# 1.0 reproduces the old (uncalibrated) behavior. Lower it if backtests still
+# over-promise on closed picks; raise it toward 1.0 if it kills too many.
+CALIBRATION_WEIGHT = 0.7
+
 # Minimum implied probability — excludes long-shot bracket markets (e.g. 1%)
 # where the market assigns near-zero probability, making edge estimates meaningless.
 MIN_IMPLIED_PROB = 0.47
@@ -410,6 +421,7 @@ def generate_picks(game_date: date, mock_kalshi: bool = False) -> list[dict]:
                     days_rest=days_rest,
                     stat=stat,
                     recent_opp_form=recent_opp_form,
+                    calibration_weight=CALIBRATION_WEIGHT,
                 )
 
                 # Track tested lines
@@ -517,6 +529,7 @@ def generate_picks(game_date: date, mock_kalshi: bool = False) -> list[dict]:
                     implied_prob=implied_prob,
                     days_rest=3,
                     stat=prop_type,
+                    calibration_weight=CALIBRATION_WEIGHT,
                 )
 
                 if "reason" in sc:

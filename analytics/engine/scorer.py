@@ -86,6 +86,8 @@ def score(
     days_rest: int,
     stat: str,
     recent_opp_form: Optional[float] = None,
+    calibration_weight: float = 1.0,
+    calibrated_prob: Optional[float] = None,
 ) -> dict:
     """
     Evaluate a backtest result and return a confidence score and edge.
@@ -116,12 +118,25 @@ def score(
     if implied_prob > MAX_IMPLIED_PROB:
         return {"confidence": 0, "edge": 0, "reason": "high_implied_prob", "modifiers": {}}
 
-    edge = hit_rate - implied_prob
+    # ── Calibration ───────────────────────────────────────────────────────────
+    # Gate the quality floor (MIN_HIT_RATE) on the RAW backtest hit rate above,
+    # but compute edge + score on a CALIBRATED probability. Two sources:
+    #   1. calibrated_prob — an empirical predicted->actual curve fit from history
+    #      (analytics/engine/calibration.py); preferred when supplied (MLB player
+    #      props). Removes the model's recency over-extrapolation directly.
+    #   2. else a linear shrink toward the (better-calibrated) market implied;
+    #      calibration_weight=1.0 reproduces prior behavior (NBA default).
+    if calibrated_prob is not None:
+        cal = calibrated_prob
+    else:
+        cal = calibration_weight * hit_rate + (1.0 - calibration_weight) * implied_prob
+
+    edge = cal - implied_prob
     if edge < MIN_EDGE:
         return {"confidence": 0, "edge": round(edge, 4), "reason": "insufficient_edge", "modifiers": {}}
 
     # ── Base confidence formula ───────────────────────────────────────────────
-    base = hit_rate * 100
+    base = cal * 100
     sample_weight = min(1.0, sample_size / SAMPLE_WEIGHT_TARGET)
     condition_bonus = (conditions_matched / total_conditions) * CONDITION_BONUS_MAX
     edge_bonus = min(edge * EDGE_BONUS_SCALE, float(EDGE_BONUS_CAP))
@@ -153,7 +168,7 @@ def score(
     return {
         "confidence":        round(confidence, 2),
         "edge":              round(edge, 4),
-        "hit_rate_adjusted": round(hit_rate, 4),  # v2: passthrough; backtest already weighted
+        "hit_rate_adjusted": round(cal, 4),  # market-calibrated model probability
         "modifiers":         modifiers,
     }
 

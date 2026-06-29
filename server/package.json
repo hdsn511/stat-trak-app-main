@@ -9,7 +9,8 @@
     "start": "node dist/server.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "sync-data": "ts-node src/scripts/runSync.ts"
+    "sync-data": "ts-node src/scripts/runSync.ts",
+    "sync-data-mlb": "ts-node src/jobs/computeMLBTrends.ts"
   },
   "keywords": [],
   "author": "",

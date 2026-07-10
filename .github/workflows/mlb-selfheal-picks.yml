@@ -15,11 +15,11 @@ name: MLB Pre-Game Pick Self-Heal
 #   * additive-lock (_store_picks) freezes each pick at first creation and only
 #     INSERTS newly-opened markets, so hourly re-runs never churn or duplicate.
 #
-# Runs hourly across the MLB game window; the 15:00 UTC slot is intentionally
+# Runs hourly across the MLB game window; the 13:00 UTC slot is intentionally
 # omitted because the daily pipeline already generates then.
 on:
   schedule:
-    - cron: '0 16-23 * * *'   # 12:00–19:00 ET — afternoon/evening games as markets open
+    - cron: '0 14-23 * * *'   # 10:00–19:00 ET — day/afternoon/evening games as markets open
     - cron: '0 0-4 * * *'     # 20:00–00:00 ET — night / west-coast games
   workflow_dispatch:
     inputs:

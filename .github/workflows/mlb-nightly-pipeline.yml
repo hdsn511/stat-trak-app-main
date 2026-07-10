@@ -18,7 +18,7 @@ name: Nightly MLB Pipeline
 # Manual --force (via workflow_dispatch input) rebuilds the day's ungraded picks.
 on:
   schedule:
-    - cron: '0 15 * * *'   # 11:00 ET — after overnight games are final; day-game markets posting
+    - cron: '0 13 * * *'   # 09:00 ET — after overnight games are final; earlier reconcile + data refresh
   workflow_dispatch:
     inputs:
       force:

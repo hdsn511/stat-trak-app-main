@@ -1,50 +1,25 @@
-# React + TypeScript + Vite
+# StatTrak
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Sports statistics and trends analysis app for identifying betting-relevant player and game prop performance trends. NBA data infrastructure is complete; NFL/NHL are placeholder pages, MLB is in active development.
 
-Currently, two official plugins are available:
+## Stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- **`client/`** — React 18 + TypeScript + Vite frontend
+- **`server/`** — Express 5 + TypeScript backend
+- **`analytics/`** — Python data pipeline (nba_api, Kalshi) → Supabase (PostgreSQL)
 
-## Expanding the ESLint configuration
+## Getting started
 
-If you are developing a production application, we recommend updating the configuration to enable type aware lint rules:
+See [`docs/RUNBOOK.md`](docs/RUNBOOK.md) for full setup, environment variables, and day-to-day pipeline operation.
 
-- Configure the top-level `parserOptions` property like this:
-
-```js
-export default tseslint.config({
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-})
+```bash
+npm install
+npm run dev:both      # frontend (:5173) + backend (:3000)
 ```
 
-- Replace `tseslint.configs.recommended` to `tseslint.configs.recommendedTypeChecked` or `tseslint.configs.strictTypeChecked`
-- Optionally add `...tseslint.configs.stylisticTypeChecked`
-- Install [eslint-plugin-react](https://github.com/jsx-eslint/eslint-plugin-react) and update the config:
+## Documentation
 
-```js
-// eslint.config.js
-import react from 'eslint-plugin-react'
-
-export default tseslint.config({
-  // Set the react version
-  settings: { react: { version: '18.3' } },
-  plugins: {
-    // Add the react plugin
-    react,
-  },
-  rules: {
-    // other rules...
-    // Enable its recommended rules
-    ...react.configs.recommended.rules,
-    ...react.configs['jsx-runtime'].rules,
-  },
-})
-```
+- [`CLAUDE.md`](CLAUDE.md) — architecture, commands, file map, frontend/backend conventions
+- [`docs/RUNBOOK.md`](docs/RUNBOOK.md) — install/run/operate the pipeline
+- [`analytics/README.md`](analytics/README.md) — analytics engine internals
+- [`CHANGELOG.md`](CHANGELOG.md) — schema and pipeline change history

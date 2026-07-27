@@ -36,3 +36,10 @@ backfill_state.json
 # Python venv
 analytics/.venv/
 .venv-local/
+venv/
+
+# Vite
+.vite/
+
+# Superpowers skill scratch state
+.superpowers/

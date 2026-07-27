@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import argparse
 import sys
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from analytics.db.connection import supabase, MLB_LEAGUE_ID
 from analytics.engine.backtest_mlb import backtest_player as backtest_player_mlb
@@ -58,6 +58,37 @@ PLAYER_MIN_EDGE = 0.07
 PLAYER_MAX_EDGE = 0.20
 
 
+def _started_game_ids(game_date: str) -> set[int]:
+    """Game ids whose first pitch has already passed — treated as LIVE and
+    excluded from generation. This is what makes the daily run + hourly pre-game
+    self-heal safe: a firing that lands after a game starts never generates picks
+    off an in-progress game (Kalshi keeps in-play markets open, which used to let
+    later runs stack live-game clutter). A game is started if now >= game_time, or
+    (fallback, if game_time is null on an old row) its synced status is live/final.
+    """
+    now = datetime.now(timezone.utc)
+    rows = (supabase.table("games").select("id,game_time,status")
+            .eq("game_date", game_date).eq("league_id", MLB_LEAGUE_ID).execute()).data or []
+    started: set[int] = set()
+    for r in rows:
+        gt = r.get("game_time")
+        if gt:
+            # timestamptz comes back ISO-8601; normalise a trailing Z for fromisoformat.
+            try:
+                started_at = datetime.fromisoformat(gt.replace("Z", "+00:00"))
+                if started_at.tzinfo is None:
+                    started_at = started_at.replace(tzinfo=timezone.utc)
+                if started_at <= now:
+                    started.add(r["id"])
+                continue
+            except (ValueError, AttributeError):
+                pass
+        # No usable game_time — fall back to synced status (1=live, 2=final).
+        if r.get("status") in (1, 2):
+            started.add(r["id"])
+    return started
+
+
 def _store_daily_lines(game_date: str, player_props: dict, name_to_id: dict,
                        force: bool = False) -> None:
     rows = []
@@ -83,8 +114,8 @@ def _store_daily_lines(game_date: str, player_props: dict, name_to_id: dict,
     else:
         # Additive: only insert (entity_id, stat, line) combos not already stored
         # for the day. Kalshi opens markets per-game near first pitch, so the
-        # 3x/day runs progressively capture each game's lines as they list, with
-        # no duplicate rows and the first-seen price kept.
+        # daily run + hourly pre-game self-heal progressively capture each game's
+        # lines as they list, with no duplicate rows and the first-seen price kept.
         existing = (supabase.table("daily_lines").select("entity_id,stat,line")
                     .eq("game_date", game_date).eq("league_id", MLB_LEAGUE_ID)
                     .execute()).data or []
@@ -116,11 +147,13 @@ def _store_picks(game_date: str, picks: list[dict], force: bool = False) -> None
     # runs; each run only INSERTS picks whose (entity_id, stat, pick_type) isn't
     # already stored for the day. Kalshi opens MLB markets per-game close to first
     # pitch, so any single run sees only the games nearest their start (~5
-    # pitchers). The 3x/day runs therefore accumulate each game's pitcher/batter
-    # markets AS THEY OPEN — capturing the full day's slate without ever churning
-    # an existing pick against newer lines or stacking duplicates (the bug that
-    # made one slate balloon to the union of all runs). --force does a full
-    # rebuild of the day's ungraded picks instead.
+    # pitchers). The daily run + hourly pre-game self-heal therefore accumulate
+    # each game's pitcher/batter markets AS THEY OPEN — capturing the full day's
+    # slate without ever churning an existing pick against newer lines or stacking
+    # duplicates (the bug that made one slate balloon to the union of all runs).
+    # The live gate (_started_game_ids) additionally keeps any post-first-pitch
+    # firing from generating off an in-progress game. --force rebuilds the day's
+    # ungraded picks instead.
     if force:
         supabase.table("pick_results").delete().eq("game_date", game_date)\
             .eq("league_id", MLB_LEAGUE_ID).is_("actual_result", "null").execute()
@@ -159,12 +192,23 @@ def generate_picks(game_date: date, force: bool = False) -> list[dict]:
     print("=" * 70)
     print(f"StatTrak MLB Pick Generator  |  date: {date_str}")
     print("=" * 70)
-    # Additive-lock (see _store_picks): every firing processes the slate and adds
-    # only newly-opened markets; existing picks stay frozen. --force rebuilds.
+    # Additive-lock (see _store_picks): every firing processes the not-yet-started
+    # slate and adds only newly-opened markets; existing picks stay frozen and
+    # started games are skipped (see _started_game_ids). --force rebuilds.
+
+    # LIVE GATE: games whose first pitch has passed are excluded everywhere below.
+    # The daily run generates for games with markets already open; the hourly
+    # pre-game self-heal re-runs and additive-lock (see _store_picks) only adds
+    # markets that newly opened for not-yet-started games — never live-game clutter.
+    started = _started_game_ids(date_str)
 
     print("\n[Step 1] Screening candidates ...")
     candidates = screen_player_candidates(game_date)
-    print(f"  Player candidates: {len(candidates)}")
+    pre_gate = len(candidates)
+    candidates = [c for c in candidates if c.get("game_id") not in started]
+    skipped = pre_gate - len(candidates)
+    print(f"  Player candidates: {len(candidates)}"
+          + (f" ({skipped} skipped — game already started)" if skipped else ""))
     if not candidates:
         print("  No candidates. Exiting.")
         return []
@@ -240,7 +284,8 @@ def generate_picks(game_date: date, force: bool = False) -> list[dict]:
     # ── Game props (totals + run line) ───────────────────────────────────────
     print("\n[Step 3b] Backtesting + scoring game props ...")
     game_props = kalshi.parse_game_props(markets)
-    game_candidates = screen_game_candidates(game_date)
+    game_candidates = [c for c in screen_game_candidates(game_date)
+                       if c["game_id"] not in started]
     team_rows = (supabase.table("teams").select("id,abbreviation")
                  .eq("league_id", MLB_LEAGUE_ID).execute()).data or []
     id_to_abbr = {r["id"]: (r["abbreviation"] or "").upper() for r in team_rows}

@@ -1,0 +1,72 @@
+name: MLB Pre-Game Pick Self-Heal
+
+# PICKS-ONLY hourly companion to the once-a-day Nightly MLB Pipeline
+# (.github/workflows/mlb-nightly-pipeline.yml). It does NOT reconcile, fetch box
+# scores, refresh rosters, enrich, or recompute trends — the daily run owns all
+# of that. It only re-runs generate_mlb so each game's Kalshi markets are picked
+# up shortly after they open (Kalshi lists MLB markets PER-GAME ~1h before first
+# pitch), catching night / west-coast games the morning daily run couldn't see.
+#
+# Why this is safe to fire every hour:
+#   * generate_mlb's live gate (_started_game_ids) skips any game whose first
+#     pitch has passed, so a firing that lands after a game starts never makes a
+#     pick off an in-progress game (the clutter the old 4x full-pipeline design
+#     produced via Kalshi in-play markets).
+#   * additive-lock (_store_picks) freezes each pick at first creation and only
+#     INSERTS newly-opened markets, so hourly re-runs never churn or duplicate.
+#
+# Runs hourly across the MLB game window; the 13:00 UTC slot is intentionally
+# omitted because the daily pipeline already generates then.
+on:
+  schedule:
+    - cron: '0 14-23 * * *'   # 10:00–19:00 ET — day/afternoon/evening games as markets open
+    - cron: '0 0-4 * * *'     # 20:00–00:00 ET — night / west-coast games
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Rebuild today''s ungraded picks (--force)'
+        type: boolean
+        default: false
+
+concurrency:
+  # Share the daily pipeline's group so a self-heal never runs concurrently with
+  # the heavier daily run (both touch pick_results); additive-lock makes any
+  # queued overlap harmless.
+  group: mlb-nightly
+  cancel-in-progress: false
+
+jobs:
+  selfheal:
+    name: MLB Pre-Game Pick Self-Heal
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      KALSHI_API_KEY: ${{ secrets.KALSHI_API_KEY }}
+      KALSHI_PRIVATE_KEY_PATH: ./kalshi_key.pem
+      PYTHONUNBUFFERED: '1'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: analytics/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r analytics/requirements.txt
+
+      - name: Write Kalshi PEM key
+        run: printf '%s' "$KEY" > server/kalshi_key.pem
+        env:
+          KEY: ${{ secrets.KALSHI_PRIVATE_KEY }}
+
+      # Picks-only: screens candidates from today's daily_conditions (computed by
+      # the daily run), fetches current Kalshi lines, gates out started games, and
+      # additive-locks new picks for the not-yet-started slate.
+      - name: Generate MLB picks (pre-game self-heal)
+        run: python -m analytics.picks.generate_mlb --today ${{ github.event.inputs.force == 'true' && '--force' || '' }}

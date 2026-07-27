@@ -1,28 +1,30 @@
 name: Nightly MLB Pipeline
 
-# Runs after the prior night's games are final (for reconcile) and then spans the
-# day. Unlike the NBA pipeline, statsapi.mlb.com is NOT IP-blocked from GitHub
-# Actions, so this runs cleanly with no proxy.
+# RUNS ONCE PER DAY. Reconciles the prior night's picks, backfills box scores,
+# refreshes rosters, syncs today's slate (incl. per-game first-pitch time) +
+# probable starters, enriches, recomputes trends, and generates picks for any
+# games whose Kalshi markets are already open by late morning (mostly day games).
+# Unlike the NBA pipeline, statsapi.mlb.com is NOT IP-blocked from Actions.
 #
-# ADDITIVE-LOCK across the day: Kalshi opens MLB markets PER-GAME close to each
-# game's first pitch, so any single run sees only the games nearest their start
-# (~5 pitchers). generate_mlb freezes each pick at first creation and every firing
-# only ADDS picks for markets that newly opened (see _store_picks), so the 4 runs
-# progressively capture the full day's slate (day games by late morning, night /
-# west-coast games by evening) with no churn and no duplicate stacking. Spacing
-# the runs from late morning to evening is what gives full pitcher coverage.
+# The rest of the slate is captured by the SEPARATE hourly pre-game self-heal
+# (.github/workflows/mlb-selfheal-picks.yml), which is picks-only: Kalshi opens
+# MLB markets PER-GAME close to first pitch, so night / west-coast games have no
+# markets yet at this daily run. The self-heal re-runs generate_mlb hourly and
+# additive-lock (see generate_mlb._store_picks) adds only markets that newly
+# opened, for games that have NOT yet started. The old design fired the FULL
+# pipeline 4x/day, which let later runs stack picks off in-progress (live) games
+# once Kalshi's in-play markets opened — the live gate + this split removes that.
 #
-# Scheduled runs are often delayed or silently SKIPPED under load; the multiple
-# firings + concurrency guard absorb that, and additive-lock makes any overlap
-# harmless. The non-pick steps (reconcile, box scores, slate/lineup sync, enrich,
-# trends) run every firing. Manual --force does a full rebuild of the day.
+# Manual --force (via workflow_dispatch input) rebuilds the day's ungraded picks.
 on:
   schedule:
-    - cron: '0 15 * * *'   # 11:00 ET — day-game lineups/markets posting
-    - cron: '0 18 * * *'   # 14:00 ET — adds early evening games
-    - cron: '0 21 * * *'   # 17:00 ET — adds night-game markets
-    - cron: '0 23 * * *'   # 19:00 ET — adds late / west-coast game markets
+    - cron: '0 13 * * *'   # 09:00 ET — after overnight games are final; earlier reconcile + data refresh
   workflow_dispatch:
+    inputs:
+      force:
+        description: 'Rebuild today''s ungraded picks (--force)'
+        type: boolean
+        default: false
 
 concurrency:
   group: mlb-nightly
@@ -84,6 +86,7 @@ jobs:
         working-directory: server
         run: npm run sync-data-mlb
 
-      # Fetch Kalshi MLB lines + backtest + store picks.
+      # Fetch Kalshi MLB lines + backtest + store picks for games whose markets
+      # are already open (the hourly self-heal captures the rest as they list).
       - name: Generate MLB picks
-        run: python -m analytics.picks.generate_mlb --today
+        run: python -m analytics.picks.generate_mlb --today ${{ github.event.inputs.force == 'true' && '--force' || '' }}

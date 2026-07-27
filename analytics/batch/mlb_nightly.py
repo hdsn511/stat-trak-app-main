@@ -312,11 +312,14 @@ def get_slate(target_date: date) -> tuple[list[dict], dict[int, dict]]:
         status_state = g.get("status", {}).get("abstractGameState", "")
         status_code = 2 if status_state == "Final" else (1 if status_state == "Live" else 0)
         # game_type is a generated column (league-aware) — do not insert it.
+        # gameDate is the ISO-8601 UTC first-pitch time; pick generation uses it
+        # to skip games that have already started (see generate_mlb live gate).
         games_to_insert.append({
             "ext_id": pk, "league_id": MLB_LEAGUE_ID,
             "game_date": g.get("_official_date", date_str),
             "home_team_id": home_db, "away_team_id": away_db,
             "season": season, "status": status_code,
+            "game_time": g.get("gameDate"),
         })
         probable_by_pk[pk] = {
             "home": (g["teams"]["home"].get("probablePitcher") or {}).get("id"),

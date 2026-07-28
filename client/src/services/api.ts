@@ -96,6 +96,7 @@ export interface TodaysGame {
 
 export interface Pick {
   pickId: number
+  date: string            // YYYY-MM-DD game date
   playerId: number
   playerName: string
   team: string

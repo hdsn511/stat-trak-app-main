@@ -89,6 +89,8 @@ export default function MLBPlayerView() {
   const STATS = statSet(profile?.isPitcher)
   const active = STATS.find(s => s.key === activeKey) ?? STATS[0]
 
+  const todayStr = useMemo(() => new Date().toLocaleDateString('en-CA'), []) // YYYY-MM-DD
+
   useEffect(() => {
     if (!id) return
     setLoading(true)
@@ -99,10 +101,16 @@ export default function MLBPlayerView() {
     mlbApi.getPlayerPicks(parseInt(id)).then(setPlayerPicks).catch(() => {})
   }, [id])
 
+  // Only picks generated for today — older picks are stale (different markets/lines).
+  const todaysPicks = useMemo(
+    () => playerPicks.filter(p => p.date === todayStr),
+    [playerPicks, todayStr]
+  )
+
   // The pick that drives the verdict + the line default for the active stat.
   const activePick = useMemo(
-    () => playerPicks.find(p => p.stat === active.key) ?? null,
-    [playerPicks, active.key]
+    () => todaysPicks.find(p => p.stat === active.key) ?? null,
+    [todaysPicks, active.key]
   )
 
   // Reset the line whenever the stat changes (unless the user is steering it).
@@ -234,7 +242,7 @@ export default function MLBPlayerView() {
 
       {games.length > 0 ? (
       <>
-      <BetVerdict pick={activePick} fallbackPick={playerPicks[0] ?? null} activeLabel={active.label} />
+      <BetVerdict pick={activePick} fallbackPick={todaysPicks[0] ?? null} activeLabel={active.label} />
 
       {/* Stat selector */}
       <div className="flex border-b border-[#161616]">
@@ -357,12 +365,12 @@ export default function MLBPlayerView() {
       )}
 
       {/* Today's props */}
-      {playerPicks.length > 0 && (
+      {todaysPicks.length > 0 && (
         <div className="bg-[#0D0D0D] border border-[#161616] rounded-2xl overflow-hidden">
           <div className="px-4 py-3 border-b border-[#111]">
             <span className="text-[10px] font-bold text-gray-500 uppercase tracking-[0.15em] font-condensed">Today's Props</span>
           </div>
-          {playerPicks.map((pick, i) => (
+          {todaysPicks.map((pick, i) => (
             <div key={i} className="flex items-center justify-between px-4 py-3 border-b border-[#0F0F0F] last:border-0">
               <span className="text-[12px] font-bold text-white font-condensed">{pick.statLabel} {pick.recommendedLine}+</span>
               <div className="flex items-center gap-4">

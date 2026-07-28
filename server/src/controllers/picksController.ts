@@ -27,10 +27,58 @@ export async function getTopPicks(req: Request<{}, {}, {}, { limit?: string }>, 
     }
     const allPicks = (picks ?? []) as any[];
 
-    const playerRows = allPicks.filter((p) => p.prop_type === 'player');
-    const gameRows = allPicks.filter((p) =>
+    const playerRowsRaw = allPicks.filter((p) => p.prop_type === 'player');
+    const gameRowsRaw = allPicks.filter((p) =>
       ['winner', 'spread', 'total'].includes(p.prop_type)
     );
+
+    // ── Teams + today's games — shared by the final-game filter below, the
+    // opponent lookup, and the game-pick payload, so fetch once.
+    const { data: allTeams } = await supabaseAdmin.from('teams').select('id,abbreviation,name');
+    const abbrToTeamId = new Map<string, number>();
+    const teamIdToInfo = new Map<number, { abbreviation: string; name: string }>();
+    for (const t of (allTeams ?? [])) {
+      abbrToTeamId.set((t.abbreviation ?? '').toUpperCase(), t.id);
+      teamIdToInfo.set(t.id, { abbreviation: t.abbreviation, name: t.name });
+    }
+
+    const { data: pickDateGames } = await supabaseAdmin
+      .from('games')
+      .select('id,home_team_id,away_team_id,status')
+      .eq('game_date', pickDate);
+    const gamesById = new Map((pickDateGames ?? []).map((g: any) => [g.id, g]));
+
+    // Player-prop grading is deferred to the next nightly run (it caps at
+    // yesterday so it never grades a game that might still be live), so a
+    // game that goes final intraday leaves its picks sitting in "today's"
+    // list indefinitely with no market left to act on. Filter those out here
+    // instead of waiting for the next day's grading pass.
+    const finalGameIds = new Set(
+      (pickDateGames ?? []).filter((g: any) => g.status === 2).map((g: any) => g.id)
+    );
+    const finalTeamIds = new Set<number>();
+    for (const g of (pickDateGames ?? [])) {
+      if (g.status === 2) {
+        finalTeamIds.add(g.home_team_id);
+        finalTeamIds.add(g.away_team_id);
+      }
+    }
+
+    const gameRows = gameRowsRaw.filter((g) => !finalGameIds.has(g.entity_id));
+
+    // Player picks carry no game_id directly — resolve via player → team →
+    // today's game to know whether that game has gone final.
+    const playerEntityIds = [...new Set(playerRowsRaw.map((p) => p.entity_id))];
+    const { data: allPlayers } = playerEntityIds.length
+      ? await supabaseAdmin.from('players').select('id,name,team,position').in('id', playerEntityIds)
+      : { data: [] as any[] };
+    const playerMap = new Map((allPlayers ?? []).map((p: any) => [p.id, p]));
+
+    const playerRows = playerRowsRaw.filter((p) => {
+      const teamAbbr = (playerMap.get(p.entity_id)?.team ?? '').toUpperCase();
+      const teamId = teamAbbr ? abbrToTeamId.get(teamAbbr) : undefined;
+      return teamId == null || !finalTeamIds.has(teamId);
+    });
 
     // Dedupe game picks by (entity_id, prop_type), keeping highest confidence
     const bestPerGameProp = new Map<string, any>();
@@ -57,58 +105,24 @@ export async function getTopPicks(req: Request<{}, {}, {}, { limit?: string }>, 
       .sort((a, b) => (b.confidence_score ?? 0) - (a.confidence_score ?? 0))
       .slice(0, limit);
 
-    // Join players table
-    const playerIds = topPlayerPicks.map((p) => p.entity_id);
-    const { data: players } = playerIds.length
-      ? await supabaseAdmin.from('players').select('id,name,team,position').in('id', playerIds)
-      : { data: [] as any[] };
-    const playerMap = new Map((players ?? []).map((p: any) => [p.id, p]));
-
-    // ── Opponent lookup for player picks (using pickDate's games + teams)
-    // We need: player team abbr → game on pickDate → opponent team abbr + name
-    const playerTeams = (players ?? []).map((p: any) => p.team).filter(Boolean) as string[];
+    // ── Opponent lookup for player picks (using pickDate's games + teams
+    // already fetched above). We need: player team abbr → game on pickDate →
+    // opponent team abbr + name.
     const oppByTeamAbbr = new Map<string, { team: string | null; team_name: string | null }>();
-    if (playerTeams.length > 0) {
-      // Fetch all teams to build abbr→id and id→{abbr,name} maps
-      const { data: allTeams } = await supabaseAdmin
-        .from('teams')
-        .select('id,abbreviation,name');
-      const abbrToTeamId = new Map<string, number>();
-      const teamIdToInfo = new Map<number, { abbreviation: string; name: string }>();
-      for (const t of (allTeams ?? [])) {
-        abbrToTeamId.set((t.abbreviation ?? '').toUpperCase(), t.id);
-        teamIdToInfo.set(t.id, { abbreviation: t.abbreviation, name: t.name });
+    for (const g of (pickDateGames ?? [])) {
+      const homeInfo = teamIdToInfo.get(g.home_team_id);
+      const awayInfo = teamIdToInfo.get(g.away_team_id);
+      if (homeInfo) {
+        oppByTeamAbbr.set(homeInfo.abbreviation.toUpperCase(), {
+          team: awayInfo?.abbreviation ?? null,
+          team_name: awayInfo?.name ?? null,
+        });
       }
-
-      // Resolve team IDs for player teams
-      const playerTeamIds = playerTeams
-        .map((abbr: string) => abbrToTeamId.get(abbr.toUpperCase()))
-        .filter((id): id is number => id != null);
-
-      if (playerTeamIds.length > 0) {
-        const { data: pickDateGames } = await supabaseAdmin
-          .from('games')
-          .select('home_team_id,away_team_id')
-          .eq('game_date', pickDate)
-          .or(
-            playerTeamIds.map((id) => `home_team_id.eq.${id},away_team_id.eq.${id}`).join(',')
-          );
-        for (const g of (pickDateGames ?? [])) {
-          const homeInfo = teamIdToInfo.get(g.home_team_id);
-          const awayInfo = teamIdToInfo.get(g.away_team_id);
-          if (homeInfo) {
-            oppByTeamAbbr.set(homeInfo.abbreviation.toUpperCase(), {
-              team: awayInfo?.abbreviation ?? null,
-              team_name: awayInfo?.name ?? null,
-            });
-          }
-          if (awayInfo) {
-            oppByTeamAbbr.set(awayInfo.abbreviation.toUpperCase(), {
-              team: homeInfo?.abbreviation ?? null,
-              team_name: homeInfo?.name ?? null,
-            });
-          }
-        }
+      if (awayInfo) {
+        oppByTeamAbbr.set(awayInfo.abbreviation.toUpperCase(), {
+          team: homeInfo?.abbreviation ?? null,
+          team_name: homeInfo?.name ?? null,
+        });
       }
     }
 
@@ -132,26 +146,11 @@ export async function getTopPicks(req: Request<{}, {}, {}, { limit?: string }>, 
       ...fillers.map((r: any) => ({ ...r, _featured: null })),
     ].slice(0, limit);
 
-    // Join games + teams
-    const gameIds = topGamePicksRaw.map((g: any) => g.entity_id).filter((id: any) => id != null);
-    const { data: games } = gameIds.length
-      ? await supabaseAdmin
-          .from('games')
-          .select('id,home_team_id,away_team_id')
-          .in('id', gameIds)
-      : { data: [] as any[] };
-    const gameMap = new Map((games ?? []).map((g: any) => [g.id, g]));
-
-    // Resolve team abbreviations
-    const teamIds = new Set<number>();
-    for (const g of (games ?? [])) {
-      if (g.home_team_id != null) teamIds.add(g.home_team_id);
-      if (g.away_team_id != null) teamIds.add(g.away_team_id);
-    }
-    const { data: teams } = teamIds.size
-      ? await supabaseAdmin.from('teams').select('id,abbreviation').in('id', [...teamIds])
-      : { data: [] as any[] };
-    const teamMap = new Map((teams ?? []).map((t: any) => [t.id, t.abbreviation]));
+    // Games + team abbreviations already fetched above (gamesById, teamIdToInfo).
+    const gameMap = gamesById;
+    const teamMap = new Map(
+      [...teamIdToInfo.entries()].map(([id, info]) => [id, info.abbreviation])
+    );
 
     // ── Build response
     const playerPayload = topPlayerPicks.map((p) => {

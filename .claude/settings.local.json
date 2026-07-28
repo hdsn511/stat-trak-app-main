@@ -90,7 +90,14 @@
       "PowerShell(Remove-Item *)",
       "Bash(npm *)",
       "mcp__plugin_supabase_supabase__list_tables",
-      "Skill(superpowers:using-superpowers)"
+      "Skill(superpowers:using-superpowers)",
+      "WebSearch",
+      "WebFetch(domain:aws.amazon.com)",
+      "WebFetch(domain:azure.microsoft.com)",
+      "Read(//tmp/**)",
+      "Bash(rm -f .git/refs/heads/main)",
+      "Bash(echo \"8cdd165a19377a2c6fd6d29585054b5b3ffae92d\")",
+      "WebFetch(domain:gist.github.com)"
     ]
   },
   "enableAllProjectMcpServers": true,

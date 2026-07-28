@@ -94,25 +94,18 @@ export async function deleteSessionHandler(req: Request, res: Response) {
   }
 }
 
-export async function postMessage(req: Request, res: Response) {
-  const { sessionId, message } = req.body ?? {}
-  if (!sessionId || !message) {
-    res
-      .status(400)
-      .json({ success: false, error: 'sessionId and message required' })
-    return
-  }
+export type SSEWriter = (event: string, data: unknown) => void
 
-  res.setHeader('Content-Type', 'text/event-stream')
-  res.setHeader('Cache-Control', 'no-cache, no-transform')
-  res.setHeader('Connection', 'keep-alive')
-  res.flushHeaders?.()
-
-  const send = (event: string, data: unknown) => {
-    res.write(`event: ${event}\n`)
-    res.write(`data: ${JSON.stringify(data)}\n\n`)
-  }
-
+// Core SportQuery turn: LLM call -> SQL validation/execution -> enrichment ->
+// streamed events. Takes a writer callback instead of touching `res` directly
+// so both the local Express route (postMessage, below) and the Lambda
+// Function URL streaming handler (lambda-handlers/sportqueryStream.ts) can
+// drive the same SSE framing over their own transport.
+export async function runSportQueryTurn(
+  sessionId: string,
+  message: string,
+  send: SSEWriter
+): Promise<void> {
   try {
     await appendMessage(sessionId, 'user', message)
 
@@ -200,6 +193,30 @@ export async function postMessage(req: Request, res: Response) {
     send('done', {})
   } catch (err: any) {
     send('error', { error: err.message ?? 'unknown error' })
+  }
+}
+
+export async function postMessage(req: Request, res: Response) {
+  const { sessionId, message } = req.body ?? {}
+  if (!sessionId || !message) {
+    res
+      .status(400)
+      .json({ success: false, error: 'sessionId and message required' })
+    return
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream')
+  res.setHeader('Cache-Control', 'no-cache, no-transform')
+  res.setHeader('Connection', 'keep-alive')
+  res.flushHeaders?.()
+
+  const send: SSEWriter = (event, data) => {
+    res.write(`event: ${event}\n`)
+    res.write(`data: ${JSON.stringify(data)}\n\n`)
+  }
+
+  try {
+    await runSportQueryTurn(sessionId, message, send)
   } finally {
     res.end()
   }

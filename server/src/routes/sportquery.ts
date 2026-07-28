@@ -9,7 +9,7 @@ import {
 import {
   sportqueryMinuteLimiter,
   sportqueryDailyLimiter,
-} from '../middleware/sportqueryRateLimit'
+} from '../middleware/rateLimit'
 
 const router = Router()
 

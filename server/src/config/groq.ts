@@ -7,7 +7,10 @@ if (!apiKey) {
 
 export const groq = new Groq({ apiKey: apiKey ?? 'missing' })
 
-export const SPORTQUERY_MODEL = 'llama-3.3-70b-versatile'
+// gemma2-9b-it: free on Groq's permanent no-credit-card tier with better rate
+// limits than most other free-tier models there. No paid LLM host (Bedrock,
+// self-hosted GPU) fits the "genuinely free" constraint, so this stays on Groq.
+export const SPORTQUERY_MODEL = 'gemma2-9b-it'
 export const SQL_TEMPERATURE = 0.1
 export const NARRATIVE_TEMPERATURE = 0.5
 export const MAX_INPUT_TOKENS = 8000

@@ -7,10 +7,16 @@ if (!connectionString) {
   )
 }
 
+// SPORTQUERY_DB_URL should point at Supabase's Supavisor pooled connection
+// (port 6543, transaction mode), not a direct Postgres connection — each
+// Lambda instance opens its own pool, so a direct connection's low client
+// cap would be exhausted quickly under concurrent invocations. In Lambda,
+// cap this pool at 1: Supavisor already does the pooling, so this just reuses
+// one connection across invocations within the same warm container.
 const pool = connectionString
   ? new Pool({
       connectionString,
-      max: 5,
+      max: process.env.AWS_LAMBDA_FUNCTION_NAME ? 1 : 5,
       idleTimeoutMillis: 10000,
       connectionTimeoutMillis: 3000,
     })

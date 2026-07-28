@@ -1,4 +1,10 @@
-const BASE = 'http://localhost:3000/api/sportquery'
+// Defaults to the main API's /sportquery path; override with
+// VITE_SPORTQUERY_BASE_URL once the streaming route moves to its own Lambda
+// Function URL origin (API Gateway buffers full responses, so SSE streaming
+// needs a separate host — see infra/lib/api-stack.ts).
+const BASE =
+  import.meta.env.VITE_SPORTQUERY_BASE_URL ??
+  `${import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000/api'}/sportquery`
 
 export type SessionSummary = {
   id: string

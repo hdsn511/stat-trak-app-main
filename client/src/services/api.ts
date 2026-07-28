@@ -1,4 +1,4 @@
-const BASE = 'http://localhost:3000/api'
+const BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000/api'
 
 export interface TrendingPlayer {
   playerId: number
@@ -96,6 +96,7 @@ export interface TodaysGame {
 
 export interface Pick {
   pickId: number
+  date: string            // YYYY-MM-DD game date
   playerId: number
   playerName: string
   team: string

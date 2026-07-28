@@ -1,13 +1,16 @@
 import { computeTrends } from '../jobs/computeNBATrends';
 
-async function main() {
+export async function main(): Promise<void> {
   console.log('Computing NBA trends...');
   await computeTrends();
   console.log('Done.');
-  process.exit(0);
 }
 
-main().catch(err => {
-  console.error(err);
-  process.exit(1);
-});
+if (require.main === module) {
+  main()
+    .then(() => process.exit(0))
+    .catch(err => {
+      console.error(err);
+      process.exit(1);
+    });
+}

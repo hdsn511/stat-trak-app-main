@@ -1,3 +1,5 @@
+import type { DefenseSplit, PlayerLogResponse } from '@/ember/player/types'
+
 const BASE = 'http://localhost:3000/api'
 
 export interface TrendingPlayer {
@@ -469,6 +471,21 @@ export function createLeagueApi(slug: string) {
 
     getPlayerProfile: (id: number): Promise<PlayerProfile> =>
       get(`${BASE}/${slug}/players/${id}/games`),
+
+    /** Full season game log plus the next scheduled game. */
+    getPlayerLog: (id: number, window: 'all' | number = 'all'): Promise<PlayerLogResponse> =>
+      get(`${BASE}/${slug}/players/${id}/games?window=${window}`),
+
+    /** Opponent defensive split; null for leagues with no defense table. */
+    getTeamDefense: (
+      teamId: number,
+      stat: string,
+      position?: string | null
+    ): Promise<DefenseSplit | null> => {
+      const q = new URLSearchParams({ stat })
+      if (position) q.set('position', position)
+      return get(`${BASE}/${slug}/teams/${teamId}/defense?${q}`)
+    },
 
     getTodaysGames: (): Promise<TodaysGame[]> =>
       get(`${BASE}/${slug}/games/today`),

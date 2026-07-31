@@ -38,6 +38,8 @@ for every league rather than NBA alone.
 - Persisting filter state across sessions.
 - Betting odds integration. The line is a user-controlled threshold, not a
   sportsbook number.
+- Row Level Security. Explicitly out of scope for this work — see the note under
+  Risks. It is tracked, not addressed here.
 
 ## Decisions Already Made
 
@@ -267,7 +269,25 @@ unless the user has manually moved it, in which case their value is preserved. A
 
 ### Matchup Section
 
-Renders when `upcoming` is non-null. Four blocks:
+**The opponent filter doubles as the matchup selector.** As of 2026-07-31 the
+`games` table holds no future games for NBA, NFL, or NHL — those seasons ended in
+June, February, and June respectively; only MLB has 15 scheduled games. A matchup
+section keyed strictly to "the next scheduled game" would therefore be blank for
+three of four leagues most of the year.
+
+So the section targets whichever opponent is selected: it defaults to the upcoming
+opponent when the schedule has one, and otherwise the user picks a team from the
+opponent filter and gets the full matchup breakdown against it. This collapses two
+requirements — "filter against team" and "show me things relevant to the current
+matchup" — into one control, and makes the feature useful year-round rather than
+only in-season.
+
+The header states which mode is active: `NEXT: vs BOS · AUG 2` when driven by the
+schedule, `MATCHUP: vs BOS` when driven by the filter. The two are never
+visually conflated, because "his next game is Boston" and "here is his Boston
+history" are different claims.
+
+Four blocks:
 
 1. **Splits** — for each of the league's stats plus the volume stat, two columns:
    season average, and average against the upcoming opponent. Separate numbers side
@@ -327,7 +347,8 @@ trusted source of well-formed enums.
 | Profile fetch fails | Error card with retry; the panel does not blank the chat |
 | Player has zero season games | `NO GAMES LOGGED` state, filters disabled |
 | Filter combination yields zero games | Empty chart with a "widen the filter" hint; filters stay active |
-| No upcoming game | Matchup section omitted; the rest of the view renders normally |
+| No upcoming game | Matchup section falls back to filter-selected opponent; header reads `MATCHUP:` not `NEXT:` |
+| No upcoming game and no opponent selected | Matchup section shows a "pick an opponent" prompt, not an empty panel |
 | No defense data for the league | Splits and H2H still render; only the signal badge is suppressed |
 | Player role has no volume stat | Volume column omitted, not rendered blank |
 | League has no trends table (NFL/NHL) | Trend-derived fields absent; the view does not use them |

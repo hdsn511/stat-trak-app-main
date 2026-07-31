@@ -16,7 +16,7 @@ function RecordBadge({ w, l, label }: { w: number; l: number; label: string }) {
   )
 }
 
-function GameLogRow({ game, teamId, onClick }: { game: TeamGameEntry; teamId: number; onClick: () => void }) {
+function GameLogRow({ game, onClick }: { game: TeamGameEntry; onClick: () => void }) {
   const opp = game.is_home ? game.away_team : game.home_team
   const today = new Date().toISOString().slice(0, 10)
   const isUpcoming = game.game_date >= today
@@ -132,7 +132,6 @@ export default function TeamView() {
           <GameLogRow
             key={game.id}
             game={game}
-            teamId={data.team.id}
             onClick={() => navigate(`/game/${game.id}`)}
           />
         ))}

@@ -85,3 +85,29 @@
 .animate-fade-up {
   animation: fade-up 0.2s ease-out both;
 }
+
+@keyframes tdot {
+  0%, 100% { opacity: 0.2; }
+  50%      { opacity: 1; }
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.animate-tdot {
+  animation: tdot 1s infinite;
+}
+
+.animate-rise {
+  animation: rise 0.25s ease both;
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}

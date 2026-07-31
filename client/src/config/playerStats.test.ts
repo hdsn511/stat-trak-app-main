@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { getPlayerStatConfig, allStatsFor, formatVolume } from './playerStats'
+import { getPlayerStatConfig, allStatsFor, formatVolume, formatAverage } from './playerStats'
 
 describe('nba stat config', () => {
   const cfg = getPlayerStatConfig('nba')
@@ -135,5 +135,31 @@ describe('formatVolume', () => {
 
   it('renders a plain number when the def has no formatter', () => {
     expect(formatVolume(getPlayerStatConfig('nba').volumeFor('player'), 34)).toBe('34')
+  })
+})
+
+describe('formatAverage', () => {
+  const min = getPlayerStatConfig('nba').volumeFor('player')!
+  const pts = getPlayerStatConfig('nba').statsFor('player')[0]
+
+  it('rounds a raw average to one decimal', () => {
+    // A season minutes average arrives as 21.692307692307693.
+    expect(formatAverage(min, 21.692307692307693)).toBe('21.7')
+    expect(formatAverage(pts, 12)).toBe('12.0')
+  })
+
+  it('honours a per-stat decimal count', () => {
+    const svp = getPlayerStatConfig('nhl').statsFor('goalie').find((s) => s.key === 'savePct')!
+    expect(formatAverage(svp, 0.91234)).toBe('0.912')
+  })
+
+  it('applies a custom formatter instead of rounding', () => {
+    const toi = getPlayerStatConfig('nhl').volumeFor('skater')!
+    expect(formatAverage(toi, 1122.4)).toBe('18:42')
+  })
+
+  it('renders a dash for null', () => {
+    expect(formatAverage(min, null)).toBe('—')
+    expect(formatAverage(null, 5)).toBe('—')
   })
 })

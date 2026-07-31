@@ -206,7 +206,17 @@ export function allStatsFor(cfg: PlayerStatConfig, role: string): StatDef[] {
   return [...cfg.statsFor(role), ...cfg.combosFor(role)]
 }
 
+/** A raw per-game value, shown as stored (minutes are whole numbers). */
 export function formatVolume(def: StatDef | null, v: number | null): string {
   if (def == null || v == null) return '—'
   return def.format ? def.format(v) : String(v)
+}
+
+/**
+ * An averaged value. Averages carry full float precision — a season minutes
+ * average is 21.692307692307693 — so they must be rounded before display.
+ */
+export function formatAverage(def: StatDef | null, v: number | null): string {
+  if (def == null || v == null) return '—'
+  return def.format ? def.format(v) : v.toFixed(def.decimals ?? 1)
 }

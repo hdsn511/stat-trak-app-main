@@ -66,7 +66,9 @@ export default function LineControl({
               const v = parseFloat(e.target.value)
               if (Number.isFinite(v)) onLine(v)
             }}
-            className="font-martian font-bold text-[20px] text-[#EFEBE9] bg-[#221D1A] border border-[#2E2724] rounded-md w-[84px] px-[9px] py-[3px] text-center"
+            // Spinner arrows steal ~17px of a number input's width, clipping
+            // values like "11.5". The ± buttons already cover stepping.
+            className="font-martian font-bold text-[20px] text-[#EFEBE9] bg-[#221D1A] border border-[#2E2724] rounded-md w-[96px] px-[9px] py-[3px] text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
           />
           <button
             type="button"

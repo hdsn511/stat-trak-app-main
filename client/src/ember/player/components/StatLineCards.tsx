@@ -1,4 +1,4 @@
-import { formatVolume, type StatDef } from '@/config/playerStats'
+import { formatAverage, type StatDef } from '@/config/playerStats'
 import { averageOf } from '../derive'
 import type { GameRow } from '../types'
 
@@ -40,21 +40,13 @@ export default function StatLineCards({
   volumeDef,
   activeStat,
 }: StatLineCardsProps) {
-  const fmt = (d: StatDef) => {
-    const avg = averageOf(games, d)
-    if (avg == null) return '—'
-    return d.format ? d.format(avg) : avg.toFixed(d.decimals ?? 1)
-  }
+  // Every card shows an average, so all of them round — a raw mean would
+  // render as 21.692307692307693 and blow out the card.
+  const fmt = (d: StatDef) => formatAverage(d, averageOf(games, d))
 
   return (
     <div className="grid [grid-template-columns:repeat(auto-fit,minmax(96px,1fr))] gap-2 px-[18px] pt-[14px] pb-4">
-      {volumeDef && (
-        <Card
-          label={volumeDef.label}
-          value={formatVolume(volumeDef, averageOf(games, volumeDef))}
-          active={false}
-        />
-      )}
+      {volumeDef && <Card label={volumeDef.label} value={fmt(volumeDef)} active={false} />}
       {statDefs.map((d) => (
         <Card key={d.key} label={d.label} value={fmt(d)} active={d.key === activeStat} />
       ))}

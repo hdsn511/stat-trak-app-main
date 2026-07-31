@@ -44,4 +44,27 @@ describe('GameLogChart', () => {
     render(<GameLogChart games={[{ points: null }, { points: 12 }]} def={def} line={10} />)
     expect(screen.getAllByTestId('chart-bar')).toHaveLength(1)
   })
+
+  it('labels each bar with its opponent at small game counts', () => {
+    render(<GameLogChart games={games} def={def} line={25} />)
+    expect(screen.getByText('BOS')).toBeInTheDocument()
+    expect(screen.getByText('MIA')).toBeInTheDocument()
+  })
+
+  it('drops per-bar labels when there are too many to read', () => {
+    // A full NBA season is ~82 bars; three-letter codes become illegible mush.
+    const many = Array.from({ length: 40 }, (_, i) => ({
+      opponent: 'BOS',
+      points: 10 + (i % 5),
+    }))
+    render(<GameLogChart games={many} def={def} line={12} />)
+    expect(screen.getAllByTestId('chart-bar')).toHaveLength(40)
+    expect(screen.queryByText('BOS')).not.toBeInTheDocument()
+  })
+
+  it('drops the per-bar values too when bars get dense', () => {
+    const many = Array.from({ length: 40 }, () => ({ opponent: 'BOS', points: 11 }))
+    render(<GameLogChart games={many} def={def} line={12} />)
+    expect(screen.queryAllByTestId('chart-value')).toHaveLength(0)
+  })
 })

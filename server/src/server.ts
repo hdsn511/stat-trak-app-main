@@ -31,6 +31,10 @@ app.use('/api/nba', leagueMiddleware('nba'), nbaRoutes);
 app.use('/api/nba', leagueMiddleware('nba'), picksRoutes);
 app.use('/api/mlb', leagueMiddleware('mlb'), nbaRoutes);
 app.use('/api/mlb', leagueMiddleware('mlb'), picksRoutes);
+// NHL/NFL have per-game stats but no trends or picks pipeline, so only the
+// core routes are mounted for them.
+app.use('/api/nhl', leagueMiddleware('nhl'), nbaRoutes);
+app.use('/api/nfl', leagueMiddleware('nfl'), nbaRoutes);
 
 app.use('/api/sportquery', sportqueryRoutes);
 

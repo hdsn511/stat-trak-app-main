@@ -5,15 +5,16 @@ import { Request, Response, NextFunction } from 'express';
 // `leagueMiddleware` from the mount path). NBA values reproduce the previous
 // hardcoded behavior exactly, so /api/nba/* output is unchanged.
 
-export type LeagueSlug = 'nba' | 'mlb';
+export type LeagueSlug = 'nba' | 'mlb' | 'nfl' | 'nhl';
 
 export interface LeagueConfig {
   slug: LeagueSlug;
   leagueId: number;
   playerLeagueTag: string;           // players.league value
-  trendsTable: string;               // nba_trends | mlb_trends
+  // null for leagues with no computed trends table (nfl, nhl).
+  trendsTable: string | null;        // nba_trends | mlb_trends
   statsTable: string;                // nba_player_stats | mlb_player_stats
-  dailyConditionsTable: string;      // daily_conditions | mlb_daily_conditions
+  dailyConditionsTable: string | null;  // daily_conditions | mlb_daily_conditions
   statLabels: Record<string, string>;        // pick stat key -> short label
   trendStatNames: Record<number, string>;    // trends stat int -> name
   validStatIds: number[];
@@ -28,7 +29,9 @@ export interface LeagueConfig {
   // Optional floor for displayed streak tier lines (MLB clamps to 0.5 so the
   // hits line reads "1+" rather than a meaningless "0+").
   streakLineFloor?: number;
-  playedGate: { col: string; min: number };  // "appeared in game" filter
+  // "appeared in game" filter; null when the league has no single such column
+  // (NFL: a QB has attempts, a receiver targets, a linebacker tackles).
+  playedGate: { col: string; min: number } | null;
   // columns selected for getPlayerGames + how to shape them
   playerGameSelect: string;
 }
@@ -87,7 +90,75 @@ const MLB: LeagueConfig = {
     'game_id, team_id, hits, total_bases, rbi, runs, home_runs, strikeouts, plate_appearances, game_date, games!inner(game_type)',
 };
 
-export const LEAGUES: Record<LeagueSlug, LeagueConfig> = { nba: NBA, mlb: MLB };
+// ── NHL ─────────────────────────────────────────────────────────────────────────
+// Skaters and goalies share this table, distinguished by position_type. Volume
+// is time on ice, stored in seconds. No trends table exists for this league.
+const NHL: LeagueConfig = {
+  slug: 'nhl',
+  leagueId: 4,
+  playerLeagueTag: 'nhl',
+  trendsTable: null,
+  statsTable: 'nhl_player_stats',
+  dailyConditionsTable: null,
+  statLabels: { g: 'G', a: 'A', p: 'PTS', sog: 'SOG', blk: 'BLK', hits: 'HITS' },
+  trendStatNames: {},
+  validStatIds: [],
+  statConfig: {
+    g:    { col: 'goals',         statId: 0 },
+    a:    { col: 'assists',       statId: 1 },
+    p:    { col: 'points',        statId: 2 },
+    sog:  { col: 'shots_on_goal', statId: 3 },
+    blk:  { col: 'blocks',        statId: 4 },
+    hits: { col: 'hits',          statId: 5 },
+  },
+  streakStats: [],
+  streakStartDate: '2025-10-01',
+  streakGateTierIndex: 0,
+  playedGate: { col: 'toi_seconds', min: 0 },
+  playerGameSelect:
+    'game_id, team_id, game_date, position_type, goals, assists, points, shots_on_goal, ' +
+    'blocks, hits, plus_minus, pim, takeaways, giveaways, toi_seconds, pp_toi_seconds, ' +
+    'saves, shots_against, goals_against, save_pct, goalie_toi_seconds, games!inner(game_type)',
+};
+
+// ── NFL ─────────────────────────────────────────────────────────────────────────
+// No single "appeared" column exists, so playedGate is null and the controller
+// skips the gate entirely for this league.
+const NFL: LeagueConfig = {
+  slug: 'nfl',
+  leagueId: 3,
+  playerLeagueTag: 'nfl',
+  trendsTable: null,
+  statsTable: 'nfl_player_stats',
+  dailyConditionsTable: null,
+  statLabels: {
+    payds: 'PASS YDS', patd: 'PASS TD', ruyds: 'RUSH YDS', rutd: 'RUSH TD',
+    recyds: 'REC YDS', rec: 'REC', rectd: 'REC TD', tkl: 'TKL',
+  },
+  trendStatNames: {},
+  validStatIds: [],
+  statConfig: {
+    payds:  { col: 'passing_yards',   statId: 0 },
+    patd:   { col: 'passing_tds',     statId: 1 },
+    ruyds:  { col: 'rushing_yards',   statId: 2 },
+    rutd:   { col: 'rushing_tds',     statId: 3 },
+    recyds: { col: 'receiving_yards', statId: 4 },
+    rec:    { col: 'receptions',      statId: 5 },
+    rectd:  { col: 'receiving_tds',   statId: 6 },
+    tkl:    { col: 'tackles_total',   statId: 7 },
+  },
+  streakStats: [],
+  streakStartDate: '2025-09-01',
+  streakGateTierIndex: 0,
+  playedGate: null,
+  playerGameSelect:
+    'game_id, team_id, game_date, completions, attempts, passing_yards, passing_tds, ' +
+    'interceptions, carries, rushing_yards, rushing_tds, receptions, targets, ' +
+    'receiving_yards, receiving_tds, fumbles_lost, tackles_total, sacks, ' +
+    'fg_made, fg_att, games!inner(game_type)',
+};
+
+export const LEAGUES: Record<LeagueSlug, LeagueConfig> = { nba: NBA, mlb: MLB, nfl: NFL, nhl: NHL };
 
 // Express middleware: attach a LeagueConfig to res.locals for the mounted prefix.
 export function leagueMiddleware(slug: LeagueSlug) {

@@ -32,6 +32,13 @@ export interface LeagueConfig {
   // "appeared in game" filter; null when the league has no single such column
   // (NFL: a QB has attempts, a receiver targets, a linebacker tackles).
   playedGate: { col: string; min: number } | null;
+  // games.game_type values that count as real games for this league. These
+  // vocabularies differ per ingest source — NHL and NFL rows landed as 'other'
+  // — so filtering on one hardcoded list silently returns zero games.
+  gameTypes: string[];
+  // Calendar month (1-12) the season opens in. NBA/NHL autumn, NFL September,
+  // MLB a single calendar year.
+  seasonStartMonth: number;
   // columns selected for getPlayerGames + how to shape them
   playerGameSelect: string;
 }
@@ -57,6 +64,8 @@ const NBA: LeagueConfig = {
   streakStartDate: '2026-04-28',
   streakGateTierIndex: 0,
   playedGate: { col: 'minutes_played', min: 0 },
+  gameTypes: ['regular', 'playoff', 'playin'],
+  seasonStartMonth: 10,
   playerGameSelect:
     'game_id, team_id, points, rebounds, assists, three_points_made, fouls, minutes_played, game_date, games!inner(game_type)',
 };
@@ -86,6 +95,8 @@ const MLB: LeagueConfig = {
   streakGateTierIndex: 3,   // gate on the 7/10 tier (baseball hits a lot of 0s)
   streakLineFloor: 0.5,     // show "1+" rather than "0+" for the hits line
   playedGate: { col: 'plate_appearances', min: 0 },
+  gameTypes: ['regular', 'postseason'],
+  seasonStartMonth: 1,
   playerGameSelect:
     'game_id, team_id, hits, total_bases, rbi, runs, home_runs, strikeouts, plate_appearances, game_date, games!inner(game_type)',
 };
@@ -115,6 +126,10 @@ const NHL: LeagueConfig = {
   streakStartDate: '2025-10-01',
   streakGateTierIndex: 0,
   playedGate: { col: 'toi_seconds', min: 0 },
+  // ESPN ingest labelled every NHL game 'other'; 'regular'/'playoff' are here
+  // so a future re-ingest with richer types keeps working.
+  gameTypes: ['other', 'regular', 'playoff'],
+  seasonStartMonth: 10,
   playerGameSelect:
     'game_id, team_id, game_date, position_type, goals, assists, points, shots_on_goal, ' +
     'blocks, hits, plus_minus, pim, takeaways, giveaways, toi_seconds, pp_toi_seconds, ' +
@@ -151,6 +166,8 @@ const NFL: LeagueConfig = {
   streakStartDate: '2025-09-01',
   streakGateTierIndex: 0,
   playedGate: null,
+  gameTypes: ['other', 'regular', 'playoff'],
+  seasonStartMonth: 9,
   playerGameSelect:
     'game_id, team_id, game_date, completions, attempts, passing_yards, passing_tds, ' +
     'interceptions, carries, rushing_yards, rushing_tds, receptions, targets, ' +
@@ -159,6 +176,17 @@ const NFL: LeagueConfig = {
 };
 
 export const LEAGUES: Record<LeagueSlug, LeagueConfig> = { nba: NBA, mlb: MLB, nfl: NFL, nhl: NHL };
+
+/**
+ * First day of the league's current season, as 'YYYY-MM-DD'. Before the season
+ * opens we are still inside the previous one, so the year rolls back.
+ */
+export function seasonStartFor(cfg: LeagueConfig, today: Date = new Date()): string {
+  const m = String(cfg.seasonStartMonth).padStart(2, '0');
+  const started = today.getUTCMonth() + 1 >= cfg.seasonStartMonth;
+  const year = started ? today.getUTCFullYear() : today.getUTCFullYear() - 1;
+  return `${year}-${m}-01`;
+}
 
 // Express middleware: attach a LeagueConfig to res.locals for the mounted prefix.
 export function leagueMiddleware(slug: LeagueSlug) {

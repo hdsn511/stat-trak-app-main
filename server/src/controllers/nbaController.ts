@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabaseAdmin';
 import { findNearestConditionsDate, findNearestPickDate } from '../utils/dateQueries';
-import { league as resolveLeague, LeagueConfig } from '../config/leagues';
+import { league as resolveLeague, seasonStartFor, LeagueConfig } from '../config/leagues';
 
 /**
  * Rows to return from the player game log. `all` means the whole season; any
@@ -319,14 +319,10 @@ export async function getPlayerGames(req: Request<{ id: string }>, res: Response
     const { id } = req.params;
     const logLimit = resolveLogLimit(req.query.window);
 
-    // Season start: NBA seasons span Oct–Jun; MLB is a single calendar year.
-    const seasonStart = (() => {
-      const today = new Date();
-      if (lg.slug === 'mlb') return `${today.getFullYear()}-01-01`;
-      const year = today.getMonth() >= 9 ? today.getFullYear() : today.getFullYear() - 1;
-      return `${year}-10-01`;
-    })();
-    const gameTypes = lg.slug === 'mlb' ? ['regular', 'postseason'] : ['regular', 'playoff', 'playin'];
+    // Season window and game-type vocabulary both vary by league; they live in
+    // the registry so adding a sport does not mean editing this controller.
+    const seasonStart = seasonStartFor(lg);
+    const gameTypes = lg.gameTypes;
 
     // Fetch the player first: for MLB we branch the stat query on whether they
     // pitch. Pitchers never bat, so the batting "appeared" gate would exclude

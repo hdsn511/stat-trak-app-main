@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { Response } from 'express';
-import { LEAGUES, league } from '../src/config/leagues';
+import { LEAGUES, league, seasonStartFor } from '../src/config/leagues';
 
 describe('league registry', () => {
   it('registers all four leagues', () => {
@@ -38,5 +38,44 @@ describe('league registry', () => {
 
   it('falls back to nba when no league is on res.locals', () => {
     expect(league({ locals: {} } as Response).slug).toBe('nba');
+  });
+
+  // NHL and NFL rows were ingested with game_type 'other'; NBA/MLB use their own
+  // vocabularies. Hardcoding one list in the controller silently returns zero
+  // games for the leagues that do not share it.
+  it('declares the game types each league actually stores', () => {
+    expect(LEAGUES.nba.gameTypes).toEqual(['regular', 'playoff', 'playin']);
+    expect(LEAGUES.mlb.gameTypes).toEqual(['regular', 'postseason']);
+    expect(LEAGUES.nhl.gameTypes).toContain('other');
+    expect(LEAGUES.nfl.gameTypes).toContain('other');
+  });
+
+  it('declares the calendar month each season starts in', () => {
+    expect(LEAGUES.nba.seasonStartMonth).toBe(10);
+    expect(LEAGUES.mlb.seasonStartMonth).toBe(1);
+    expect(LEAGUES.nhl.seasonStartMonth).toBe(10);
+    // NFL kicks off in September; an October floor drops week 1-4.
+    expect(LEAGUES.nfl.seasonStartMonth).toBe(9);
+  });
+});
+
+describe('seasonStartFor', () => {
+  // 2026-07-31: NBA/NHL/NFL are between seasons, MLB is mid-season.
+  const summer = new Date('2026-07-31T12:00:00Z');
+
+  it('rolls back to last autumn for leagues whose season has not started', () => {
+    expect(seasonStartFor(LEAGUES.nba, summer)).toBe('2025-10-01');
+    expect(seasonStartFor(LEAGUES.nhl, summer)).toBe('2025-10-01');
+    expect(seasonStartFor(LEAGUES.nfl, summer)).toBe('2025-09-01');
+  });
+
+  it('uses the current calendar year for mlb', () => {
+    expect(seasonStartFor(LEAGUES.mlb, summer)).toBe('2026-01-01');
+  });
+
+  it('uses the current year once the season has begun', () => {
+    const november = new Date('2026-11-15T12:00:00Z');
+    expect(seasonStartFor(LEAGUES.nba, november)).toBe('2026-10-01');
+    expect(seasonStartFor(LEAGUES.nfl, november)).toBe('2026-09-01');
   });
 });

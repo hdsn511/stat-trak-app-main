@@ -21,7 +21,7 @@ describe('nbaApi.getTopTrending', () => {
     const result = await nbaApi.getTopTrending()
     expect(result).toHaveLength(1)
     expect(result[0].playerName).toBe('LeBron James')
-    expect(mockFetch).toHaveBeenCalledWith('http://localhost:3000/api/nba/trends/top')
+    expect(mockFetch).toHaveBeenCalledWith('/api/nba/trends/top')
   })
 })
 
@@ -30,7 +30,7 @@ describe('nbaApi.getTrends', () => {
     mockFetch.mockReturnValueOnce(mockOk([]))
     await nbaApi.getTrends({ stat: 'points', window: 10, threshold: 25 })
     expect(mockFetch).toHaveBeenCalledWith(
-      'http://localhost:3000/api/nba/trends?stat=points&window=10&threshold=25'
+      '/api/nba/trends?stat=points&window=10&threshold=25'
     )
   })
 
@@ -49,7 +49,7 @@ describe('nbaApi.searchPlayers', () => {
     mockFetch.mockReturnValueOnce(mockOk([]))
     await nbaApi.searchPlayers('lebron')
     expect(mockFetch).toHaveBeenCalledWith(
-      'http://localhost:3000/api/nba/players/search?q=lebron'
+      '/api/nba/players/search?q=lebron'
     )
   })
 })
@@ -59,7 +59,7 @@ describe('nbaApi.getPlayerProfile', () => {
     mockFetch.mockReturnValueOnce(mockOk({ player: { id: 1 }, games: [], zScores: {}, rollingAvgs: {} }))
     const result = await nbaApi.getPlayerProfile(1)
     expect(result.player.id).toBe(1)
-    expect(mockFetch).toHaveBeenCalledWith('http://localhost:3000/api/nba/players/1/games')
+    expect(mockFetch).toHaveBeenCalledWith('/api/nba/players/1/games')
   })
 })
 
@@ -68,6 +68,6 @@ describe('nbaApi.getTodaysGames', () => {
     mockFetch.mockReturnValueOnce(mockOk([{ gameId: 'abc' }]))
     const result = await nbaApi.getTodaysGames()
     expect(result[0].gameId).toBe('abc')
-    expect(mockFetch).toHaveBeenCalledWith('http://localhost:3000/api/nba/games/today')
+    expect(mockFetch).toHaveBeenCalledWith('/api/nba/games/today')
   })
 })

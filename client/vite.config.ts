@@ -12,5 +12,13 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 5173,
+    // Mirrors the Cloudflare Pages Function that proxies /api/* in production,
+    // so the client's relative API paths work identically in dev and deployed.
+    proxy: {
+      '/api': {
+        target: process.env.VITE_DEV_API_TARGET ?? 'http://localhost:3000',
+        changeOrigin: true,
+      },
+    },
   },
 })

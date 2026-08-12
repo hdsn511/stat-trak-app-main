@@ -1,0 +1,6 @@
+# Client-side routing: every non-asset path renders the SPA shell, so deep links
+# like /player/nba/241 resolve instead of 404ing.
+#
+# /api/* is deliberately absent — the Pages Function at functions/api/[[path]].ts
+# claims those paths first, and a rewrite here would shadow it.
+/*  /index.html  200

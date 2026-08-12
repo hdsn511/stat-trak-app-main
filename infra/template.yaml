@@ -68,6 +68,11 @@ Resources:
           AWS_LAMBDA_EXEC_WRAPPER: /opt/bootstrap
           AWS_LWA_PORT: 8000
           PORT: 8000
+          # SportQuery answers over SSE, token by token. Both this and the
+          # Function URL's InvokeMode must say stream — set either one alone and
+          # the response is silently buffered until the handler returns, which
+          # turns the streamed answer into one delayed dump.
+          AWS_LWA_INVOKE_MODE: response_stream
           # Delays traffic until Express is actually listening.
           READINESS_CHECK_PATH: /health
           NODE_ENV: production
@@ -85,7 +90,7 @@ Resources:
         # secret, checked in middleware/proxySecret.ts, is what actually keeps
         # unauthenticated callers off endpoints that bill per request.
         AuthType: NONE
-        InvokeMode: BUFFERED
+        InvokeMode: RESPONSE_STREAM
 
   # Declared explicitly so retention is bounded; the implicitly created group
   # defaults to never expiring, which quietly accrues CloudWatch cost.

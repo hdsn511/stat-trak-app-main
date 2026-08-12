@@ -1,16 +1,28 @@
 """
-One-time backfill: write home_score / away_score for completed playoff and
-play-in games. Safe to re-run — overwrites any previously written scores.
-Skips today's in-progress games (box score not final yet).
+Backfill home_score / away_score for completed playoff and play-in games from
+the ESPN scoreboard (Phase 8 hybrid — replaces per-game BoxScoreTraditionalV3
+score summation). Safe to re-run — overwrites any previously written scores.
+Skips today's in-progress games (only STATUS_FINAL events are used).
+
+Games are grouped by date (one ESPN scoreboard call per date) and matched to
+DB rows by (game_date, home_team, away_team) via teams.espn_id; games.espn_id
+is stamped as a side effect for future direct joins.
 
 Run via:
     python -m analytics.batch.backfill_playoff_scores
 """
-import time
+import sys
 from datetime import date
 
-from analytics.db.connection import NBA_LEAGUE_ID, API_DELAY_SECONDS, supabase
-from analytics.data.enrich_games import api_call_with_retry
+from analytics.data.nba_espn.ingest import (
+    _event_is_final,
+    _event_sides,
+    _int0,
+    get_events,
+    load_team_maps,
+    match_events_to_games,
+)
+from analytics.db.connection import NBA_LEAGUE_ID, supabase
 
 
 def backfill_playoff_scores() -> None:
@@ -34,66 +46,52 @@ def backfill_playoff_scores() -> None:
 
     print(f"  Found {len(games)} game(s) to process.")
 
-    # Build team ext_id → db_id map and reverse
-    team_rows = supabase.table("teams").select("id,ext_id").eq("league_id", NBA_LEAGUE_ID).execute()
-    team_map = {r["ext_id"]: r["id"] for r in (team_rows.data or [])}
-    team_db_to_ext = {v: k for k, v in team_map.items()}
-
     try:
-        from nba_api.stats.endpoints import BoxScoreTraditionalV3
-    except ImportError as exc:
-        print(f"  ERROR: nba_api not installed: {exc}")
+        team_espn_map, _abbrs = load_team_maps()
+    except RuntimeError as exc:
+        print(f"  ERROR: {exc}")
         return
+
+    by_date: dict[str, list[dict]] = {}
+    for g in games:
+        by_date.setdefault(g["game_date"], []).append(g)
 
     updated = 0
     failed = 0
 
-    for game in games:
-        ext_id = game["ext_id"]
-        game_db_id = game["id"]
-        home_db_t = game["home_team_id"]
-        away_db_t = game["away_team_id"]
+    for date_str in sorted(by_date):
+        target_ids = {g["id"] for g in by_date[date_str]}
+        finals = [e for e in get_events(date_str) if _event_is_final(e)]
+        matched = match_events_to_games(date_str, finals, team_espn_map)
+        matched_game_ids = set()
 
-        def _trad(gid=ext_id):
-            return BoxScoreTraditionalV3(game_id=gid)
-
-        result = api_call_with_retry(_trad, f"BoxScoreTraditionalV3 {ext_id}")
-        if result is None:
-            print(f"  WARN: no box score for {ext_id} ({game['game_date']}). Skipping.")
-            failed += 1
-            time.sleep(API_DELAY_SECONDS)
-            continue
-
-        try:
-            player_df = result.get_data_frames()[0]
-
-            # Sum player points per team — V3 has no reliable separate team-totals
-            # frame; get_data_frames()[1] does not return final team scores.
-            team_pts: dict[str, int] = {}
-            for _, pr in player_df.iterrows():
-                t_ext = str(int(pr["teamId"]))
-                team_pts[t_ext] = team_pts.get(t_ext, 0) + int(pr.get("points") or 0)
-
-            home_ext = team_db_to_ext.get(home_db_t)
-            away_ext = team_db_to_ext.get(away_db_t)
-            hs = team_pts.get(home_ext) if home_ext else None
-            aws = team_pts.get(away_ext) if away_ext else None
-
+        for ev_id, game in matched.items():
+            if game["id"] not in target_ids:
+                continue  # a non-playoff game sharing the date
+            events = [e for e in finals if str(e.get("id")) == ev_id]
+            home, away = _event_sides(events[0]) if events else ({}, {})
+            hs, aws = home.get("score"), away.get("score")
             if hs is None or aws is None:
-                print(f"  WARN: could not resolve scores for {ext_id}. team_pts={team_pts}")
+                print(f"  WARN: event {ev_id} ({date_str}) final but has no "
+                      f"scores. Skipping.")
                 failed += 1
-            else:
-                supabase.table("games").update({"home_score": hs, "away_score": aws}).eq("id", game_db_id).execute()
-                print(f"  {ext_id} ({game['game_date']}): home={hs} away={aws}")
-                updated += 1
-        except Exception as exc:
-            print(f"  ERROR: {ext_id}: {exc}")
-            failed += 1
+                continue
+            supabase.table("games").update(
+                {"home_score": _int0(hs), "away_score": _int0(aws), "status": 2}
+            ).eq("id", game["id"]).execute()
+            print(f"  {game['ext_id']} ({date_str}): home={_int0(hs)} away={_int0(aws)}")
+            matched_game_ids.add(game["id"])
+            updated += 1
 
-        time.sleep(API_DELAY_SECONDS)
+        for g in by_date[date_str]:
+            if g["id"] not in matched_game_ids:
+                print(f"  WARN: no final ESPN event matched game "
+                      f"{g['ext_id']} ({date_str}). Skipping.")
+                failed += 1
 
     print(f"\n[backfill_playoff_scores] Done. Updated={updated} Failed={failed}")
 
 
 if __name__ == "__main__":
     backfill_playoff_scores()
+    sys.exit(0)

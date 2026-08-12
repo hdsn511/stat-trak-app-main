@@ -3,8 +3,8 @@ analytics/batch/backfill_season.py
 
 Backfills missing nba_player_stats box-score rows for any date range.
 Walks every game date that has entries in the `games` table but is
-missing rows in nba_player_stats, then fetches box scores via
-BoxScoreTraditionalV2.
+missing rows in nba_player_stats, then fetches box scores from ESPN
+(via nightly._fetch_and_insert_box_scores -> analytics/data/nba_espn).
 
 Usage:
     python -m analytics.batch.backfill_season                        # 2025-26 season
@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import argparse
 import sys
-import time
 from datetime import date, datetime, timedelta
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -24,7 +23,7 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-from analytics.db.connection import API_DELAY_SECONDS, NBA_LEAGUE_ID, supabase
+from analytics.db.connection import NBA_LEAGUE_ID, supabase
 from analytics.batch.nightly import _fetch_and_insert_box_scores
 
 
@@ -135,8 +134,9 @@ def backfill(since: date, until: date, dry_run: bool = False) -> None:
             print("  No game ext_ids in DB for this date. Skipping.")
             continue
 
+        # No inter-date delay: ESPN isn't rate-limited (API_DELAY_SECONDS
+        # pacing is reserved for the remaining nba_api advanced-stats calls).
         _fetch_and_insert_box_scores(target, game_ext_ids=ext_ids)
-        time.sleep(API_DELAY_SECONDS)
 
     print(f"\nBackfill complete — {len(missing)} date(s) processed.")
 

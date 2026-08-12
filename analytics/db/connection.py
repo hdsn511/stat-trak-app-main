@@ -83,6 +83,11 @@ def mlb_season_for_date(date_str: str) -> int:
     """MLB season = calendar year of the date (YYYY-MM-DD)."""
     return int(date_str[:4])
 
+# ── NFL / NHL ──────────────────────────────────────────────────────
+# ESPN-backed leagues in the shared tables, mirroring NBA=1 / MLB=2.
+NFL_LEAGUE_ID = 3
+NHL_LEAGUE_ID = 4
+
 # MLB stat key -> mlb_player_stats column name.
 # Batter props + the marquee pitcher prop (strikeouts). Mirrors the NBA
 # STAT_COLUMN_MAP pattern in analytics/engine/backtest.py.

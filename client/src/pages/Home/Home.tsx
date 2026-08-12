@@ -5,27 +5,51 @@ import QueryChips from '@/ember/components/QueryChips'
 import TrendingPlayers from '@/ember/components/TrendingPlayers'
 import StreakWatch from '@/ember/components/StreakWatch'
 import StatSignals from '@/ember/home/StatSignals'
-import {
-  heroChips,
-  homeTicker,
-  statSignals,
-  streakRows,
-  trendingRows,
-} from '@/ember/data/homeFixtures'
+import { useSportData } from '@/ember/data/useSportData'
+import { buildStatSignals } from '@/ember/home/signals'
+import { formatGameDate } from '@/ember/game/format'
+import type { LeagueSlug } from '@/config/leagues'
+
+const ALL_LEAGUES: LeagueSlug[] = ['nba', 'mlb', 'nfl', 'nhl']
+
+const HERO_CHIPS = [
+  "Who's hot from three over the last 10 games?",
+  'Best rebounders against top-10 defenses',
+  'Most consistent scorers this month',
+  'Which favorites are covering?',
+]
 
 export default function Home() {
   const navigate = useNavigate()
+  const { trending, streaks, ticker, loading, errors, tickerScope } = useSportData(ALL_LEAGUES, {
+    trendingLimit: 6,
+    streakLimit: 5,
+  })
 
   const openQuery = (query: string) => {
     navigate('/sportquery', { state: { query } })
   }
 
+  const tickerLabel = (() => {
+    switch (tickerScope.kind) {
+      case 'today':
+        return 'LIVE+TONIGHT'
+      case 'single':
+        return `${tickerScope.past ? 'LATEST' : 'NEXT'} SLATE · ${formatGameDate(tickerScope.date)}`
+      case 'mixed':
+        // Four leagues, four different slates — each chip is dated instead.
+        return 'LATEST SLATES'
+      default:
+        return 'LIVE+TONIGHT'
+    }
+  })()
+
   return (
     <>
       <LiveTicker
-        label="LIVE+TONIGHT"
-        games={homeTicker}
-        onGameClick={() => navigate('/sportquery')}
+        label={tickerLabel}
+        games={ticker}
+        emptyLabel={loading ? 'LOADING SLATE…' : 'NO GAMES SCHEDULED'}
       />
 
       <section
@@ -49,19 +73,34 @@ export default function Home() {
             onSubmit={openQuery}
           />
           <div className="mt-[14px] flex justify-center [&>div]:justify-center">
-            <QueryChips variant="paper" chips={heroChips} onSelect={openQuery} />
+            <QueryChips variant="paper" chips={HERO_CHIPS} onSelect={openQuery} />
           </div>
         </div>
       </section>
 
       <main className="flex-1 w-full max-w-[1280px] mx-auto flex flex-col gap-[26px] px-8 pt-7 pb-11">
-        <StatSignals signals={statSignals} />
+        <StatSignals signals={buildStatSignals(trending, streaks, ticker)} />
+
+        {errors.length > 0 && (
+          <div className="font-martian text-[9px] text-[#FF6B5C] tracking-[1px]">
+            {errors.map((e) => (
+              <div key={e}>{`// ${e}`}</div>
+            ))}
+          </div>
+        )}
+
         <div className="grid gap-[14px] lg:grid-cols-[1fr_380px] items-start">
-          <TrendingPlayers rows={trendingRows} meta="ALL SPORTS · L10 VS SEASON" showLeague />
-          <StreakWatch
-            rows={streakRows}
-            meta="ALL SPORTS"
+          <TrendingPlayers
+            rows={trending}
+            meta="ALL SPORTS · L10 VS SEASON"
             showLeague
+            emptyLabel={loading ? 'LOADING TRENDS…' : 'NO TRENDS AVAILABLE RIGHT NOW'}
+          />
+          <StreakWatch
+            rows={streaks}
+            meta="ALL SPORTS · LAST 10"
+            showLeague
+            emptyLabel={loading ? 'LOADING STREAKS…' : 'NO ACTIVE STREAKS RIGHT NOW'}
             footerLink={{ label: 'ALL STREAKS →', to: '/sportquery' }}
           />
         </div>

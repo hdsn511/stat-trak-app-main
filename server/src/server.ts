@@ -1,3 +1,6 @@
+// Loaded first: config modules below read process.env at import time, so the
+// entrypoint cannot rely on another module's dotenv side effect running first.
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -7,6 +10,7 @@ import sportqueryRoutes from './routes/sportquery';
 import nbaRoutes from './routes/nba';
 import picksRoutes from './routes/picks';
 import performanceRoutes from './routes/performance';
+import searchRoutes from './routes/search';
 import { leagueMiddleware } from './config/leagues';
 
 const app = express();
@@ -37,6 +41,10 @@ app.use('/api/nhl', leagueMiddleware('nhl'), nbaRoutes);
 app.use('/api/nfl', leagueMiddleware('nfl'), nbaRoutes);
 
 app.use('/api/sportquery', sportqueryRoutes);
+
+// Deliberately not league-scoped: the nav search spans every sport and
+// resolves each result's league from its row.
+app.use('/api/search', searchRoutes);
 
 // Performance: /api/performance stays NBA (backward-compatible for the existing
 // client); per-league mounts add MLB.

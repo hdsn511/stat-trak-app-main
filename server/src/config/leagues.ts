@@ -7,6 +7,32 @@ import { Request, Response, NextFunction } from 'express';
 
 export type LeagueSlug = 'nba' | 'mlb' | 'nfl' | 'nhl';
 
+export interface BoxScoreColumn {
+  key: string;
+  label: string;
+  /** Seconds rendered as m:ss (NHL time on ice). */
+  format?: 'mmss';
+}
+
+export interface BoxScoreGroup {
+  id: string;
+  label: string;
+  /**
+   * A row belongs to this group when the gate column is present and > 0. NFL
+   * splits one stat row across several groups, so a player can appear twice —
+   * a QB who scrambles shows up under both PASSING and RUSHING.
+   */
+  gate: string;
+  sortBy: string;
+  columns: BoxScoreColumn[];
+}
+
+export interface BoxScoreConfig {
+  /** Stat columns to fetch, on top of player_id/team_id/game_date. */
+  select: string;
+  groups: BoxScoreGroup[];
+}
+
 export interface LeagueConfig {
   slug: LeagueSlug;
   leagueId: number;
@@ -36,11 +62,21 @@ export interface LeagueConfig {
   // vocabularies differ per ingest source — NHL and NFL rows landed as 'other'
   // — so filtering on one hardcoded list silently returns zero games.
   gameTypes: string[];
+  // The single game_type that means "regular season", used for standings.
+  // Not derivable from gameTypes: the ESPN ingest labelled every NHL and NFL
+  // game 'other', so 'regular' would match nothing for those leagues.
+  regularSeasonType: string;
   // Calendar month (1-12) the season opens in. NBA/NHL autumn, NFL September,
   // MLB a single calendar year.
   seasonStartMonth: number;
   // columns selected for getPlayerGames + how to shape them
   playerGameSelect: string;
+  // Per-game box score projection for the game view. The controller stays
+  // sport-agnostic by reading columns and grouping rules from here.
+  boxScore: BoxScoreConfig;
+  // Whether this league has a betting pipeline (daily_lines / pick_results).
+  // NHL and NFL have game and stat data but no lines or picks.
+  hasMarkets: boolean;
 }
 
 // ── NBA (unchanged behavior) ────────────────────────────────────────────────────
@@ -65,9 +101,30 @@ const NBA: LeagueConfig = {
   streakGateTierIndex: 0,
   playedGate: { col: 'minutes_played', min: 0 },
   gameTypes: ['regular', 'playoff', 'playin'],
+  regularSeasonType: 'regular',
   seasonStartMonth: 10,
   playerGameSelect:
     'game_id, team_id, points, rebounds, assists, three_points_made, fouls, minutes_played, game_date, games!inner(game_type)',
+  boxScore: {
+    select: 'points, rebounds, assists, three_points_made, fouls, minutes_played',
+    groups: [
+      {
+        id: 'all',
+        label: 'BOX SCORE',
+        gate: 'minutes_played',
+        sortBy: 'minutes_played',
+        columns: [
+          { key: 'minutes_played', label: 'MIN' },
+          { key: 'points', label: 'PTS' },
+          { key: 'rebounds', label: 'REB' },
+          { key: 'assists', label: 'AST' },
+          { key: 'three_points_made', label: '3PM' },
+          { key: 'fouls', label: 'PF' },
+        ],
+      },
+    ],
+  },
+  hasMarkets: true,
 };
 
 // ── MLB ─────────────────────────────────────────────────────────────────────────
@@ -96,9 +153,50 @@ const MLB: LeagueConfig = {
   streakLineFloor: 0.5,     // show "1+" rather than "0+" for the hits line
   playedGate: { col: 'plate_appearances', min: 0 },
   gameTypes: ['regular', 'postseason'],
+  regularSeasonType: 'regular',
   seasonStartMonth: 1,
   playerGameSelect:
     'game_id, team_id, hits, total_bases, rbi, runs, home_runs, strikeouts, plate_appearances, game_date, games!inner(game_type)',
+  boxScore: {
+    select:
+      'at_bats, hits, doubles, triples, home_runs, rbi, runs, walks, strikeouts, stolen_bases, ' +
+      'total_bases, plate_appearances, outs_pitched, earned_runs, strikeouts_pitched, ' +
+      'walks_allowed, hits_allowed, home_runs_allowed, batters_faced',
+    groups: [
+      {
+        id: 'batting',
+        label: 'BATTING',
+        gate: 'plate_appearances',
+        sortBy: 'plate_appearances',
+        columns: [
+          { key: 'at_bats', label: 'AB' },
+          { key: 'runs', label: 'R' },
+          { key: 'hits', label: 'H' },
+          { key: 'doubles', label: '2B' },
+          { key: 'home_runs', label: 'HR' },
+          { key: 'rbi', label: 'RBI' },
+          { key: 'walks', label: 'BB' },
+          { key: 'strikeouts', label: 'K' },
+          { key: 'total_bases', label: 'TB' },
+        ],
+      },
+      {
+        id: 'pitching',
+        label: 'PITCHING',
+        gate: 'batters_faced',
+        sortBy: 'outs_pitched',
+        columns: [
+          { key: 'outs_pitched', label: 'OUTS' },
+          { key: 'hits_allowed', label: 'H' },
+          { key: 'earned_runs', label: 'ER' },
+          { key: 'walks_allowed', label: 'BB' },
+          { key: 'strikeouts_pitched', label: 'K' },
+          { key: 'home_runs_allowed', label: 'HR' },
+        ],
+      },
+    ],
+  },
+  hasMarkets: true,
 };
 
 // ── NHL ─────────────────────────────────────────────────────────────────────────
@@ -108,12 +206,21 @@ const NHL: LeagueConfig = {
   slug: 'nhl',
   leagueId: 4,
   playerLeagueTag: 'nhl',
-  trendsTable: null,
+  // Populated by analytics/batch/compute_trends.py, which mirrors
+  // computeNBATrends and encodes `stat` with the statConfig ids below.
+  trendsTable: 'nhl_trends',
   statsTable: 'nhl_player_stats',
   dailyConditionsTable: null,
   statLabels: { g: 'G', a: 'A', p: 'PTS', sog: 'SOG', blk: 'BLK', hits: 'HITS' },
-  trendStatNames: {},
-  validStatIds: [],
+  trendStatNames: {
+    0: 'goals',
+    1: 'assists',
+    2: 'points',
+    3: 'shots_on_goal',
+    4: 'blocks',
+    5: 'hits',
+  },
+  validStatIds: [0, 1, 2, 3, 4, 5],
   statConfig: {
     g:    { col: 'goals',         statId: 0 },
     a:    { col: 'assists',       statId: 1 },
@@ -129,11 +236,50 @@ const NHL: LeagueConfig = {
   // ESPN ingest labelled every NHL game 'other'; 'regular'/'playoff' are here
   // so a future re-ingest with richer types keeps working.
   gameTypes: ['other', 'regular', 'playoff'],
+  regularSeasonType: 'other',
   seasonStartMonth: 10,
   playerGameSelect:
     'game_id, team_id, game_date, position_type, goals, assists, points, shots_on_goal, ' +
     'blocks, hits, plus_minus, pim, takeaways, giveaways, toi_seconds, pp_toi_seconds, ' +
     'saves, shots_against, goals_against, save_pct, goalie_toi_seconds, games!inner(game_type)',
+  boxScore: {
+    select:
+      'position_type, goals, assists, points, shots_on_goal, blocks, hits, plus_minus, pim, ' +
+      'takeaways, giveaways, toi_seconds, saves, shots_against, goals_against, save_pct, ' +
+      'goalie_toi_seconds',
+    groups: [
+      {
+        id: 'skaters',
+        label: 'SKATERS',
+        gate: 'toi_seconds',
+        sortBy: 'toi_seconds',
+        columns: [
+          { key: 'toi_seconds', label: 'TOI', format: 'mmss' },
+          { key: 'goals', label: 'G' },
+          { key: 'assists', label: 'A' },
+          { key: 'points', label: 'PTS' },
+          { key: 'shots_on_goal', label: 'SOG' },
+          { key: 'blocks', label: 'BLK' },
+          { key: 'hits', label: 'HIT' },
+          { key: 'plus_minus', label: '+/-' },
+        ],
+      },
+      {
+        id: 'goalies',
+        label: 'GOALIES',
+        gate: 'goalie_toi_seconds',
+        sortBy: 'goalie_toi_seconds',
+        columns: [
+          { key: 'goalie_toi_seconds', label: 'TOI', format: 'mmss' },
+          { key: 'saves', label: 'SV' },
+          { key: 'shots_against', label: 'SA' },
+          { key: 'goals_against', label: 'GA' },
+          { key: 'save_pct', label: 'SV%' },
+        ],
+      },
+    ],
+  },
+  hasMarkets: false,
 };
 
 // ── NFL ─────────────────────────────────────────────────────────────────────────
@@ -143,15 +289,25 @@ const NFL: LeagueConfig = {
   slug: 'nfl',
   leagueId: 3,
   playerLeagueTag: 'nfl',
-  trendsTable: null,
+  // See the NHL note above — same batch job, same statConfig id encoding.
+  trendsTable: 'nfl_trends',
   statsTable: 'nfl_player_stats',
   dailyConditionsTable: null,
   statLabels: {
     payds: 'PASS YDS', patd: 'PASS TD', ruyds: 'RUSH YDS', rutd: 'RUSH TD',
     recyds: 'REC YDS', rec: 'REC', rectd: 'REC TD', tkl: 'TKL',
   },
-  trendStatNames: {},
-  validStatIds: [],
+  trendStatNames: {
+    0: 'passing_yards',
+    1: 'passing_tds',
+    2: 'rushing_yards',
+    3: 'rushing_tds',
+    4: 'receiving_yards',
+    5: 'receptions',
+    6: 'receiving_tds',
+    7: 'tackles',
+  },
+  validStatIds: [0, 1, 2, 3, 4, 5, 6, 7],
   statConfig: {
     payds:  { col: 'passing_yards',   statId: 0 },
     patd:   { col: 'passing_tds',     statId: 1 },
@@ -167,12 +323,88 @@ const NFL: LeagueConfig = {
   streakGateTierIndex: 0,
   playedGate: null,
   gameTypes: ['other', 'regular', 'playoff'],
+  regularSeasonType: 'other',
   seasonStartMonth: 9,
   playerGameSelect:
     'game_id, team_id, game_date, completions, attempts, passing_yards, passing_tds, ' +
     'interceptions, carries, rushing_yards, rushing_tds, receptions, targets, ' +
     'receiving_yards, receiving_tds, fumbles_lost, tackles_total, sacks, ' +
     'fg_made, fg_att, games!inner(game_type)',
+  boxScore: {
+    select:
+      'completions, attempts, passing_yards, passing_tds, interceptions, carries, ' +
+      'rushing_yards, rushing_tds, long_rush, receptions, targets, receiving_yards, ' +
+      'receiving_tds, long_reception, fumbles_lost, tackles_total, tackles_solo, sacks, ' +
+      'tfl, passes_defended, fg_made, fg_att, xp_made, xp_att',
+    // One stat row can qualify for several groups — a QB who scrambles appears
+    // under both PASSING and RUSHING. That is the correct football box score.
+    groups: [
+      {
+        id: 'passing',
+        label: 'PASSING',
+        gate: 'attempts',
+        sortBy: 'passing_yards',
+        columns: [
+          { key: 'completions', label: 'CMP' },
+          { key: 'attempts', label: 'ATT' },
+          { key: 'passing_yards', label: 'YDS' },
+          { key: 'passing_tds', label: 'TD' },
+          { key: 'interceptions', label: 'INT' },
+        ],
+      },
+      {
+        id: 'rushing',
+        label: 'RUSHING',
+        gate: 'carries',
+        sortBy: 'rushing_yards',
+        columns: [
+          { key: 'carries', label: 'CAR' },
+          { key: 'rushing_yards', label: 'YDS' },
+          { key: 'rushing_tds', label: 'TD' },
+          { key: 'long_rush', label: 'LNG' },
+        ],
+      },
+      {
+        id: 'receiving',
+        label: 'RECEIVING',
+        gate: 'targets',
+        sortBy: 'receiving_yards',
+        columns: [
+          { key: 'receptions', label: 'REC' },
+          { key: 'targets', label: 'TGT' },
+          { key: 'receiving_yards', label: 'YDS' },
+          { key: 'receiving_tds', label: 'TD' },
+          { key: 'long_reception', label: 'LNG' },
+        ],
+      },
+      {
+        id: 'defense',
+        label: 'DEFENSE',
+        gate: 'tackles_total',
+        sortBy: 'tackles_total',
+        columns: [
+          { key: 'tackles_total', label: 'TKL' },
+          { key: 'tackles_solo', label: 'SOLO' },
+          { key: 'sacks', label: 'SACK' },
+          { key: 'tfl', label: 'TFL' },
+          { key: 'passes_defended', label: 'PD' },
+        ],
+      },
+      {
+        id: 'kicking',
+        label: 'KICKING',
+        gate: 'fg_att',
+        sortBy: 'fg_made',
+        columns: [
+          { key: 'fg_made', label: 'FGM' },
+          { key: 'fg_att', label: 'FGA' },
+          { key: 'xp_made', label: 'XPM' },
+          { key: 'xp_att', label: 'XPA' },
+        ],
+      },
+    ],
+  },
+  hasMarkets: false,
 };
 
 export const LEAGUES: Record<LeagueSlug, LeagueConfig> = { nba: NBA, mlb: MLB, nfl: NFL, nhl: NHL };

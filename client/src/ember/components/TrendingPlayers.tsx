@@ -1,16 +1,24 @@
+import { Link } from 'react-router-dom'
+import { playerPath } from '@/lib/paths'
 import LeaguePill from './LeaguePill'
 import ModuleCard from './ModuleCard'
+import { EmptyState } from './EntityState'
 
 export type TrendingRow = {
   rank: number
+  playerId: number
+  /** League slug, for routing. */
+  league: string
+  leagueLabel: string
   name: string
-  league?: string
   team: string
   stat: string
   chips: string[]
   seasonVal: number
   l10Val: number
   delta: string
+  /** Sort key; not rendered. */
+  zScore: number
 }
 
 interface TrendingPlayersProps {
@@ -18,6 +26,7 @@ interface TrendingPlayersProps {
   meta: string
   showLeague?: boolean
   className?: string
+  emptyLabel?: string
 }
 
 export default function TrendingPlayers({
@@ -25,15 +34,18 @@ export default function TrendingPlayers({
   meta,
   showLeague = false,
   className = '',
+  emptyLabel = 'NO TRENDS AVAILABLE',
 }: TrendingPlayersProps) {
   return (
     <ModuleCard title="TRENDING PLAYERS" meta={meta} className={className}>
+      {rows.length === 0 && <EmptyState label={emptyLabel} compact />}
       {rows.map((row) => {
         const max = Math.max(row.seasonVal, row.l10Val) || 1
         return (
-          <div
-            key={`${row.rank}-${row.name}`}
-            className={`grid items-center gap-[14px] px-[18px] py-[14px] border-b border-[#221D1A] last:border-b-0 ${
+          <Link
+            key={`${row.league}-${row.playerId}-${row.stat}`}
+            to={playerPath(row.league, row.playerId)}
+            className={`grid items-center gap-[14px] px-[18px] py-[14px] border-b border-[#221D1A] last:border-b-0 hover:bg-[#211C1A] ${
               showLeague
                 ? 'grid-cols-[26px_38px_1fr_auto_150px_52px]'
                 : 'grid-cols-[26px_1fr_auto_150px_52px]'
@@ -42,7 +54,7 @@ export default function TrendingPlayers({
             <span className="font-martian font-bold text-[12px] text-[#665F5D]">
               {String(row.rank).padStart(2, '0')}
             </span>
-            {showLeague && row.league && <LeaguePill league={row.league} />}
+            {showLeague && <LeaguePill league={row.leagueLabel} />}
             <div className="min-w-0">
               <div className="font-schibsted font-bold text-[14px] text-[#EFEBE9] whitespace-nowrap overflow-hidden text-ellipsis">
                 {row.name}
@@ -88,7 +100,7 @@ export default function TrendingPlayers({
             <span className="font-martian font-bold text-[13px] text-[#FF6B3D] text-right">
               {row.delta}
             </span>
-          </div>
+          </Link>
         )
       })}
     </ModuleCard>

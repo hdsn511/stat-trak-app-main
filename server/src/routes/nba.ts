@@ -11,8 +11,11 @@ import {
 import { getGameById } from '../controllers/gameController';
 import { getTeamById } from '../controllers/teamController';
 import { getTeamDefense } from '../controllers/defenseController';
+import { getStandings } from '../controllers/standingsController';
 
 const router = Router();
+
+router.get('/standings', getStandings);
 
 router.get('/trends/top', getTopTrending);
 router.get('/trends', getTrends);

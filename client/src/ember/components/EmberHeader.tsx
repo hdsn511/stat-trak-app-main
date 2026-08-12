@@ -1,4 +1,5 @@
 import { Link, NavLink } from 'react-router-dom'
+import GlobalSearch from './GlobalSearch'
 
 const NAV_ITEMS = [
   { label: 'HOME', to: '/', end: true },
@@ -18,7 +19,7 @@ export default function EmberHeader({ meta = 'ALL LEAGUES · SEASON 2025–26' }
     <div className="flex items-center gap-6 h-[58px] px-[28px] bg-[#0D0B0A] border-b border-[#221E1B] shrink-0">
       <Link
         to="/"
-        className="font-chakra italic font-bold text-[19px] tracking-[-0.5px] text-[#EFEBE9]"
+        className="font-chakra italic font-bold text-[19px] tracking-[-0.5px] text-[#EFEBE9] shrink-0"
       >
         STAT<span className="text-[#FF6B3D]">TRAK</span>SPORTS
       </Link>
@@ -40,9 +41,13 @@ export default function EmberHeader({ meta = 'ALL LEAGUES · SEASON 2025–26' }
           </NavLink>
         ))}
       </nav>
-      <span className="ml-auto font-martian text-[9px] text-[#665F5D] tracking-[1.5px]">
-        {meta}
-      </span>
+      <div className="ml-auto flex items-center gap-4">
+        {/* Hidden on narrow viewports so the nav and search never collide. */}
+        <span className="hidden xl:inline font-martian text-[9px] text-[#665F5D] tracking-[1.5px]">
+          {meta}
+        </span>
+        <GlobalSearch />
+      </div>
     </div>
   )
 }

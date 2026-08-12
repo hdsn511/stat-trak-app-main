@@ -1,13 +1,18 @@
-import { useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import LeaguePill from '@/ember/components/LeaguePill'
-import { StatSignal } from '@/ember/data/homeFixtures'
+import type { StatSignal } from './signals'
 
 interface StatSignalsProps {
   signals: StatSignal[]
+  meta?: string
 }
 
-export default function StatSignals({ signals }: StatSignalsProps) {
-  const navigate = useNavigate()
+export default function StatSignals({
+  signals,
+  meta = 'LATEST · ALL LEAGUES',
+}: StatSignalsProps) {
+  // Nothing to say is better than three empty cards.
+  if (signals.length === 0) return null
 
   return (
     <section>
@@ -17,7 +22,7 @@ export default function StatSignals({ signals }: StatSignalsProps) {
           STAT SIGNALS
         </span>
         <span className="font-martian text-[9px] text-[#665F5D] tracking-[1.5px] uppercase">
-          LAST NIGHT · ALL LEAGUES
+          {meta}
         </span>
       </div>
       <div
@@ -25,11 +30,10 @@ export default function StatSignals({ signals }: StatSignalsProps) {
         style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}
       >
         {signals.map((signal) => (
-          <button
+          <Link
             key={signal.id}
-            type="button"
-            onClick={() => navigate('/sportquery')}
-            className="bg-[#1B1715] border border-[#2C2624] hover:border-[#FF6B3D] rounded-lg px-5 py-[18px] text-left cursor-pointer"
+            to={signal.to}
+            className="bg-[#1B1715] border border-[#2C2624] hover:border-[#FF6B3D] rounded-lg px-5 py-[18px] text-left"
           >
             <div className="flex items-start justify-between gap-2">
               <span className="font-chakra italic font-bold text-[26px] leading-none text-[#FF6B3D]">
@@ -43,7 +47,7 @@ export default function StatSignals({ signals }: StatSignalsProps) {
             <div className="font-schibsted text-[11.5px] text-[#9A918F] mt-[6px]">
               {signal.context}
             </div>
-          </button>
+          </Link>
         ))}
       </div>
     </section>

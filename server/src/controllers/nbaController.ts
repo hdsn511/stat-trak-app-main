@@ -99,6 +99,11 @@ async function buildTrendingPayload(opts: {
   limit: number;                // final result size after dedupe
   dedupePerPlayer: boolean;     // true for top-trending (one entry per player)
 }, lg: LeagueConfig) {
+  // NHL and NFL have per-game stats but no computed trends table. An empty
+  // list is the honest answer; without this the query below asks Postgres for
+  // a table literally named "null" and the client sees a schema-cache error.
+  if (!lg.trendsTable) return [];
+
   const today = new Date().toISOString().slice(0, 10);
 
   // Step 1: today's slate (DB) + games for availability lookup
@@ -574,17 +579,61 @@ const ESPN_TO_DB_ABBR: Record<string, string> = {
   WSH:  'WAS',
 };
 
-// MLB today's games served from the DB games table (populated by the nightly
-// slate sync). Mirrors the ESPN-backed NBA shape: { gameId, dbId, time, status,
-// home/away {team, score} }.
-async function getMLBTodaysGames(res: Response) {
+// Today's slate served from the DB games table (populated by the nightly slate
+// sync). Used by every league except NBA, which has a live ESPN feed. Mirrors
+// the ESPN-backed shape: { gameId, dbId, date, time, status, home/away }.
+//
+// When today is empty the next scheduled date is returned instead, so the
+// ticker still has something during an off day. Each row carries its own
+// `date` so the caller can label a substituted slate honestly rather than
+// presenting next week's games as tonight's.
+async function getTodaysGamesFromDb(res: Response) {
   const lg = resolveLeague(res);
   const today = new Date().toISOString().slice(0, 10);
-  const { data: dbGames } = await supabaseAdmin
+
+  const selectCols =
+    'id, ext_id, game_date, game_time, status, home_team_id, away_team_id, home_score, away_score';
+
+  let { data: dbGames } = await supabaseAdmin
     .from('games')
-    .select('id, ext_id, status, home_team_id, away_team_id, home_score, away_score')
+    .select(selectCols)
     .eq('game_date', today)
     .eq('league_id', lg.leagueId);
+
+  // Nothing today: fall back to the nearest slate, preferring an upcoming one
+  // but accepting the most recent past one. Looking only forward leaves the
+  // ticker permanently empty once a season ends.
+  if (!dbGames?.length) {
+    const [upcoming, previous] = await Promise.all([
+      supabaseAdmin
+        .from('games')
+        .select('game_date')
+        .eq('league_id', lg.leagueId)
+        .gt('game_date', today)
+        .order('game_date', { ascending: true })
+        .limit(1)
+        .maybeSingle(),
+      supabaseAdmin
+        .from('games')
+        .select('game_date')
+        .eq('league_id', lg.leagueId)
+        .lt('game_date', today)
+        .order('game_date', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
+
+    const fallbackDate = upcoming.data?.game_date ?? previous.data?.game_date;
+    if (fallbackDate) {
+      const { data: fallbackGames } = await supabaseAdmin
+        .from('games')
+        .select(selectCols)
+        .eq('game_date', fallbackDate)
+        .eq('league_id', lg.leagueId);
+      dbGames = fallbackGames ?? [];
+    }
+  }
+
   const teamIds = new Set<number>();
   for (const g of (dbGames || [])) { teamIds.add(g.home_team_id); teamIds.add(g.away_team_id); }
   const { data: teamRows } = teamIds.size
@@ -592,12 +641,22 @@ async function getMLBTodaysGames(res: Response) {
     : { data: [] as any[] };
   const abbrById: Record<number, string> = {};
   for (const t of (teamRows || [])) abbrById[t.id] = t.abbreviation;
-  const statusLabel = (s: number) => (s === 2 ? 'Final' : s === 1 ? 'Live' : 'Scheduled');
+  // The stored status code lags the data — plenty of played games are still
+  // flagged 0. Scores are the reliable signal, so they win; a past game with
+  // no score is reported as a gap rather than mislabelled "Scheduled".
+  const statusLabel = (g: any): string => {
+    if (g.home_score != null && g.away_score != null) return 'Final';
+    if (g.status === 1) return 'Live';
+    return g.game_date < today ? 'No score' : 'Scheduled';
+  };
+
   const games = (dbGames || []).map((g: any) => ({
     gameId: g.ext_id,
     dbId: g.id,
-    time: null,
-    status: statusLabel(g.status),
+    date: g.game_date,
+    time: g.game_time ?? null,
+    status: statusLabel(g),
+    live: g.status === 1,
     home: { team: abbrById[g.home_team_id] ?? '', score: g.home_score ?? '' },
     away: { team: abbrById[g.away_team_id] ?? '', score: g.away_score ?? '' },
   }));
@@ -606,8 +665,11 @@ async function getMLBTodaysGames(res: Response) {
 
 export async function getTodaysGames(_req: Request, res: Response) {
   try {
-    if (resolveLeague(res).slug === 'mlb') {
-      return await getMLBTodaysGames(res);
+    // Only NBA has a live ESPN scoreboard wired up; the rest read the synced
+    // schedule. Previously NHL and NFL fell through to the NBA branch and
+    // silently returned basketball games.
+    if (resolveLeague(res).slug !== 'nba') {
+      return await getTodaysGamesFromDb(res);
     }
     const response = await fetch(
       'https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard'
@@ -650,12 +712,20 @@ export async function getTodaysGames(_req: Request, res: Response) {
       return [{
         gameId: event.id,
         dbId,
+        date: today,
         time: comp?.date,
         status: event.status?.type?.shortDetail || 'Scheduled',
+        live: event.status?.type?.state === 'in',
         home: { team: homeAbbr, score: home?.score || '' },
         away: { team: awayAbbr, score: away?.score || '' },
       }];
     });
+
+    // No NBA game tonight — fall back to the synced schedule so the ticker can
+    // show the next slate rather than nothing.
+    if (games.length === 0) {
+      return await getTodaysGamesFromDb(res);
+    }
 
     res.json({ success: true, data: games });
   } catch (err: any) {

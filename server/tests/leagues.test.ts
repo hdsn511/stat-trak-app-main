@@ -18,10 +18,33 @@ describe('league registry', () => {
     expect(LEAGUES.nhl.leagueId).toBe(4);
   });
 
-  it('has no trends table for nfl and nhl', () => {
-    expect(LEAGUES.nfl.trendsTable).toBeNull();
-    expect(LEAGUES.nhl.trendsTable).toBeNull();
+  it('maps every league to its own trends table', () => {
     expect(LEAGUES.nba.trendsTable).toBe('nba_trends');
+    expect(LEAGUES.mlb.trendsTable).toBe('mlb_trends');
+    // NFL and NHL trends are produced by analytics/batch/compute_trends.py.
+    expect(LEAGUES.nfl.trendsTable).toBe('nfl_trends');
+    expect(LEAGUES.nhl.trendsTable).toBe('nhl_trends');
+  });
+
+  it('declares trend stat names for every valid stat id', () => {
+    for (const cfg of Object.values(LEAGUES)) {
+      if (!cfg.trendsTable) continue;
+      for (const id of cfg.validStatIds) {
+        expect(cfg.trendStatNames[id], `${cfg.slug} stat ${id}`).toBeTruthy();
+      }
+    }
+  });
+
+  it('encodes trend stat ids consistently with statConfig', () => {
+    // The batch jobs write `stat` using the statConfig ids, so a mismatch here
+    // means the API would label a trend with the wrong stat.
+    for (const cfg of Object.values(LEAGUES)) {
+      if (!cfg.trendsTable) continue;
+      const configured = Object.values(cfg.statConfig).map((s) => s.statId);
+      for (const id of cfg.validStatIds) {
+        expect(configured, `${cfg.slug} stat ${id}`).toContain(id);
+      }
+    }
   });
 
   it('gates nhl on time on ice and nfl on no gate column', () => {

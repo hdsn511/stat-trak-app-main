@@ -9,6 +9,7 @@ import performanceRoutes from './routes/performance';
 import searchRoutes from './routes/search';
 import { leagueMiddleware } from './config/leagues';
 import { proxySecretGate } from './middleware/proxySecret';
+import { cacheControl } from './middleware/cacheControl';
 
 const isLambda = Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME);
 
@@ -63,6 +64,7 @@ app.get('/health', (req: any, res: any) => {
 
 // Everything below is reachable only through the Cloudflare proxy.
 app.use('/api', proxySecretGate());
+app.use('/api', cacheControl());
 
 // Same handlers, mounted per-league. The middleware sets res.locals.league so
 // the (league-agnostic) controllers resolve their tables/filters per sport.

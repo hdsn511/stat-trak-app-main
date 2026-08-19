@@ -7,7 +7,7 @@ if (!apiKey) {
 
 export const groq = new Groq({ apiKey: apiKey ?? 'missing' })
 
-export const SPORTQUERY_MODEL = 'llama-3.3-70b-versatile'
+export const SPORTQUERY_MODEL = 'openai/gpt-oss-20b'
 export const SQL_TEMPERATURE = 0.1
 export const NARRATIVE_TEMPERATURE = 0.5
 export const MAX_INPUT_TOKENS = 8000

@@ -86,8 +86,16 @@ function Column({
   )
 }
 
-/** Two conferences, in a stable order, when the rows carry one. */
-function byConference(rows: Standing[]): [string, Standing[]][] | null {
+// Alphabetical is the sane default (and what NHL's EASTERN/WESTERN already
+// ships as), but the NBA's own broadcasts and standings pages put the
+// Western Conference on the left — so it gets an explicit override rather
+// than inheriting an ordering that happens to read backwards for that sport.
+const CONFERENCE_ORDER: Partial<Record<string, string[]>> = {
+  nba: ['WESTERN', 'EASTERN'],
+}
+
+/** Two conferences, in a per-league stable order, when the rows carry one. */
+function byConference(league: string, rows: Standing[]): [string, Standing[]][] | null {
   if (!rows.every((r) => r.conference)) return null
   const groups = new Map<string, Standing[]>()
   for (const row of rows) {
@@ -96,7 +104,13 @@ function byConference(rows: Standing[]): [string, Standing[]][] | null {
   }
   // Only a genuine two-conference split is worth the side-by-side layout.
   if (groups.size !== 2) return null
-  return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b))
+
+  const preferred = CONFERENCE_ORDER[league]
+  const rank = (name: string) => {
+    const i = preferred?.indexOf(name) ?? -1
+    return i === -1 ? Infinity : i
+  }
+  return [...groups.entries()].sort(([a], [b]) => rank(a) - rank(b) || a.localeCompare(b))
 }
 
 /**
@@ -119,7 +133,7 @@ export default function StandingsCard({ league, standings, loading }: StandingsC
     )
   }
 
-  const conferences = byConference(standings)
+  const conferences = byConference(league, standings)
 
   if (conferences) {
     const perSide = expanded ? Infinity : 8

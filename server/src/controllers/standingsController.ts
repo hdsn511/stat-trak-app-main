@@ -143,7 +143,7 @@ export async function getStandings(_req: Request, res: Response) {
     const [{ data: teams, error: teamErr }, games] = await Promise.all([
       supabaseAdmin
         .from('teams')
-        .select('id, abbreviation, name')
+        .select('id, abbreviation, name, conference, division')
         .eq('league_id', lg.leagueId),
       fetchSeasonGames(lg.leagueId, lg.regularSeasonType, seasonStart),
     ]);
@@ -165,8 +165,12 @@ export async function getStandings(_req: Request, res: Response) {
         otl: 0,
         last10: { w: 0, l: 0, t: 0 },
         streak: 0,
-        conference: null,
-        division: null,
+        // teams.conference/division is seeded independently of the
+        // win/loss computation below (seed_conferences.py), so a league on
+        // the derived path can still carry a real conference split even
+        // without the analytics pipeline's OT-aware standings table.
+        conference: (t as any).conference ?? null,
+        division: (t as any).division ?? null,
       });
     }
 

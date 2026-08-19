@@ -4,12 +4,15 @@ analytics/batch/seed_conferences.py
 Seeds teams.conference / teams.division from ESPN's standings tree.
 
 The league home pages split their standings card by conference (AFC/NFC,
-EASTERN/WESTERN) and `teams` had no column to split on. ESPN's standings
-resource nests divisions under conferences at level=3; the flat default only
-returns conferences.
+EASTERN/WESTERN, AL/NL) and `teams` had no column to split on. ESPN's
+standings resource nests divisions under conferences at level=3; the flat
+default only returns conferences.
 
-Teams are matched on teams.ext_id, which for the ESPN-native leagues IS the
-ESPN team id. Unmatched ESPN teams are reported loudly and never name-guessed.
+NFL/NHL were ingested from ESPN directly, so teams.ext_id IS the ESPN team id
+and matching is exact. NBA (nba_api) and MLB (MLB Stats API) have their own id
+schemes, so those two match on abbreviation instead, via a short, explicit
+alias table for the handful of codes ESPN spells differently (SAS/SA,
+NYK/NY, ...) — never fuzzy name-guessed.
 
 Conference/division are stable league structure, not season state, so this is
 a seed job — safe to re-run, and only needs re-running on realignment.
@@ -24,10 +27,18 @@ import argparse
 import sys
 
 from analytics.data.espn import client as espn
-from analytics.db.connection import NFL_LEAGUE_ID, NHL_LEAGUE_ID, supabase
+from analytics.db.connection import (
+    MLB_LEAGUE_ID,
+    NBA_LEAGUE_ID,
+    NFL_LEAGUE_ID,
+    NHL_LEAGUE_ID,
+    supabase,
+)
 
 # league code -> (espn sport, espn league, leagues.id)
 LEAGUES: dict[str, tuple[str, str, int]] = {
+    "nba": ("basketball", "nba", NBA_LEAGUE_ID),
+    "mlb": ("baseball", "mlb", MLB_LEAGUE_ID),
     "nfl": ("football", "nfl", NFL_LEAGUE_ID),
     "nhl": ("hockey", "nhl", NHL_LEAGUE_ID),
 }
@@ -40,6 +51,16 @@ CONFERENCE_ALIASES = {
     "WESTERN CONFERENCE": "WESTERN",
     "AMERICAN FOOTBALL CONFERENCE": "AFC",
     "NATIONAL FOOTBALL CONFERENCE": "NFC",
+}
+
+# Leagues whose local ext_id isn't an ESPN id — match by abbreviation instead.
+MATCH_BY_ABBREVIATION = {"nba", "mlb"}
+
+# local abbreviation -> ESPN's spelling, only where they differ. Verified
+# against a live ESPN pull: every local team matches with these applied.
+ABBREVIATION_ALIASES: dict[str, dict[str, str]] = {
+    "nba": {"SAS": "SA", "NYK": "NY", "GSW": "GS", "NOP": "NO", "UTA": "UTAH", "WAS": "WSH"},
+    "mlb": {"CWS": "CHW", "AZ": "ARI"},
 }
 
 
@@ -55,13 +76,17 @@ def _normalize_division(name: str) -> str:
     return (name or "").replace(" Division", "").strip()
 
 
-def collect(sport: str, league: str) -> dict[str, tuple[str, str]]:
-    """ESPN team id -> (conference, division). Empty dict on fetch failure."""
+def collect(sport: str, league: str, key_by: str) -> dict[str, tuple[str, str]]:
+    """ESPN team id or abbreviation -> (conference, division), per `key_by`.
+    Empty dict on fetch failure."""
     children = espn.get_standings(sport, league, level=3)
     if not children:
         print(f"  ERROR [{league}] ESPN returned no standings children; "
               f"nothing to seed.")
         return {}
+
+    def key_for(team: dict) -> str:
+        return team["abbreviation"] if key_by == "abbreviation" else str(team["id"])
 
     out: dict[str, tuple[str, str]] = {}
     for conf in children:
@@ -73,41 +98,46 @@ def collect(sport: str, league: str) -> dict[str, tuple[str, str]]:
                   f"division subgroups; seeding conference only.")
             entries = (conf.get("standings") or {}).get("entries") or []
             for e in entries:
-                out[str(e["team"]["id"])] = (conf_name, "")
+                out[key_for(e["team"])] = (conf_name, "")
             continue
 
         for div in divisions:
             div_name = _normalize_division(div.get("name", ""))
             entries = (div.get("standings") or {}).get("entries") or []
             for e in entries:
-                out[str(e["team"]["id"])] = (conf_name, div_name)
+                out[key_for(e["team"])] = (conf_name, div_name)
     return out
 
 
 def seed(code: str, dry_run: bool = False) -> int:
     """Apply conference/division for one league. Returns rows updated."""
     sport, league, league_id = LEAGUES[code]
-    espn_map = collect(sport, league)
+    by_abbr = code in MATCH_BY_ABBREVIATION
+    key_by = "abbreviation" if by_abbr else "ext_id"
+    espn_map = collect(sport, league, key_by)
     if not espn_map:
         return 0
 
     db = (supabase.table("teams")
           .select("id,ext_id,abbreviation,conference,division")
           .eq("league_id", league_id).execute()).data or []
-    by_ext = {r["ext_id"]: r for r in db}
+    aliases = ABBREVIATION_ALIASES.get(code, {})
+    local_key = (lambda r: aliases.get(r["abbreviation"], r["abbreviation"])) if by_abbr \
+        else (lambda r: r["ext_id"])
+    by_local_key = {local_key(r): r for r in db}
 
     updates: list[tuple[int, str, str, str]] = []
-    for ext_id, (conf, div) in sorted(espn_map.items()):
-        row = by_ext.get(ext_id)
+    for espn_key, (conf, div) in sorted(espn_map.items()):
+        row = by_local_key.get(espn_key)
         if not row:
-            print(f"  WARNING [{code}] ESPN team {ext_id} has no local "
+            print(f"  WARNING [{code}] ESPN team {espn_key!r} has no local "
                   f"teams row; skipped.")
             continue
         if row.get("conference") == conf and (row.get("division") or "") == div:
             continue
         updates.append((row["id"], row["abbreviation"], conf, div))
 
-    missing = [r["abbreviation"] for r in db if r["ext_id"] not in espn_map]
+    missing = [r["abbreviation"] for r in db if local_key(r) not in espn_map]
     if missing:
         print(f"  WARNING [{code}] {len(missing)} local team(s) absent from "
               f"ESPN standings: {', '.join(sorted(missing))}")

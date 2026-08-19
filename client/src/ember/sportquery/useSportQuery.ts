@@ -45,7 +45,7 @@ const nextId = () => `local-${++localId}`
  * fill it in. Result rows are persisted server-side, so reopening a session
  * restores its cards rather than bare prose.
  */
-export function useSportQuery(initialSessionId?: string) {
+export function useSportQuery(initialSessionId?: string, forceNewSession = false) {
   const [sessionId, setSessionId] = useState<string | null>(initialSessionId ?? null)
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [turns, setTurns] = useState<Turn[]>([])
@@ -57,6 +57,12 @@ export function useSportQuery(initialSessionId?: string) {
   // Guards against a second send while one is in flight; state updates are
   // async, so `busy` alone can be read stale by a fast double-submit.
   const inFlight = useRef(false)
+  // Session an ask() has already started against. A league-page ask bar sets
+  // sessionId and calls ask() for a brand-new session almost simultaneously;
+  // if the transcript fetch below (which for a fresh session returns []) wins
+  // the race, it wipes out ask()'s just-appended turns and the answer never
+  // renders live, even though it did stream and persist correctly.
+  const askedForSession = useRef<string | null>(null)
 
   const refreshSessions = useCallback(async () => {
     try {
@@ -67,7 +73,9 @@ export function useSportQuery(initialSessionId?: string) {
   }, [])
 
   // Resolve a session on mount: the one named in the URL, the most recent, or
-  // a fresh one.
+  // a fresh one — except when a league-page ask bar handed over a question,
+  // where "most recent" would silently drop it into an unrelated
+  // conversation instead of starting the new one the user asked for.
   useEffect(() => {
     let cancelled = false
     ;(async () => {
@@ -76,7 +84,8 @@ export function useSportQuery(initialSessionId?: string) {
         if (cancelled) return
         setSessions(existing)
 
-        const target = initialSessionId ?? existing[0]?.id ?? (await createSession())
+        const target =
+          initialSessionId ?? (forceNewSession ? null : existing[0]?.id) ?? (await createSession())
         if (cancelled) return
         setSessionId(target)
       } catch (e) {
@@ -88,6 +97,9 @@ export function useSportQuery(initialSessionId?: string) {
     return () => {
       cancelled = true
     }
+    // forceNewSession is read once, at the mount that resolves the initial
+    // session — same contract as initialSessionId — not on every change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialSessionId])
 
   // Load the transcript whenever the active session changes.
@@ -96,7 +108,10 @@ export function useSportQuery(initialSessionId?: string) {
     let cancelled = false
     loadMessages(sessionId)
       .then((rows) => {
-        if (cancelled) return
+        // ask() has already appended (and possibly finished streaming) a
+        // turn for this session — that live state is more current than this
+        // fetch, which may well have started before the question was asked.
+        if (cancelled || askedForSession.current === sessionId) return
         const restored: Turn[] = rows.map((m) =>
           m.role === 'user'
             ? { id: m.id, role: 'user', text: m.content }
@@ -135,6 +150,7 @@ export function useSportQuery(initialSessionId?: string) {
       const question = text.trim()
       if (!question || !sessionId || inFlight.current) return
 
+      askedForSession.current = sessionId
       inFlight.current = true
       setBusy(true)
       setError(null)

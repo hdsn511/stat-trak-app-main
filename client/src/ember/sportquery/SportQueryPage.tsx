@@ -11,6 +11,15 @@ export default function SportQueryPage() {
   const navigate = useNavigate()
   const location = useLocation()
 
+  // A query handed over from an ask bar on Home or a league page always
+  // starts its own conversation — it must never land in whatever session
+  // happened to be most recent. Read once, on mount: by the time the
+  // auto-ask effect below clears location.state, the session is resolved.
+  const hasHandoffQuery = useRef(
+    typeof (location.state as { query?: unknown } | null)?.query === 'string' &&
+      ((location.state as { query?: string }).query ?? '').trim().length > 0
+  ).current
+
   const {
     sessionId,
     sessions,
@@ -23,7 +32,7 @@ export default function SportQueryPage() {
     selectSession,
     removeSession,
     dismissError,
-  } = useSportQuery(routeSessionId)
+  } = useSportQuery(routeSessionId, hasHandoffQuery)
 
   const [selection, setSelection] = useState<Selection | null>(null)
 

@@ -1,6 +1,9 @@
 import type { DefenseSplit, PlayerLogResponse } from '@/ember/player/types'
 
-const BASE = 'http://localhost:3000/api'
+// Relative by default so the deployed SPA calls its own origin, where a
+// Cloudflare Pages Function proxies /api/* to the API. In dev, Vite's proxy
+// (vite.config.ts) forwards the same relative path to localhost:3000.
+const BASE = import.meta.env.VITE_API_BASE_URL ?? '/api'
 
 export interface TrendingPlayer {
   playerId: number

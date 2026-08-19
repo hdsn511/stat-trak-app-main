@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "sync-data": "ts-node src/scripts/runSync.ts",
-    "sync-data-mlb": "ts-node src/jobs/computeMLBTrends.ts"
+    "sync-data-mlb": "ts-node src/jobs/computeMLBTrends.ts",
+    "build:lambda": "node scripts/build-lambda.mjs"
   },
   "keywords": [],
   "author": "",
@@ -18,6 +19,8 @@
   "type": "commonjs",
   "dependencies": {
     "@supabase/supabase-js": "^2.74.0",
+    "@upstash/ratelimit": "^2.0.8",
+    "@upstash/redis": "^1.38.2",
     "cors": "^2.8.5",
     "dotenv": "^17.2.2",
     "express": "^5.1.0",
@@ -38,6 +41,7 @@
     "@types/node-cron": "^3.0.11",
     "@types/pg": "^8.15.5",
     "@vitest/ui": "^4.1.4",
+    "esbuild": "^0.28.2",
     "nodemon": "^3.1.10",
     "ts-node": "^10.9.2",
     "tsx": "^4.21.0",

@@ -1,4 +1,19 @@
-import { parse as parseQuery } from 'libpg-query'
+type ParseFn = (sql: string) => Promise<any>
+
+let parserPromise: Promise<ParseFn> | null = null
+
+/**
+ * Load libpg-query on first use rather than at import time.
+ *
+ * It is a WASM module, and initializing WASM costs real milliseconds on a
+ * Lambda cold start. Only SportQuery parses SQL, so importing it eagerly would
+ * put that cost on the cold start of every NBA/MLB read endpoint too. The
+ * promise is cached, so the module initializes at most once per container.
+ */
+function loadParser(): Promise<ParseFn> {
+  parserPromise ??= import('libpg-query').then((m) => m.parse as ParseFn)
+  return parserPromise
+}
 
 export type ValidationResult =
   | { ok: true; rewritten: string }
@@ -88,6 +103,7 @@ export async function validateSql(sql: string): Promise<ValidationResult> {
 
   let parsed: any
   try {
+    const parseQuery = await loadParser()
     parsed = await parseQuery(sql)
   } catch (err: any) {
     return { ok: false, reason: `parse error: ${err.message}` }

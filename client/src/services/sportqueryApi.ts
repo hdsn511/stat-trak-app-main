@@ -1,4 +1,5 @@
-const BASE = 'http://localhost:3000/api/sportquery'
+// See services/api.ts for why this is relative by default.
+const BASE = `${import.meta.env.VITE_API_BASE_URL ?? '/api'}/sportquery`
 
 export type SessionSummary = {
   id: string

@@ -7,10 +7,15 @@ if (!connectionString) {
   )
 }
 
+// On Lambda a container handles one request at a time, so anything above 1 is
+// idle connections multiplied by the container count — which is how a
+// serverless fan-out exhausts Postgres. Locally a small pool still helps.
+const poolMax = Number(process.env.PG_POOL_MAX ?? (process.env.AWS_LAMBDA_FUNCTION_NAME ? 1 : 5))
+
 const pool = connectionString
   ? new Pool({
       connectionString,
-      max: 5,
+      max: poolMax,
       idleTimeoutMillis: 10000,
       connectionTimeoutMillis: 3000,
     })
@@ -18,6 +23,18 @@ const pool = connectionString
 
 export type RowSet = Record<string, unknown>[]
 
+/**
+ * Run a query inside a read-only transaction.
+ *
+ * Deployed, SPORTQUERY_DB_URL points at Supabase's Supavisor transaction-mode
+ * pooler (port 6543), which forbids session-scoped state — every statement here
+ * is transaction-scoped, which is why `SET LOCAL` rather than `SET` is required
+ * and not merely tidier.
+ *
+ * Transaction mode also has no prepared statements. node-postgres only uses
+ * them for a query given a `name`, so passing plain SQL keeps this compatible —
+ * a constraint to preserve, not an accident.
+ */
 export async function runReadOnly(sql: string): Promise<RowSet> {
   if (!pool) throw new Error('SportQuery DB pool not configured')
   const client = await pool.connect()

@@ -1,0 +1,16 @@
+/*
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: geolocation=(), microphone=(), camera=()
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+
+# Vite fingerprints these filenames, so a long immutable TTL is safe: a changed
+# file gets a new name rather than a stale cache entry.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# The SPA shell must not be cached, or a deploy would keep serving the old
+# index.html pointing at asset filenames that no longer exist.
+/index.html
+  Cache-Control: no-cache

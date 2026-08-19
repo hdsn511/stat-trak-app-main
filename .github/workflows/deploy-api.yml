@@ -1,0 +1,114 @@
+name: Deploy API
+
+# Builds the Lambda bundle and deploys it with SAM. Only runs when something the
+# artifact actually contains has changed, so client-only commits do not redeploy
+# the API.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'server/**'
+      - 'infra/**'
+      - '.github/workflows/deploy-api.yml'
+  workflow_dispatch:
+
+concurrency:
+  # Two overlapping deploys would race on the same CloudFormation stack.
+  group: deploy-api
+  cancel-in-progress: false
+
+permissions:
+  # Required for OIDC role assumption; no long-lived AWS keys are stored.
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  STACK_NAME: stattrak-api
+
+jobs:
+  deploy:
+    name: Build and deploy Lambda
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install deps
+        working-directory: server
+        run: npm ci
+
+      # Deploying code that does not compile or whose tests fail is worse than
+      # not deploying, so both gate the upload.
+      - name: Typecheck
+        working-directory: server
+        run: npm run build
+
+      - name: Test
+        working-directory: server
+        run: npm test
+
+      - name: Build Lambda bundle
+        working-directory: server
+        run: npm run build:lambda
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+
+      - name: SAM validate
+        run: sam validate --template infra/template.yaml --region "$AWS_REGION" --lint
+
+      - name: SAM deploy
+        run: |
+          sam deploy \
+            --template infra/template.yaml \
+            --stack-name "$STACK_NAME" \
+            --region "$AWS_REGION" \
+            --capabilities CAPABILITY_IAM \
+            --resolve-s3 \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset \
+            --parameter-overrides \
+              SupabaseUrl="${{ secrets.SUPABASE_URL }}" \
+              SupabaseServiceRoleKey="${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
+              SportqueryDbUrl="${{ secrets.SPORTQUERY_DB_URL }}" \
+              GroqApiKey="${{ secrets.GROQ_API_KEY }}" \
+              OpenAIApiKey="${{ secrets.OPENAI_API_KEY }}" \
+              UpstashRedisRestUrl="${{ secrets.UPSTASH_REDIS_REST_URL }}" \
+              UpstashRedisRestToken="${{ secrets.UPSTASH_REDIS_REST_TOKEN }}" \
+              ApiSharedSecret="${{ secrets.API_SHARED_SECRET }}" \
+              AllowedOrigins="${{ vars.ALLOWED_ORIGINS }}"
+
+      - name: Show Function URL
+        run: |
+          aws cloudformation describe-stacks \
+            --stack-name "$STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query 'Stacks[0].Outputs[?OutputKey==`FunctionUrl`].OutputValue' \
+            --output text
+
+      # Proves the deployed function boots and serves, rather than assuming a
+      # successful upload means a working API.
+      - name: Smoke test /health
+        run: |
+          URL=$(aws cloudformation describe-stacks \
+            --stack-name "$STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query 'Stacks[0].Outputs[?OutputKey==`FunctionUrl`].OutputValue' \
+            --output text)
+          code=$(curl -sS -o /tmp/health.json -w '%{http_code}' "${URL%/}/health")
+          cat /tmp/health.json
+          test "$code" = "200"

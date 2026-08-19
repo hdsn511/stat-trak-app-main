@@ -13,6 +13,7 @@ const mockResponse = {
   gameDate: '2026-04-27',
   topPick: {
     pickId: 1,
+    date: '2026-04-27',
     playerId: 42,
     playerName: 'LeBron James',
     team: 'LAL',

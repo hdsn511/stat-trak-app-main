@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { nbaApi, PotdResponse, LeagueApi } from '@/services/api'
-import { playerPath } from '@/lib/playerPath'
+import { playerPath } from '@/lib/paths'
 
 // Human labels for condition-breakdown keys across leagues (NBA + MLB).
 const CONDITION_LABELS: Record<string, string> = {

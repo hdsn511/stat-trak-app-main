@@ -8,10 +8,12 @@ vi.mock('@/services/api', () => ({
 }))
 
 describe('Header', () => {
-  it('renders the StatTrak brand text', () => {
+  it('renders the StatTrakSports brand text', () => {
     render(<MemoryRouter><Header /></MemoryRouter>)
-    expect(screen.getByText('Stat')).toBeInTheDocument()
-    expect(screen.getByText('Trak')).toBeInTheDocument()
+    // The wordmark is three spans so TRAK can take the accent colour.
+    expect(screen.getByText('STAT')).toBeInTheDocument()
+    expect(screen.getByText('TRAK')).toBeInTheDocument()
+    expect(screen.getByText('SPORTS')).toBeInTheDocument()
   })
 
   it('renders all sport nav links', () => {

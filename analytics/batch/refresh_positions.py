@@ -1,9 +1,13 @@
 """
 analytics/batch/refresh_positions.py
 
-Refreshes player positions in the players table using CommonTeamRoster
-from nba_api. Iterates all 30 NBA teams and updates each player's
-position to the official current value.
+Refreshes player positions in the players table from ESPN's current team
+rosters (Phase 8 hybrid — replaces nba_api's CommonTeamRoster). Iterates all
+30 NBA teams and updates each mapped player's position to the current value.
+
+Players are resolved through players.espn_id ONLY; roster athletes without a
+mapping are reported loudly, never name-guessed (run
+analytics/batch/map_espn_ids to extend the mapping).
 
 Usage:
     python -m analytics.batch.refresh_positions
@@ -13,86 +17,77 @@ from __future__ import annotations
 
 import argparse
 import sys
-import time
 
-from analytics.db.connection import NBA_LEAGUE_ID, supabase
-from analytics.data.enrich_games import api_call_with_retry
-
-CURRENT_SEASON = "2025-26"
-
-
-def _get_all_teams() -> list[dict]:
-    rows = (
-        supabase.table("teams")
-        .select("id, ext_id, abbreviation")
-        .eq("league_id", NBA_LEAGUE_ID)
-        .execute()
-    )
-    return rows.data or []
+from analytics.data.espn import client as espn
+from analytics.data.nba_espn.ingest import (
+    LEAGUE,
+    SPORT,
+    load_player_espn_map,
+    load_team_maps,
+)
+from analytics.db.connection import supabase
 
 
 def refresh(dry_run: bool = False) -> None:
-    try:
-        from nba_api.stats.endpoints import CommonTeamRoster
-    except ImportError as exc:
-        print(f"ERROR: nba_api not installed: {exc}")
-        sys.exit(1)
+    """Fetch every ESPN roster and queue position changes for mapped players."""
+    team_espn_map, team_abbr_by_espn = load_team_maps()
+    player_espn_map = load_player_espn_map()
 
-    teams = _get_all_teams()
-    print(f"Refreshing positions for {len(teams)} team(s) — season {CURRENT_SEASON}")
+    print(f"Refreshing positions for {len(team_espn_map)} team(s) "
+          f"(ESPN current rosters)")
     if dry_run:
         print("(dry-run: no writes)")
 
-    # Load all active NBA players: ext_id -> db_id
-    player_rows = (
-        supabase.table("players")
-        .select("id, ext_id, name, position")
-        .eq("league", "nba")
-        .eq("is_active", True)
-        .execute()
-    )
-    player_by_ext: dict[str, dict] = {
-        r["ext_id"]: r for r in (player_rows.data or []) if r.get("ext_id")
-    }
+    # Current DB state for change detection: db_id -> (name, position)
+    db_players: dict[int, dict] = {}
+    page = 0
+    while True:
+        batch = (supabase.table("players").select("id,name,position")
+                 .eq("league", "nba")
+                 .range(page * 1000, page * 1000 + 999).execute()).data or []
+        db_players.update({r["id"]: r for r in batch})
+        if len(batch) < 1000:
+            break
+        page += 1
 
-    updates: list[tuple[int, str, str, str]] = []  # (db_id, name, old_pos, new_pos)
+    updates: list[tuple[int, str, str, str]] = []  # (db_id, name, old, new)
+    unmapped_total = 0
 
-    for team in teams:
-        team_ext_id = team["ext_id"]
-        team_abbr = team["abbreviation"]
-
-        def _roster(tid=team_ext_id):
-            return CommonTeamRoster(team_id=tid, season=CURRENT_SEASON)
-
-        result = api_call_with_retry(_roster, f"CommonTeamRoster {team_abbr}")
-        if result is None:
-            print(f"  WARNING: no roster data for {team_abbr}. Skipping.")
-            continue
-
-        try:
-            df = result.get_data_frames()[0]
-        except Exception as exc:
-            print(f"  WARNING: parse error for {team_abbr}: {exc}")
+    for espn_team_id in sorted(team_espn_map, key=lambda k: team_abbr_by_espn[k]):
+        abbr = team_abbr_by_espn[espn_team_id]
+        roster = espn.get_roster(SPORT, LEAGUE, espn_team_id)
+        if not roster:
+            print(f"  WARNING: empty ESPN roster for {abbr}. Skipping.")
             continue
 
         changed = 0
-        for _, row in df.iterrows():
-            raw_id = row.get("PLAYER_ID")
-            pos = str(row.get("POSITION") or "").strip()
-            if not raw_id or not pos:
+        unmapped = 0
+        for athlete in roster:
+            espn_id = str(athlete.get("id", ""))
+            pos = ((athlete.get("position") or {}).get("abbreviation") or "").strip()
+            if not espn_id or not pos:
                 continue
-            p_ext_id = str(int(float(raw_id)))
-            player = player_by_ext.get(p_ext_id)
+            p_db_id = player_espn_map.get(espn_id)
+            if not p_db_id:
+                unmapped += 1
+                continue
+            player = db_players.get(p_db_id)
             if not player:
                 continue
             old_pos = player.get("position") or ""
             if old_pos == pos:
                 continue
-            updates.append((player["id"], player["name"], old_pos, pos))
+            updates.append((p_db_id, player["name"], old_pos, pos))
             changed += 1
 
-        print(f"  {team_abbr}: {len(df)} players, {changed} position change(s) queued")
-        time.sleep(1.0)
+        unmapped_total += unmapped
+        note = f", {unmapped} unmapped" if unmapped else ""
+        print(f"  {abbr}: {len(roster)} players, {changed} position "
+              f"change(s) queued{note}")
+
+    if unmapped_total:
+        print(f"\nWARNING: {unmapped_total} roster athlete(s) have no espn_id "
+              f"mapping — run analytics/batch/map_espn_ids for the report.")
 
     print(f"\nTotal position updates: {len(updates)}")
     if not updates:
@@ -113,7 +108,8 @@ def refresh(dry_run: bool = False) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Refresh NBA player positions from CommonTeamRoster")
+    parser = argparse.ArgumentParser(
+        description="Refresh NBA player positions from ESPN rosters")
     parser.add_argument("--dry-run", action="store_true", help="Show changes without writing")
     args = parser.parse_args()
     refresh(dry_run=args.dry_run)

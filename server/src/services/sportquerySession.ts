@@ -15,7 +15,17 @@ export type MessageRow = {
   content: string
   sql_executed: string | null
   result_count: number | null
+  /** Rows this turn returned, so reopening the session rehydrates its cards. */
+  result_rows: unknown[] | null
+  result_shape: string | null
   created_at: string
+}
+
+export type AppendExtras = {
+  sqlExecuted?: string | null
+  resultCount?: number | null
+  resultRows?: unknown[] | null
+  resultShape?: string | null
 }
 
 export async function createSession(userId = 'local'): Promise<SessionRow> {
@@ -53,8 +63,7 @@ export async function appendMessage(
   sessionId: string,
   role: 'user' | 'assistant',
   content: string,
-  sqlExecuted: string | null = null,
-  resultCount: number | null = null
+  extras: AppendExtras = {}
 ): Promise<MessageRow> {
   const { data, error } = await supabaseAdmin
     .from('sportquery_messages')
@@ -62,8 +71,12 @@ export async function appendMessage(
       session_id: sessionId,
       role,
       content,
-      sql_executed: sqlExecuted,
-      result_count: resultCount,
+      sql_executed: extras.sqlExecuted ?? null,
+      result_count: extras.resultCount ?? null,
+      // Cap what is persisted: a 500-row result set is not worth storing in
+      // full, and the UI only ever renders the head of the list.
+      result_rows: extras.resultRows ? extras.resultRows.slice(0, 50) : null,
+      result_shape: extras.resultShape ?? null,
     })
     .select('*')
     .single()

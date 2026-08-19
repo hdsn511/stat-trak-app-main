@@ -23,14 +23,9 @@ describe('TopTrending', () => {
     expect(screen.getByText('Top Trending')).toBeInTheDocument()
   })
 
-  it('renders player 2 (skips player 1)', async () => {
+  it('renders every trending player returned', async () => {
     render(<MemoryRouter><TopTrending /></MemoryRouter>)
     expect(await screen.findByText('Player Two')).toBeInTheDocument()
-  })
-
-  it('does not render player 1 (used in PickOfTheDay)', async () => {
-    render(<MemoryRouter><TopTrending /></MemoryRouter>)
-    await screen.findByText('Player Two')
-    expect(screen.queryByText('Player One')).not.toBeInTheDocument()
+    expect(screen.getByText('Player One')).toBeInTheDocument()
   })
 })

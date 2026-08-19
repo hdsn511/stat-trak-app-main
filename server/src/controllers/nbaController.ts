@@ -1,7 +1,54 @@
 import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabaseAdmin';
 import { findNearestConditionsDate, findNearestPickDate } from '../utils/dateQueries';
-import { league as resolveLeague, LeagueConfig } from '../config/leagues';
+import { league as resolveLeague, seasonStartFor, LeagueConfig } from '../config/leagues';
+
+/**
+ * Rows to return from the player game log. `all` means the whole season; any
+ * other value falls back to the historical default of 20 so existing callers
+ * are unaffected.
+ */
+export function resolveLogLimit(window: unknown): number | null {
+  if (window === 'all') return null;
+  if (typeof window !== 'string') return 20;
+  const n = parseInt(window, 10);
+  if (!Number.isFinite(n) || n <= 0) return 20;
+  return Math.min(n, 500);
+}
+
+interface ScheduledGame {
+  id: number;
+  game_date: string;
+  home_team_id: number;
+  away_team_id: number;
+}
+
+/**
+ * Shape the player's next scheduled game. `lastPlayedDate` is the date of their
+ * most recent completed game, used for days rest; null when they have none.
+ */
+export function buildUpcoming(
+  game: ScheduledGame | null,
+  playerTeamId: number | null,
+  abbrById: Record<number, string>,
+  lastPlayedDate: string | null
+) {
+  if (!game || playerTeamId == null) return null;
+  const isHome = game.home_team_id === playerTeamId;
+  const opponentTeamId = isHome ? game.away_team_id : game.home_team_id;
+  const daysRest =
+    lastPlayedDate == null
+      ? null
+      : Math.round((Date.parse(game.game_date) - Date.parse(lastPlayedDate)) / 86_400_000);
+  return {
+    gameId: game.id,
+    date: game.game_date,
+    opponent: abbrById[opponentTeamId] ?? '',
+    opponentTeamId,
+    isHome,
+    daysRest,
+  };
+}
 
 // Build trend driver chips for a player given their conditions row + injury flag.
 function buildTrendDrivers(
@@ -52,16 +99,24 @@ async function buildTrendingPayload(opts: {
   limit: number;                // final result size after dedupe
   dedupePerPlayer: boolean;     // true for top-trending (one entry per player)
 }, lg: LeagueConfig) {
+  // NHL and NFL have per-game stats but no computed trends table. An empty
+  // list is the honest answer; without this the query below asks Postgres for
+  // a table literally named "null" and the client sees a schema-cache error.
+  if (!lg.trendsTable) return [];
+
   const today = new Date().toISOString().slice(0, 10);
 
-  // Step 1: today's slate (DB) + games for availability lookup
+  // Step 1: today's slate (DB) + games for availability lookup.
+  // NFL/NHL have a trends table but no conditions table (dailyConditionsTable
+  // is null for them) — skip the lookup rather than passing null through, or
+  // Postgres gets asked for a table literally named "null".
   const [gamesResult, conditionsDate] = await Promise.all([
     supabaseAdmin
       .from('games')
       .select('id, home_team_id, away_team_id')
       .eq('game_date', today)
       .eq('league_id', lg.leagueId),
-    findNearestConditionsDate(today, lg.dailyConditionsTable),
+    lg.dailyConditionsTable ? findNearestConditionsDate(today, lg.dailyConditionsTable) : null,
   ]);
 
   const todayGamesRaw = (gamesResult.data || []) as any[];
@@ -149,7 +204,7 @@ async function buildTrendingPayload(opts: {
     ? 'player_id, game_id, opp_starter_hand, park_factor, rolling_pa_5g'
     : 'player_id, game_id, rolling_usg_5g, season_avg_usg, rolling_min_5g, rolling_pace_5g';
   const condByPlayerId = new Map<number, any>();
-  if (playerIds.length > 0) {
+  if (playerIds.length > 0 && lg.dailyConditionsTable) {
     const { data: condRows } = await supabaseAdmin
       .from(lg.dailyConditionsTable)
       .select(condSelect)
@@ -270,15 +325,12 @@ export async function getPlayerGames(req: Request<{ id: string }>, res: Response
   try {
     const lg = resolveLeague(res);
     const { id } = req.params;
+    const logLimit = resolveLogLimit(req.query.window);
 
-    // Season start: NBA seasons span Oct–Jun; MLB is a single calendar year.
-    const seasonStart = (() => {
-      const today = new Date();
-      if (lg.slug === 'mlb') return `${today.getFullYear()}-01-01`;
-      const year = today.getMonth() >= 9 ? today.getFullYear() : today.getFullYear() - 1;
-      return `${year}-10-01`;
-    })();
-    const gameTypes = lg.slug === 'mlb' ? ['regular', 'postseason'] : ['regular', 'playoff', 'playin'];
+    // Season window and game-type vocabulary both vary by league; they live in
+    // the registry so adding a sport does not mean editing this controller.
+    const seasonStart = seasonStartFor(lg);
+    const gameTypes = lg.gameTypes;
 
     // Fetch the player first: for MLB we branch the stat query on whether they
     // pitch. Pitchers never bat, so the batting "appeared" gate would exclude
@@ -297,31 +349,41 @@ export async function getPlayerGames(req: Request<{ id: string }>, res: Response
     const select = isPitcher ? MLB_PITCHER_SELECT : lg.playerGameSelect;
     const gate = isPitcher ? { col: 'batters_faced', min: 0 } : lg.playedGate;
 
+    // NFL has no single "appeared" column, so its gate is null and every row
+    // for the player counts as an appearance.
+    const applyGate = (q: any): any => (gate ? q.gt(gate.col, gate.min) : q);
+
     const [statsResult, trendsResult, allSeasonStats] = await Promise.all([
-      supabaseAdmin
-        .from(lg.statsTable)
-        .select(select)
-        .eq('player_id', parseInt(id))
-        .in('games.game_type', gameTypes)
-        .gt(gate.col, gate.min)
-        .order('game_date', { ascending: false })
-        .limit(20),
-      supabaseAdmin
-        .from(lg.trendsTable)
-        .select('stat, trend_val, rolling_avg, window_size')
-        .eq('player_id', parseInt(id))
-        .eq('window_size', 10),
-      supabaseAdmin
-        .from(lg.statsTable)
-        .select(select)
-        .eq('player_id', parseInt(id))
-        .gte('game_date', seasonStart)
-        .in('games.game_type', gameTypes)
-        .gt(gate.col, gate.min),
+      applyGate(
+        supabaseAdmin
+          .from(lg.statsTable)
+          .select(select)
+          .eq('player_id', parseInt(id))
+          .gte('game_date', seasonStart)
+          .in('games.game_type', gameTypes)
+          .order('game_date', { ascending: false })
+          .limit(logLimit ?? 5000)
+      ),
+      // NFL and NHL have no trends table; skip the query rather than error.
+      lg.trendsTable
+        ? supabaseAdmin
+            .from(lg.trendsTable)
+            .select('stat, trend_val, rolling_avg, window_size')
+            .eq('player_id', parseInt(id))
+            .eq('window_size', 10)
+        : Promise.resolve({ data: [] as any[], error: null }),
+      applyGate(
+        supabaseAdmin
+          .from(lg.statsTable)
+          .select(select)
+          .eq('player_id', parseInt(id))
+          .gte('game_date', seasonStart)
+          .in('games.game_type', gameTypes)
+      ),
     ]);
 
     if (statsResult.error) throw statsResult.error;
-    if (trendsResult.error) throw trendsResult.error;
+    if (lg.trendsTable && trendsResult.error) throw trendsResult.error;
 
     const zScores: Record<string, number> = {};
     const rollingAvgs: Record<string, number> = {};
@@ -344,6 +406,13 @@ export async function getPlayerGames(req: Request<{ id: string }>, res: Response
         }
       : lg.slug === 'mlb'
       ? { hits: 'hits', total_bases: 'total_bases', rbi: 'rbi', runs: 'runs', home_runs: 'home_runs' }
+      : lg.slug === 'nhl'
+      ? { goals: 'goals', assists: 'assists', points: 'points', shots_on_goal: 'shots_on_goal',
+          blocks: 'blocks', hits: 'hits', toi_seconds: 'toi_seconds' }
+      : lg.slug === 'nfl'
+      ? { passing_yards: 'passing_yards', rushing_yards: 'rushing_yards',
+          receiving_yards: 'receiving_yards', receptions: 'receptions',
+          tackles_total: 'tackles_total' }
       : { points: 'points', rebounds: 'rebounds', assists: 'assists', three_points_made: 'threes' };
 
     const seasonRows = allSeasonStats.data || [];
@@ -361,6 +430,8 @@ export async function getPlayerGames(req: Request<{ id: string }>, res: Response
     const opponentByGameId: Record<number, string> = {};
     const isHomeByGameId: Record<number, boolean> = {};
     let playerTeamId: number | null = null;
+    // Hoisted so the upcoming-game lookup below can reuse resolved abbreviations.
+    const abbrById: Record<number, string> = {};
     if (gameIds.length > 0) {
       const { data: gameRows } = await supabaseAdmin
         .from('games')
@@ -375,7 +446,6 @@ export async function getPlayerGames(req: Request<{ id: string }>, res: Response
         .from('teams')
         .select('id, abbreviation')
         .in('id', Array.from(teamIds));
-      const abbrById: Record<number, string> = {};
       (teamRows || []).forEach((t: any) => { abbrById[t.id] = t.abbreviation; });
       const gameById: Record<number, any> = {};
       (gameRows || []).forEach((g: any) => { gameById[g.id] = g; });
@@ -388,6 +458,33 @@ export async function getPlayerGames(req: Request<{ id: string }>, res: Response
         isHomeByGameId[(s as any).game_id] = g.home_team_id === myTeamId;
         const abbr = abbrById[oppId];
         if (abbr) opponentByGameId[(s as any).game_id] = abbr;
+      }
+    }
+
+    // Next scheduled game for the player's team. Most leagues are out of season
+    // for much of the year, so this is frequently null and the client falls back
+    // to a user-selected opponent.
+    let upcoming: ReturnType<typeof buildUpcoming> = null;
+    if (playerTeamId != null) {
+      const today = new Date().toISOString().slice(0, 10);
+      const { data: nextGames } = await supabaseAdmin
+        .from('games')
+        .select('id, game_date, home_team_id, away_team_id')
+        .eq('league_id', lg.leagueId)
+        .gte('game_date', today)
+        .or(`home_team_id.eq.${playerTeamId},away_team_id.eq.${playerTeamId}`)
+        .order('game_date', { ascending: true })
+        .limit(1);
+      const next = (nextGames || [])[0] as any;
+      if (next) {
+        const oppId = next.home_team_id === playerTeamId ? next.away_team_id : next.home_team_id;
+        if (abbrById[oppId] == null) {
+          const { data: oppTeam } = await supabaseAdmin
+            .from('teams').select('id, abbreviation').eq('id', oppId).single();
+          if (oppTeam) abbrById[(oppTeam as any).id] = (oppTeam as any).abbreviation;
+        }
+        const lastPlayed = statsRows.length > 0 ? (statsRows[0] as any).game_date : null;
+        upcoming = buildUpcoming(next, playerTeamId, abbrById, lastPlayed);
       }
     }
 
@@ -424,6 +521,34 @@ export async function getPlayerGames(req: Request<{ id: string }>, res: Response
               plateAppearances: g.plate_appearances,
             };
           }
+          if (lg.slug === 'nhl') {
+            return {
+              ...base,
+              goals: g.goals, assists: g.assists, points: g.points,
+              shotsOnGoal: g.shots_on_goal, blocks: g.blocks, hits: g.hits,
+              plusMinus: g.plus_minus, pim: g.pim,
+              takeaways: g.takeaways, giveaways: g.giveaways,
+              toiSeconds: g.toi_seconds, ppToiSeconds: g.pp_toi_seconds,
+              positionType: g.position_type,
+              saves: g.saves, shotsAgainst: g.shots_against,
+              goalsAgainst: g.goals_against, savePct: g.save_pct,
+              goalieToiSeconds: g.goalie_toi_seconds,
+            };
+          }
+          if (lg.slug === 'nfl') {
+            return {
+              ...base,
+              completions: g.completions, attempts: g.attempts,
+              passingYards: g.passing_yards, passingTds: g.passing_tds,
+              interceptions: g.interceptions,
+              carries: g.carries, rushingYards: g.rushing_yards, rushingTds: g.rushing_tds,
+              receptions: g.receptions, targets: g.targets,
+              receivingYards: g.receiving_yards, receivingTds: g.receiving_tds,
+              fumblesLost: g.fumbles_lost,
+              tacklesTotal: g.tackles_total, sacks: g.sacks,
+              fgMade: g.fg_made, fgAtt: g.fg_att,
+            };
+          }
           return {
             ...base,
             points: g.points,
@@ -438,6 +563,7 @@ export async function getPlayerGames(req: Request<{ id: string }>, res: Response
         rollingAvgs,
         seasonAvgs,
         gamesPlayed: seasonRows.length,
+        upcoming,
       },
     });
   } catch (err: any) {
@@ -456,17 +582,61 @@ const ESPN_TO_DB_ABBR: Record<string, string> = {
   WSH:  'WAS',
 };
 
-// MLB today's games served from the DB games table (populated by the nightly
-// slate sync). Mirrors the ESPN-backed NBA shape: { gameId, dbId, time, status,
-// home/away {team, score} }.
-async function getMLBTodaysGames(res: Response) {
+// Today's slate served from the DB games table (populated by the nightly slate
+// sync). Used by every league except NBA, which has a live ESPN feed. Mirrors
+// the ESPN-backed shape: { gameId, dbId, date, time, status, home/away }.
+//
+// When today is empty the next scheduled date is returned instead, so the
+// ticker still has something during an off day. Each row carries its own
+// `date` so the caller can label a substituted slate honestly rather than
+// presenting next week's games as tonight's.
+async function getTodaysGamesFromDb(res: Response) {
   const lg = resolveLeague(res);
   const today = new Date().toISOString().slice(0, 10);
-  const { data: dbGames } = await supabaseAdmin
+
+  const selectCols =
+    'id, ext_id, game_date, game_time, status, home_team_id, away_team_id, home_score, away_score';
+
+  let { data: dbGames } = await supabaseAdmin
     .from('games')
-    .select('id, ext_id, status, home_team_id, away_team_id, home_score, away_score')
+    .select(selectCols)
     .eq('game_date', today)
     .eq('league_id', lg.leagueId);
+
+  // Nothing today: fall back to the nearest slate, preferring an upcoming one
+  // but accepting the most recent past one. Looking only forward leaves the
+  // ticker permanently empty once a season ends.
+  if (!dbGames?.length) {
+    const [upcoming, previous] = await Promise.all([
+      supabaseAdmin
+        .from('games')
+        .select('game_date')
+        .eq('league_id', lg.leagueId)
+        .gt('game_date', today)
+        .order('game_date', { ascending: true })
+        .limit(1)
+        .maybeSingle(),
+      supabaseAdmin
+        .from('games')
+        .select('game_date')
+        .eq('league_id', lg.leagueId)
+        .lt('game_date', today)
+        .order('game_date', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
+
+    const fallbackDate = upcoming.data?.game_date ?? previous.data?.game_date;
+    if (fallbackDate) {
+      const { data: fallbackGames } = await supabaseAdmin
+        .from('games')
+        .select(selectCols)
+        .eq('game_date', fallbackDate)
+        .eq('league_id', lg.leagueId);
+      dbGames = fallbackGames ?? [];
+    }
+  }
+
   const teamIds = new Set<number>();
   for (const g of (dbGames || [])) { teamIds.add(g.home_team_id); teamIds.add(g.away_team_id); }
   const { data: teamRows } = teamIds.size
@@ -474,12 +644,22 @@ async function getMLBTodaysGames(res: Response) {
     : { data: [] as any[] };
   const abbrById: Record<number, string> = {};
   for (const t of (teamRows || [])) abbrById[t.id] = t.abbreviation;
-  const statusLabel = (s: number) => (s === 2 ? 'Final' : s === 1 ? 'Live' : 'Scheduled');
+  // The stored status code lags the data — plenty of played games are still
+  // flagged 0. Scores are the reliable signal, so they win; a past game with
+  // no score is reported as a gap rather than mislabelled "Scheduled".
+  const statusLabel = (g: any): string => {
+    if (g.status === 1) return 'Live';
+    if (g.home_score != null && g.away_score != null) return 'Final';
+    return g.game_date < today ? 'No score' : 'Scheduled';
+  };
+
   const games = (dbGames || []).map((g: any) => ({
     gameId: g.ext_id,
     dbId: g.id,
-    time: null,
-    status: statusLabel(g.status),
+    date: g.game_date,
+    time: g.game_time ?? null,
+    status: statusLabel(g),
+    live: g.status === 1,
     home: { team: abbrById[g.home_team_id] ?? '', score: g.home_score ?? '' },
     away: { team: abbrById[g.away_team_id] ?? '', score: g.away_score ?? '' },
   }));
@@ -488,8 +668,11 @@ async function getMLBTodaysGames(res: Response) {
 
 export async function getTodaysGames(_req: Request, res: Response) {
   try {
-    if (resolveLeague(res).slug === 'mlb') {
-      return await getMLBTodaysGames(res);
+    // Only NBA has a live ESPN scoreboard wired up; the rest read the synced
+    // schedule. Previously NHL and NFL fell through to the NBA branch and
+    // silently returned basketball games.
+    if (resolveLeague(res).slug !== 'nba') {
+      return await getTodaysGamesFromDb(res);
     }
     const response = await fetch(
       'https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard'
@@ -532,12 +715,20 @@ export async function getTodaysGames(_req: Request, res: Response) {
       return [{
         gameId: event.id,
         dbId,
+        date: today,
         time: comp?.date,
         status: event.status?.type?.shortDetail || 'Scheduled',
+        live: event.status?.type?.state === 'in',
         home: { team: homeAbbr, score: home?.score || '' },
         away: { team: awayAbbr, score: away?.score || '' },
       }];
     });
+
+    // No NBA game tonight — fall back to the synced schedule so the ticker can
+    // show the next slate rather than nothing.
+    if (games.length === 0) {
+      return await getTodaysGamesFromDb(res);
+    }
 
     res.json({ success: true, data: games });
   } catch (err: any) {

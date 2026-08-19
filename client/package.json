@@ -11,7 +11,8 @@
     "dev:server": "cd server && npm run dev",
     "dev:both": "concurrently \"npm run dev\" \"npm run dev:server\"",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "typecheck:functions": "tsc -p tsconfig.functions.json"
   },
   "dependencies": {
     "@radix-ui/react-dropdown-menu": "^2.1.16",
@@ -30,6 +31,7 @@
     "tailwindcss": "^3.4.19"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260812.1",
     "@eslint/js": "^9.13.0",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",

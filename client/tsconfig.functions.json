@@ -1,0 +1,20 @@
+{
+  // The Pages Function runs on the Workers runtime, not in the browser and not
+  // in Node, so it needs its own lib and globals. tsconfig.app.json only
+  // includes src/, which left this file — the one that injects the API's shared
+  // secret — entirely unchecked.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": ["@cloudflare/workers-types"],
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "skipLibCheck": true
+  },
+  "include": ["functions"]
+}

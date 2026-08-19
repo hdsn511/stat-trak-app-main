@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { TopPickPlayer, TopPickGame, TopPicksResponse } from '@/services/api'
-import { playerPath } from '@/lib/playerPath'
+import { playerPath } from '@/lib/paths'
 import { formatSpreadLine } from '@/lib/formatSpread'
 
 type PropTab = 'player' | 'winner' | 'spread' | 'total'
@@ -27,9 +27,10 @@ interface PropsTableProps {
   picks: TopPicksResponse | null
   /** League slug, used to route player rows to the right detail view. */
   slug?: string
+
 }
 
-export default function PropsTable({ picks, slug }: PropsTableProps) {
+export default function PropsTable({ picks, slug = 'nba' }: PropsTableProps) {
   const [propTab, setPropTab] = useState<PropTab>('player')
   const [bucket, setBucket] = useState<BucketTab>(70)
 

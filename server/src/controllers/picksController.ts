@@ -268,12 +268,21 @@ export async function getPerfectStreaks(req: Request<{}, {}, {}, { type?: string
 
     const today = new Date().toISOString().slice(0, 10);
 
-    // ── A. Today's slate teams via DB games table
+    // ── A. The slate to build streaks against.
+    //
+    // The slate date and the opponent lookup below must agree. They used to
+    // disagree: candidates were gated on a strict UTC `today` while opponents
+    // came from the nearest pick date, so after the UTC rollover — or on any
+    // off day — the whole endpoint returned an empty list even though a slate
+    // existed hours later.
+    const slateDate = (await findNearestPickDate(today, lg.leagueId)) ?? today;
+
     const { data: slateGames } = await supabaseAdmin
       .from('games')
-      .select('home_team_id, away_team_id')
-      .eq('game_date', today)
+      .select('id, home_team_id, away_team_id')
+      .eq('game_date', slateDate)
       .eq('league_id', lg.leagueId);
+
     const slateTeamIds = new Set<number>();
     for (const g of (slateGames ?? [])) {
       slateTeamIds.add(g.home_team_id);
@@ -290,17 +299,13 @@ export async function getPerfectStreaks(req: Request<{}, {}, {}, { type?: string
       }
     }
     if (slateTeams.size === 0) {
-      console.warn('[getPerfectStreaks] no teams on today\'s slate');
+      console.warn(`[getPerfectStreaks] no ${lg.slug} teams on the ${slateDate} slate`);
       return res.json({ success: true, data: { stat, window: STREAKS_WINDOW, rows: [] } });
     }
 
-    // ── B. Today's games (for opponent + out-player lookup)
-    const linesDate = await findNearestPickDate(today, lg.leagueId);
-    const { data: todayGames } = await supabaseAdmin
-      .from('games')
-      .select('id,home_team_id,away_team_id')
-      .eq('game_date', linesDate)
-      .eq('league_id', lg.leagueId);
+    // ── B. Slate games (for opponent + out-player lookup)
+    const linesDate = slateDate;
+    const todayGames = slateGames;
     const todayGameIds = (todayGames ?? []).map((g: any) => g.id);
 
     const outIds = new Set<number>();

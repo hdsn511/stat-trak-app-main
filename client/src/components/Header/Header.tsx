@@ -6,7 +6,7 @@ import {
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { mlbApi, nbaApi, PlayerSearchResult } from "@/services/api";
-import { playerPath } from "@/lib/playerPath";
+import { playerPath } from "@/lib/paths";
 import { Search } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";

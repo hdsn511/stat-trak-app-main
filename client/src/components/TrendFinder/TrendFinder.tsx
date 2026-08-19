@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { nbaApi, TrendingPlayer, LeagueApi } from '@/services/api'
-import { playerPath } from '@/lib/playerPath'
+import { playerPath } from '@/lib/paths'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'

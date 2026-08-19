@@ -1,13 +1,16 @@
 """
 analytics/data/enrich_games.py
 
-Three enrichment operations for StatTrak Analytics:
-  1. backfill_positions()      -- CommonTeamRoster -> players.position
-  2. enrich_games()            -- BoxScoreAdvancedV3 + BoxScoreSummaryV2
-                                  -> player_game_conditions, team_game_stats,
-                                     player_availability
-  3. backfill_basic_stats()    -- BoxScoreTraditionalV2 -> nba_player_stats
-                                  (fills 2023/2024 gaps)
+Enrichment operations for StatTrak Analytics (Phase 8 hybrid: ESPN for basic
+data, nba_api ONLY for advanced stats):
+  1.   backfill_positions()    -- ESPN current rosters -> players.position
+  1.5  resolve_nba_ext_ids()   -- heal ESPN-discovered games to nba-native
+                                  ext_ids (one ScoreboardV3 call per date)
+  2.   enrich_games()          -- nba_api BoxScoreAdvancedV3 + PlayerTrackV3 +
+                                  BoxScoreSummaryV2 (ADVANCED — stays on
+                                  nba_api) -> player_game_conditions,
+                                  team_game_stats, player_availability
+  3.   backfill_basic_stats()  -- ESPN summary box scores -> nba_player_stats
 
 CLI:
     python -m analytics.data.enrich_games --positions
@@ -23,6 +26,7 @@ from __future__ import annotations
 import argparse
 import math
 import random
+import re
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
@@ -38,6 +42,7 @@ from analytics.db.connection import (
     BATCH_SIZE,
     MAX_RETRIES,
     NBA_LEAGUE_ID,
+    POSITION_GROUP_MAP,
     SEASON_INTS,
     season_int_to_str,
     supabase,
@@ -47,7 +52,6 @@ from analytics.db.connection import (
 BREAK_EVERY_N_GAMES = 50       # Pause enrichment loop every N games
 BREAK_DURATION_SECONDS = 30    # How long to pause (rate-limit courtesy)
 TEST_GAME_LIMIT = 5            # Number of games to process in --test mode
-CURRENT_SEASON_STR = "2025-26" # Season string used for CommonTeamRoster
 DAYS_REST_DEFAULT = 3          # Days rest assumed when no prior game found
 MINUTES_DEFAULT = 0            # Fallback minutes when parsing fails
 
@@ -137,7 +141,9 @@ def _trigger_cooldown(description: str) -> None:
 def _fetch_all(table: str, select: str = "*", filters: Optional[list] = None) -> list[dict]:
     """
     Paginate through a Supabase table, fetching up to 1000 rows per request.
-    filters is a list of (method_name, *args) tuples applied to the query builder.
+    filters is a list of (method_name, *args) tuples applied to the query
+    builder. Dotted method names traverse builder attributes, e.g.
+    ("not_.like", "ext_id", "00%") -> q.not_.like("ext_id", "00%").
 
     Example:
         _fetch_all("games", "id,ext_id,season", [("eq", "league_id", 1)])
@@ -151,7 +157,11 @@ def _fetch_all(table: str, select: str = "*", filters: Optional[list] = None) ->
         q = supabase.table(table).select(select).range(start, end)
         if filters:
             for method, *args in filters:
-                q = getattr(q, method)(*args)
+                target = q
+                parts = method.split(".")
+                for part in parts[:-1]:
+                    target = getattr(target, part)
+                q = getattr(target, parts[-1])(*args)
         result = q.execute()
         batch = result.data or []
         rows.extend(batch)
@@ -339,64 +349,160 @@ def _parse_minutes(raw) -> int:
 
 def backfill_positions() -> None:
     """
-    Pull CommonTeamRoster for all 30 NBA teams (current season) and update
-    players.position, players.team, players.is_active for each active roster member.
+    Pull current ESPN rosters for all 30 NBA teams and update
+    players.position, players.team, players.is_active for each roster member
+    (Phase 8 hybrid — replaces CommonTeamRoster).
 
-    Updates are applied one player at a time using individual UPDATE calls
-    filtered by ext_id + league = 'nba'.
+    Players are resolved through players.espn_id ONLY; roster athletes without
+    a mapping are counted and reported loudly (run analytics/batch/map_espn_ids
+    to extend the mapping — no silent name-guessing happens here). Note ESPN
+    rosters are current-state (not season-pinned like CommonTeamRoster was).
     """
-    try:
-        from nba_api.stats.endpoints import CommonTeamRoster
-        from nba_api.stats.static import teams as nba_teams_static
-    except ImportError as exc:
-        print(f"ERROR: nba_api not installed: {exc}")
-        sys.exit(1)
+    from analytics.data.espn import client as espn
+    from analytics.data.nba_espn.ingest import (
+        LEAGUE, SPORT, load_player_espn_map, load_team_maps,
+    )
 
-    all_teams = nba_teams_static.get_teams()
-    total = len(all_teams)
-    print(f"Backfilling positions for {total} teams (season {CURRENT_SEASON_STR}) ...")
+    team_espn_map, team_abbr_by_espn = load_team_maps()
+    player_espn_map = load_player_espn_map()
 
-    for idx, team_info in enumerate(all_teams, start=1):
-        team_id_nba = team_info["id"]
-        team_abbr = team_info["abbreviation"]
-        print(f"  [{idx}/{total}] {team_abbr} ...", end=" ", flush=True)
+    total = len(team_espn_map)
+    print(f"Backfilling positions for {total} teams (ESPN current rosters) ...")
 
-        def _call(tid=team_id_nba):
-            return CommonTeamRoster(team_id=tid, season=CURRENT_SEASON_STR)
+    total_updated = 0
+    total_unmapped = 0
+    for idx, (espn_team_id, team_abbr) in enumerate(
+            sorted(team_espn_map.items(), key=lambda kv: team_abbr_by_espn[kv[0]]),
+            start=1):
+        abbr = team_abbr_by_espn[espn_team_id]
+        print(f"  [{idx}/{total}] {abbr} ...", end=" ", flush=True)
 
-        result = api_call_with_retry(_call, f"CommonTeamRoster {team_abbr}")
-        if result is None:
-            print("SKIPPED (API failure)")
-            continue
-
-        try:
-            df = result.get_data_frames()[0]
-        except Exception as exc:
-            print(f"SKIPPED (parse error: {exc})")
+        roster = espn.get_roster(SPORT, LEAGUE, espn_team_id)
+        if not roster:
+            print("SKIPPED (empty ESPN roster)")
             continue
 
         updated = 0
-        for _, row in df.iterrows():
-            player_ext_id = str(row.get("PLAYER_ID", "")).strip()
-            position_raw = str(row.get("POSITION", "") or "").strip()
-            if not player_ext_id:
+        unmapped = 0
+        for athlete in roster:
+            espn_id = str(athlete.get("id", ""))
+            p_db_id = player_espn_map.get(espn_id)
+            if not p_db_id:
+                unmapped += 1
                 continue
-
+            position = (athlete.get("position") or {}).get("abbreviation")
             try:
                 supabase.table("players").update(
                     {
-                        "position": position_raw if position_raw else None,
-                        "team": team_abbr,
+                        "position": position or None,
+                        "team": abbr,
                         "is_active": True,
                     }
-                ).eq("ext_id", player_ext_id).eq("league", "nba").execute()
+                ).eq("id", p_db_id).execute()
                 updated += 1
             except Exception as exc:
-                print(f"\n    WARNING: could not update player {player_ext_id}: {exc}")
+                print(f"\n    WARNING: could not update player {espn_id}: {exc}")
 
-        print(f"{updated} players updated")
+        total_updated += updated
+        total_unmapped += unmapped
+        note = f", {unmapped} unmapped" if unmapped else ""
+        print(f"{updated} players updated{note}")
 
-    print("Position backfill complete.")
+    print(f"Position backfill complete. {total_updated} updated, "
+          f"{total_unmapped} roster athlete(s) without espn_id mapping"
+          + (" — run analytics/batch/map_espn_ids for the detailed report."
+             if total_unmapped else "."))
+
+
+# ── 1.5 NBA-NATIVE EXT_ID HEALING ───────────────────────────────────────────────
+
+_NBA_NATIVE_EXT_ID_RE = re.compile(r"^00\d{8}$")
+
+
+def resolve_nba_ext_ids() -> None:
+    """Heal provisional ESPN ext_ids on NBA `games` rows to nba-native ids.
+
+    The ESPN-backed slate/discovery paths (nightly.get_slate,
+    nightly.backfill_completed_games) insert new games with ext_id = ESPN
+    event id because ESPN does not expose the NBA-native game id (verified
+    live 2026-07-31). The advanced-stats fetches below key on the native id
+    ("0022500123"-style — also what the game_type generated column reads), so
+    this resolves it with ONE ScoreboardV3 call per affected date, matching
+    games by (home_team, away_team). It is the only schedule-shaped nba_api
+    call left, and it exists purely as plumbing for the advanced path.
+
+    Never touches rows that already look nba-native; a date that cannot be
+    resolved warns loudly and is retried on the next run.
+    """
+    pending = _fetch_all(
+        "games",
+        "id,ext_id,espn_id,game_date,home_team_id,away_team_id",
+        [("eq", "league_id", NBA_LEAGUE_ID), ("not_.like", "ext_id", "00%")],
+    )
+    pending = [g for g in pending if not _NBA_NATIVE_EXT_ID_RE.match(g["ext_id"] or "")]
+    if not pending:
+        return
+
+    try:
+        from nba_api.stats.endpoints.scoreboardv3 import ScoreboardV3
+    except ImportError as exc:
+        print(f"  WARNING: nba_api unavailable ({exc}); "
+              f"{len(pending)} game(s) keep provisional ESPN ext_ids.")
+        return
+
+    team_rows = _fetch_all("teams", "id,ext_id", [("eq", "league_id", NBA_LEAGUE_ID)])
+    team_by_nba_ext = {r["ext_id"]: r["id"] for r in team_rows}
+    native_taken = {
+        g["ext_id"] for g in _fetch_all(
+            "games", "ext_id", [("eq", "league_id", NBA_LEAGUE_ID),
+                                ("like", "ext_id", "00%")])
+    }
+
+    by_date: dict[str, list[dict]] = {}
+    for g in pending:
+        by_date.setdefault(g["game_date"], []).append(g)
+    print(f"[resolve_nba_ext_ids] {len(pending)} game(s) across "
+          f"{len(by_date)} date(s) need nba-native ext_ids.")
+
+    healed = 0
+    for date_str, games in sorted(by_date.items()):
+        def _sb3(ds=date_str):
+            return ScoreboardV3(game_date=ds, league_id="00")
+
+        result = api_call_with_retry(_sb3, f"ScoreboardV3 {date_str}")
+        if result is None:
+            print(f"  WARNING: ScoreboardV3 failed for {date_str}; "
+                  f"{len(games)} game(s) stay provisional.")
+            continue
+        try:
+            sb_games = result.get_dict().get("scoreboard", {}).get("games", [])
+        except Exception as exc:
+            print(f"  WARNING: ScoreboardV3 parse error for {date_str}: {exc}")
+            continue
+
+        native_by_pair: dict[tuple, str] = {}
+        for g in sb_games:
+            gid = str(g.get("gameId", "")).strip().zfill(10)
+            h = team_by_nba_ext.get(str(g.get("homeTeam", {}).get("teamId", "")))
+            a = team_by_nba_ext.get(str(g.get("awayTeam", {}).get("teamId", "")))
+            if gid and h and a:
+                native_by_pair[(h, a)] = gid
+
+        for game in games:
+            native = native_by_pair.get((game["home_team_id"], game["away_team_id"]))
+            if not native:
+                print(f"  WARNING: no ScoreboardV3 match for game id={game['id']} "
+                      f"({date_str}, espn {game.get('espn_id')}).")
+                continue
+            if native in native_taken:
+                print(f"  ERROR: native ext_id {native} already exists — game "
+                      f"id={game['id']} is a duplicate row; resolve manually.")
+                continue
+            supabase.table("games").update({"ext_id": native}) \
+                .eq("id", game["id"]).execute()
+            native_taken.add(native)
+            healed += 1
+    print(f"[resolve_nba_ext_ids] healed {healed}/{len(pending)} game(s).")
 
 
 # ── 2. GAME ENRICHMENT ──────────────────────────────────────────────────────────
@@ -561,6 +667,10 @@ def enrich_games(
     except ImportError as exc:
         print(f"ERROR: nba_api not installed: {exc}")
         sys.exit(1)
+
+    # ESPN-discovered games carry provisional ESPN ext_ids until healed —
+    # the advanced fetches below need nba-native ids.
+    resolve_nba_ext_ids()
 
     team_map, player_map, game_map = _load_id_maps()
     stats_index = _load_player_stats_index(player_map)
@@ -841,31 +951,20 @@ def backfill_basic_stats(
     yes: bool = False,
 ) -> None:
     """
-    For each game in 2023/2024 with missing nba_player_stats rows, fetch
-    BoxScoreTraditionalV2 and upsert the data.
+    For each game with missing nba_player_stats rows, fetch the basic box
+    score from ESPN (Phase 8 hybrid — replaces BoxScoreTraditionalV2) and
+    upsert the data. Games are grouped by date because ESPN's scoreboard is
+    date-driven; events are matched to DB games by (date, home, away team).
 
     Args:
-        season_filter: Limit to one season (2023 or 2024).
+        season_filter: Limit to one season int (e.g. 2024).
         test_mode:     Process only TEST_GAME_LIMIT games.
-        resume:        Skip games that already have >= 5 stat rows.
+        resume:        Skip games that already have >= 5 stat rows
+                       (implicit — the gap finder already excludes them).
     """
-    # Try to import the traditional box score endpoint
-    try:
-        from nba_api.stats.endpoints import BoxScoreTraditionalV2
-        use_traditional = True
-    except ImportError:
-        try:
-            from nba_api.stats.endpoints import BoxScoreSummaryV2
-            use_traditional = False
-            print(
-                "WARNING: BoxScoreTraditionalV2 not available. "
-                "Falling back to BoxScoreSummaryV2 (limited stats)."
-            )
-        except ImportError as exc:
-            print(f"ERROR: nba_api not installed or endpoints unavailable: {exc}")
-            sys.exit(1)
+    from analytics.data.nba_espn.ingest import ingest_boxscores_for_date
 
-    team_map, player_map, game_map = _load_id_maps()
+    _, player_map, game_map = _load_id_maps()
     games_to_process = _find_games_missing_basic_stats(season_filter, player_map, game_map)
 
     if resume:
@@ -876,16 +975,10 @@ def backfill_basic_stats(
     if test_mode:
         games_to_process = games_to_process[:TEST_GAME_LIMIT]
         print(f"Test mode: processing {len(games_to_process)} games.")
-    else:
-        total_games = len(games_to_process)
-        estimated_seconds = total_games * API_DELAY_SECONDS + (
-            total_games // BREAK_EVERY_N_GAMES * BREAK_DURATION_SECONDS
-        )
-        estimated_minutes = math.ceil(estimated_seconds / 60)
-        print(
-            f"\nAbout to backfill basic stats for {total_games} games "
-            f"(~{estimated_minutes} min estimated)."
-        )
+    elif games_to_process:
+        # ESPN is not rate-limited — ~1 summary call per game, no pacing needed.
+        print(f"\nAbout to backfill basic stats for {len(games_to_process)} "
+              f"games via ESPN.")
         if yes:
             print("Auto-confirmed via --yes.")
         else:
@@ -894,94 +987,23 @@ def backfill_basic_stats(
                 print("Aborted.")
                 return
 
-    total = len(games_to_process)
-    stat_rows_buffer: list[dict] = []
+    # Group missing games by date — one scoreboard fetch per date.
+    by_date: dict[str, list[str]] = {}
+    for ext_id, game_info in games_to_process:
+        gd = game_info["game_date"]
+        if gd:
+            by_date.setdefault(gd, []).append(ext_id)
 
-    for game_num, (ext_id, game_info) in enumerate(games_to_process, start=1):
-        game_db_id = game_info["id"]
-        game_date_str = game_info["game_date"]
+    total_stat_rows = 0
+    for date_num, (date_str, ext_ids) in enumerate(sorted(by_date.items()), start=1):
+        print(f"[{date_num}/{len(by_date)}] {date_str} "
+              f"({len(ext_ids)} game(s) missing stats)")
+        _n_games, n_rows = ingest_boxscores_for_date(
+            date_str, only_game_ext_ids=ext_ids)
+        total_stat_rows += n_rows
 
-        print(f"[{game_num}/{total}] Game {ext_id} ({game_date_str})", end=" ... ", flush=True)
-
-        if use_traditional:
-            def _trad(gid=ext_id):
-                return BoxScoreTraditionalV2(game_id=gid)  # noqa: F821
-
-            api_result = api_call_with_retry(_trad, f"BoxScoreTraditionalV2 {ext_id}")
-        else:
-            def _summ2(gid=ext_id):
-                return BoxScoreSummaryV2(game_id=gid)  # noqa: F821
-
-            api_result = api_call_with_retry(_summ2, f"BoxScoreSummaryV2-basic {ext_id}")
-
-        if api_result is None:
-            print("SKIPPED (API failure)")
-            continue
-
-        try:
-            frames = api_result.get_data_frames()
-            player_df = frames[0]  # PlayerStats for both endpoints
-
-            # Determine which team each player belongs to for team_id lookup
-            for _, row in player_df.iterrows():
-                p_ext_id = str(row.get("PLAYER_ID", "")).strip()
-                p_db_id = player_map.get(p_ext_id)
-                if not p_db_id:
-                    continue
-
-                t_ext_id = str(row.get("TEAM_ID", "")).strip()
-                t_db_id = team_map.get(t_ext_id)
-                if not t_db_id:
-                    continue
-
-                def _safe_int(val, default: int = 0) -> Optional[int]:
-                    if val is None or (isinstance(val, float) and math.isnan(val)):
-                        return default
-                    try:
-                        return int(float(val))
-                    except (ValueError, TypeError):
-                        return default
-
-                stat_rows_buffer.append(
-                    {
-                        "game_id": game_db_id,
-                        "player_id": p_db_id,
-                        "team_id": t_db_id,
-                        "game_date": game_date_str,
-                        "points": _safe_int(row.get("PTS")),
-                        "rebounds": _safe_int(row.get("REB")),
-                        "assists": _safe_int(row.get("AST")),
-                        "three_points_made": _safe_int(row.get("FG3M")),
-                        "fouls": _safe_int(row.get("PF")),
-                        "minutes_played": _parse_minutes(row.get("MIN")),
-                    }
-                )
-
-        except Exception as exc:
-            print(f"\n  WARNING: could not parse box score for {ext_id}: {exc}")
-            continue
-
-        print("OK")
-
-        if len(stat_rows_buffer) >= BATCH_SIZE:
-            _upsert_batch(
-                "nba_player_stats",
-                stat_rows_buffer,
-                "game_id,player_id",
-            )
-            stat_rows_buffer = []
-
-        if game_num % BREAK_EVERY_N_GAMES == 0 and game_num < total:
-            print(
-                f"  -- Processed {game_num}/{total} games. "
-                f"Pausing {BREAK_DURATION_SECONDS}s ..."
-            )
-            time.sleep(BREAK_DURATION_SECONDS)
-
-    if stat_rows_buffer:
-        _upsert_batch("nba_player_stats", stat_rows_buffer, "game_id,player_id")
-
-    print(f"\nBasic stats backfill complete. Processed {total} games.")
+    print(f"\nBasic stats backfill complete. Processed "
+          f"{len(games_to_process)} games, {total_stat_rows} stat rows.")
 
 
 # ── 4. PLAYER TRACK BACKFILL ────────────────────────────────────────────────────
@@ -998,6 +1020,9 @@ def backfill_track(seasons: list[str], limit: Optional[int] = None) -> None:
     from analytics.db.connection import season_str_to_int
 
     print(f"[backfill_track] seasons={seasons} limit={limit}")
+
+    # Heal any ESPN-provisional ext_ids first — track fetches key on native ids.
+    resolve_nba_ext_ids()
 
     # Map ext_id (NBA player id, str) -> db_id, for selective row updates
     player_rows = _fetch_all("players", "id,ext_id", [("eq", "league", "nba")])
@@ -1102,17 +1127,9 @@ def backfill_track(seasons: list[str], limit: Optional[int] = None) -> None:
 
 # ── Opponent Position Defense Backfill ──────────────────────────────────────────
 
-# Maps players.position strings (from CommonTeamRoster) to the 3 position groups
-# used for opponent-defense ranking. Dual positions map to their primary (first) token.
-POSITION_GROUP_MAP: dict[str, str] = {
-    "G": "G",
-    "F": "F",
-    "C": "C",
-    "G-F": "G",
-    "F-G": "F",
-    "F-C": "F",
-    "C-F": "C",
-}
+# backfill_opp_defense uses the shared POSITION_GROUP_MAP from connection.py
+# (imported at the top): it covers both the legacy CommonTeamRoster grammar
+# (G/F/C + dual "G-F") and ESPN's granular roster abbreviations (PG/SG/SF/PF).
 
 
 def backfill_opp_defense(snapshot_date: str | None = None):
@@ -1327,7 +1344,7 @@ Examples:
         "--basic-stats",
         action="store_true",
         dest="basic_stats",
-        help="Run basic stats gap fill only (BoxScoreTraditionalV2 for 2023/2024)",
+        help="Run basic stats gap fill only (ESPN summaries, any season with gaps)",
     )
     parser.add_argument(
         "--opp-defense",

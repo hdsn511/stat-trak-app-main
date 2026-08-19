@@ -13,22 +13,56 @@ import {
 import { detectShape, enrich } from '../services/sportqueryEnrich'
 import { supabaseAdmin } from '../config/supabaseAdmin'
 
-async function findNextAvailableSlate(table: 'pick_results' | 'daily_lines'): Promise<string | null> {
+type SlateTable = 'pick_results' | 'daily_lines'
+
+// SportQuery's documented schema is NBA-only, so every slate lookup is too.
+// Without this the fallback finds an MLB date, substitutes it into an
+// NBA-scoped query, and still comes back empty.
+const SPORTQUERY_LEAGUE_ID = 1
+
+/**
+ * The slate closest to today, preferring an upcoming one. Looking only forward
+ * fails whenever the pipeline's data ends yesterday, which is the normal state
+ * between slates and during an off-season.
+ */
+async function findNearestSlate(
+  table: SlateTable
+): Promise<{ date: string; direction: 'upcoming' | 'past' } | null> {
   const today = new Date().toISOString().slice(0, 10)
-  const { data } = await supabaseAdmin
-    .from(table)
-    .select('game_date')
-    .gte('game_date', today)
-    .order('game_date', { ascending: true })
-    .limit(1)
-    .maybeSingle()
-  return data?.game_date ?? null
+
+  const [upcoming, past] = await Promise.all([
+    supabaseAdmin
+      .from(table)
+      .select('game_date')
+      .eq('league_id', SPORTQUERY_LEAGUE_ID)
+      .gte('game_date', today)
+      .order('game_date', { ascending: true })
+      .limit(1)
+      .maybeSingle(),
+    supabaseAdmin
+      .from(table)
+      .select('game_date')
+      .eq('league_id', SPORTQUERY_LEAGUE_ID)
+      .lt('game_date', today)
+      .order('game_date', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ])
+
+  if (upcoming.data?.game_date) {
+    return { date: upcoming.data.game_date, direction: 'upcoming' }
+  }
+  if (past.data?.game_date) {
+    return { date: past.data.game_date, direction: 'past' }
+  }
+  return null
 }
 
-// If the query targets picks/lines with a strict CURRENT_DATE and returned 0 rows,
-// widen to the nearest upcoming slate. Returns the (possibly widened) rows and a
-// widening_note describing any substitution.
-async function maybeWidenToNextSlate(
+// If the query targets picks/lines with a strict CURRENT_DATE and returned 0
+// rows, re-run it against the nearest slate that has data. Returns the
+// (possibly widened) rows and a note describing the substitution, so the UI
+// never presents another day's slate as though it were today's.
+async function maybeWidenToNearestSlate(
   sql: string,
   rows: any[]
 ): Promise<{ rows: any[]; note: string | null }> {
@@ -36,25 +70,27 @@ async function maybeWidenToNextSlate(
 
   const picksMatch = /FROM\s+pick_results/i.test(sql)
   const linesMatch = /FROM\s+daily_lines/i.test(sql)
-  const hasCurrentDate = /CURRENT_DATE/.test(sql)
-  if (!hasCurrentDate || (!picksMatch && !linesMatch)) return { rows, note: null }
+  if (!/CURRENT_DATE/.test(sql) || (!picksMatch && !linesMatch)) return { rows, note: null }
 
-  const table: 'pick_results' | 'daily_lines' = picksMatch ? 'pick_results' : 'daily_lines'
-  const nextDate = await findNextAvailableSlate(table)
-  if (!nextDate) return { rows, note: null }
+  const table: SlateTable = picksMatch ? 'pick_results' : 'daily_lines'
+  const slate = await findNearestSlate(table)
+  if (!slate) return { rows, note: null }
 
-  const widenedSql = sql.replace(/CURRENT_DATE/g, `'${nextDate}'`)
-  const v = await validateSql(widenedSql)
-  if (!v.ok) {
-    const failReason = (v as { ok: false; reason: string }).reason
-    console.warn(`[sportquery] today-widening validator rejected widened SQL: ${failReason}`)
+  const v = await validateSql(sql.replace(/CURRENT_DATE/g, `'${slate.date}'`))
+  if (v.ok === false) {
+    console.warn(`[sportquery] date-widening validator rejected widened SQL: ${v.reason}`)
     return { rows, note: null }
   }
 
   const widenedRows = await runReadOnly(v.rewritten)
+  if (widenedRows.length === 0) return { rows, note: null }
+
   return {
     rows: widenedRows,
-    note: widenedRows.length > 0 ? `No rows for today — showing ${nextDate} instead.` : null,
+    note:
+      slate.direction === 'upcoming'
+        ? `No rows for today — showing the next slate, ${slate.date}.`
+        : `No rows for today — showing the most recent slate, ${slate.date}.`,
   }
 }
 
@@ -128,38 +164,50 @@ export async function postMessage(req: Request, res: Response) {
 
     let rows: any[] = []
     let sqlForLog: string | null = null
+    // Set when the model produced SQL that never ran. Without this the user
+    // gets a confident narrative next to an empty result area and no reason.
+    let queryError: string | null = null
     const disambiguation = envelope.disambiguation ?? null
+
+    // Ask the model for a corrected query, then validate and run it. Returns
+    // null when the retry is unusable, so the caller can report the failure.
+    const retryOnce = async (why: string): Promise<{ sql: string; rows: any[] } | null> => {
+      const retryEnvelope = await callLLM(
+        forLLM,
+        `${message}\n\n[SYSTEM NOTE] ${why} Produce a corrected query.`
+      )
+      if (!retryEnvelope.sql) return null
+      const v2 = await validateSql(retryEnvelope.sql)
+      if (!v2.ok) return null
+      try {
+        return { sql: retryEnvelope.sql, rows: await runReadOnly(v2.rewritten) }
+      } catch {
+        return null
+      }
+    }
 
     if (envelope.sql) {
       const v = await validateSql(envelope.sql)
       if (v.ok === false) {
-        const failReason = v.reason
-        const retryEnvelope = await callLLM(
-          forLLM,
-          `${message}\n\n[SYSTEM NOTE] Your previous SQL was rejected by the validator: ${failReason}. Produce a corrected query.`
-        )
-        if (retryEnvelope.sql) {
-          const v2 = await validateSql(retryEnvelope.sql)
-          if (v2.ok) {
-            sqlForLog = retryEnvelope.sql
-            rows = await runReadOnly(v2.rewritten)
-          }
+        const retry = await retryOnce(`Your previous SQL was rejected by the validator: ${v.reason}.`)
+        if (retry) {
+          sqlForLog = retry.sql
+          rows = retry.rows
+        } else {
+          queryError = `The generated query was rejected (${v.reason}) and the retry also failed.`
         }
       } else {
-        sqlForLog = envelope.sql
         try {
+          sqlForLog = envelope.sql
           rows = await runReadOnly(v.rewritten)
         } catch (err: any) {
-          const retryEnvelope = await callLLM(
-            forLLM,
-            `${message}\n\n[SYSTEM NOTE] Your previous SQL errored: ${err.message}. Produce a corrected query.`
-          )
-          if (retryEnvelope.sql) {
-            const v2 = await validateSql(retryEnvelope.sql)
-            if (v2.ok) {
-              sqlForLog = retryEnvelope.sql
-              rows = await runReadOnly(v2.rewritten)
-            }
+          const retry = await retryOnce(`Your previous SQL errored: ${err.message}.`)
+          if (retry) {
+            sqlForLog = retry.sql
+            rows = retry.rows
+          } else {
+            sqlForLog = null
+            queryError = `The generated query failed to run (${err.message}) and the retry also failed.`
           }
         }
       }
@@ -167,7 +215,7 @@ export async function postMessage(req: Request, res: Response) {
 
     let wideningNote: string | null = null
     if (sqlForLog) {
-      const fb = await maybeWidenToNextSlate(sqlForLog, rows)
+      const fb = await maybeWidenToNearestSlate(sqlForLog, rows)
       if (fb.rows.length > rows.length) {
         rows = fb.rows
         wideningNote = fb.note
@@ -181,17 +229,17 @@ export async function postMessage(req: Request, res: Response) {
       rows: enriched,
       shape,
       widening_note: wideningNote,
+      query_error: queryError,
       disambiguation,
       follow_up_suggestions: envelope.follow_up_suggestions ?? [],
     })
 
-    await appendMessage(
-      sessionId,
-      'assistant',
-      envelope.narrative,
-      sqlForLog,
-      rows.length
-    )
+    await appendMessage(sessionId, 'assistant', envelope.narrative, {
+      sqlExecuted: sqlForLog,
+      resultCount: rows.length,
+      resultRows: enriched.length > 0 ? enriched : null,
+      resultShape: enriched.length > 0 ? shape : null,
+    })
 
     if (history.length === 1) {
       await setSessionTitle(sessionId, message)

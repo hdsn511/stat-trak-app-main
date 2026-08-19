@@ -1,4 +1,9 @@
-const BASE = 'http://localhost:3000/api'
+import type { DefenseSplit, PlayerLogResponse } from '@/ember/player/types'
+
+// Relative by default so the deployed SPA calls its own origin, where a
+// Cloudflare Pages Function proxies /api/* to the API. In dev, Vite's proxy
+// (vite.config.ts) forwards the same relative path to localhost:3000.
+const BASE = import.meta.env.VITE_API_BASE_URL ?? '/api'
 
 export interface TrendingPlayer {
   playerId: number
@@ -88,8 +93,15 @@ export interface MLBPlayerProfile {
 export interface TodaysGame {
   gameId: string
   dbId?: number | null
-  time: string
+  /**
+   * The slate's actual date. Usually today, but the server falls back to the
+   * next scheduled date on an off day — so callers must label it rather than
+   * assume "tonight".
+   */
+  date?: string
+  time: string | null
   status: string
+  live?: boolean
   home: { team: string; score: string }
   away: { team: string; score: string }
 }
@@ -232,19 +244,52 @@ export interface PerfectStreaksResponse<T> {
   rows: T[]
 }
 
-export interface GameRosterPlayer {
+/** One column of a league's box score, as declared by the server registry. */
+export interface BoxColumn {
+  key: string
+  label: string
+  /** Seconds rendered as m:ss (NHL time on ice). */
+  format?: 'mmss'
+}
+
+export interface BoxRow {
+  player_id: number
+  team_id: number
+  name: string | null
+  position: string | null
+  values: Record<string, number | null>
+}
+
+/**
+ * A box score section. Leagues declare their own: NBA has one, MLB splits
+ * batting from pitching, NFL splits five ways. Groups with no qualifying
+ * players are omitted by the server.
+ */
+export interface BoxGroup {
+  id: string
+  label: string
+  columns: BoxColumn[]
+  rows: BoxRow[]
+}
+
+export interface PreviewPlayer {
   player_id: number
   name: string
   position: string
-  /** Averages vs this opponent specifically (if h2h games exist) or season avg */
-  pts: number | null
-  reb: number | null
-  ast: number | null
-  season_pts: number | null
-  season_reb: number | null
-  season_ast: number | null
+  /** Averages vs this opponent when h2h games exist, else season averages. */
+  values: Record<string, number | null>
+  season_values: Record<string, number | null>
   vs_opp_games: number
   games_played: number
+}
+
+export interface GamePreview {
+  label: string
+  columns: BoxColumn[]
+  home: PreviewPlayer[]
+  away: PreviewPlayer[]
+  /** e.g. "vs opp avg (3G)" or "season avg" — describes what `values` holds. */
+  stat_context: string
 }
 
 export interface GameInjury {
@@ -265,85 +310,149 @@ export interface GameH2HEntry {
   winner_team_id: number
 }
 
+export interface TeamRef {
+  id: number
+  abbreviation: string
+  name: string
+}
+
+export interface GameProp {
+  market_ticker: string
+  line: number | null
+  implied_prob: number | null
+  prop_type: string
+  entity_id: number | null
+  team_id: number | null
+  stat: string | null
+  player_name: string | null
+}
+
+export interface GamePick {
+  entity_id: number
+  stat: string
+  recommended_line: number
+  hit_rate: number
+  confidence_score: number
+  implied_prob: number | null
+  edge: number
+  actual_result: number | null
+  did_hit: boolean | null
+  prop_type: string
+  player_name: string | null
+}
+
 export interface GameDetail {
+  league: string
   game: {
     id: number
     game_date: string
-    home_team: { id: number; abbreviation: string; name: string }
-    away_team: { id: number; abbreviation: string; name: string }
+    game_time: string | null
+    game_type: string | null
+    home_team: TeamRef
+    away_team: TeamRef
     home_score: number | null
     away_score: number | null
     is_completed: boolean
   }
-  player_stats: Array<{
-    player_id: number
-    team_id: number
-    game_date: string
-    points: number
-    rebounds: number
-    assists: number
-    three_points_made: number
-    minutes: number
-    players: { name: string; team: string; position: string } | null
-  }>
-  props: Array<{
-    market_ticker: string
-    line: number | null
-    implied_prob: number | null
-    prop_type: string
-    entity_id: number | null
-    team_id: number | null
-    source: string | null
-    stat: string | null
-    player_name: string | null
-  }>
-  picks: Array<{
-    entity_id: number
-    stat: string
-    recommended_line: number
-    hit_rate: number
-    confidence_score: number
-    implied_prob: number | null
-    edge: number
-    actual_result: number | null
-    did_hit: boolean | null
-    prop_type: string
-    player_name: string | null
-  }>
+  box_score: { available: boolean; groups: BoxGroup[] }
+  props: GameProp[]
+  picks: GamePick[]
+  /** False for NHL and NFL, which have no lines or picks pipeline. */
+  has_markets: boolean
   injury_report: GameInjury[]
   head_to_head: GameH2HEntry[]
   rest: { home_days: number | null; away_days: number | null }
-  rosters: {
-    home: GameRosterPlayer[]
-    away: GameRosterPlayer[]
-    /** Describes the context of pts/reb/ast shown — e.g. "vs opp avg (3G)" or "season avg" */
-    stat_context: string
-  }
+  /** Null once the game is complete — the box score replaces it. */
+  preview: GamePreview | null
 }
 
 export interface TeamGameEntry {
   id: number
   game_date: string
-  home_team: { id: number; abbreviation: string; name: string }
-  away_team: { id: number; abbreviation: string; name: string }
+  game_time: string | null
+  home_team: TeamRef
+  away_team: TeamRef
   home_score: number | null
   away_score: number | null
   is_home: boolean
   team_score: number | null
   opp_score: number | null
-  result: 'W' | 'L' | null
+  /** Null for games not yet played. Ties happen in the NFL. */
+  result: 'W' | 'L' | 'T' | null
+}
+
+/** Wins, losses and — where the sport allows them — ties. */
+export interface TeamRecord {
+  w: number
+  l: number
+  t: number
 }
 
 export interface TeamDetail {
-  team: { id: number; abbreviation: string; name: string }
+  league: string
+  team: { id: number; abbreviation: string; name: string; city: string | null }
   games: TeamGameEntry[]
   roster: Array<{ id: number; name: string; position: string }>
   record: {
-    overall: { w: number; l: number }
-    home:    { w: number; l: number }
-    away:    { w: number; l: number }
-    last10:  { w: number; l: number }
+    overall: TeamRecord
+    home: TeamRecord
+    away: TeamRecord
+    last10: TeamRecord
   }
+}
+
+export interface Standing {
+  team_id: number
+  abbreviation: string
+  name: string
+  w: number
+  l: number
+  t: number
+  /** Overtime/shootout losses. Zero for leagues that don't have them. */
+  otl: number
+  pct: number
+  last10: { w: number; l: number; t: number }
+  /** Signed run of identical results: 3 for W3, -2 for L2, 0 for none. */
+  streak: number
+  /** Null when derived from games — that path has no conference data. */
+  conference: string | null
+  division: string | null
+}
+
+export interface StandingsResponse {
+  league: string
+  /**
+   * 'table' = the analytics pipeline's precomputed standings (has conference
+   * and division). 'derived' = computed from the games table on the fly.
+   */
+  source: 'table' | 'derived'
+  season_start: string
+  standings: Standing[]
+}
+
+// ── Cross-league search ────────────────────────────────────────────────────
+
+export interface PlayerHit {
+  kind: 'player'
+  id: number
+  name: string
+  team: string | null
+  position: string | null
+  league: string
+}
+
+export interface TeamHit {
+  kind: 'team'
+  id: number
+  name: string
+  abbreviation: string | null
+  city: string | null
+  league: string
+}
+
+export interface SearchResults {
+  players: PlayerHit[]
+  teams: TeamHit[]
 }
 
 // ── Performance tracking ───────────────────────────────────────────────────
@@ -470,6 +579,21 @@ export function createLeagueApi(slug: string) {
     getPlayerProfile: (id: number): Promise<PlayerProfile> =>
       get(`${BASE}/${slug}/players/${id}/games`),
 
+    /** Full season game log plus the next scheduled game. */
+    getPlayerLog: (id: number, window: 'all' | number = 'all'): Promise<PlayerLogResponse> =>
+      get(`${BASE}/${slug}/players/${id}/games?window=${window}`),
+
+    /** Opponent defensive split; null for leagues with no defense table. */
+    getTeamDefense: (
+      teamId: number,
+      stat: string,
+      position?: string | null
+    ): Promise<DefenseSplit | null> => {
+      const q = new URLSearchParams({ stat })
+      if (position) q.set('position', position)
+      return get(`${BASE}/${slug}/teams/${teamId}/defense?${q}`)
+    },
+
     getTodaysGames: (): Promise<TodaysGame[]> =>
       get(`${BASE}/${slug}/games/today`),
 
@@ -501,6 +625,9 @@ export function createLeagueApi(slug: string) {
 
     getTeam: (id: number): Promise<TeamDetail> =>
       get(`${BASE}/${slug}/teams/${id}`),
+
+    getStandings: (): Promise<StandingsResponse> =>
+      get(`${BASE}/${slug}/standings`),
   }
 }
 
@@ -533,3 +660,23 @@ function createPerformanceApi(prefix: string) {
 export type PerformanceApi = ReturnType<typeof createPerformanceApi>
 export const performanceApi = createPerformanceApi('performance')
 export const mlbPerformanceApi = createPerformanceApi('mlb/performance')
+
+/**
+ * Cross-league entity search for the nav bar. Not part of the per-league
+ * factory: one call covers every sport and each hit reports its own league.
+ */
+export function searchEntities(
+  query: string,
+  opts: { limit?: number; signal?: AbortSignal } = {}
+): Promise<SearchResults> {
+  const q = new URLSearchParams({ q: query })
+  if (opts.limit) q.set('limit', String(opts.limit))
+  return getSignal(`${BASE}/search?${q}`, opts.signal)
+}
+
+async function getSignal<T>(url: string, signal?: AbortSignal): Promise<T> {
+  const res = await fetch(url, { signal })
+  const json = await res.json()
+  if (!json.success) throw new Error(json.error || 'Request failed')
+  return json.data as T
+}

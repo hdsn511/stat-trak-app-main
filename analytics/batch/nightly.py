@@ -17,9 +17,7 @@ CLI:
 from __future__ import annotations
 
 import argparse
-import re
 import sys
-import time
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -29,14 +27,11 @@ from datetime import date, datetime, timedelta
 from typing import Optional
 
 from analytics.db.connection import (
-    API_DELAY_SECONDS,
     BATCH_SIZE,
     NBA_LEAGUE_ID,
     POSITION_GROUP_MAP,
-    season_int_to_str,
     supabase,
 )
-from analytics.data.enrich_games import api_call_with_retry, _parse_minutes
 
 
 # ── Picks v2 tunables ─────────────────────────────────────────────────────────
@@ -176,7 +171,8 @@ def reconcile_picks(yesterday: date) -> None:
     For game props (total/spread), looks up games scores.
 
     If no actual data is found yet, attempts to fetch yesterday's box scores
-    via BoxScoreTraditionalV2 and inserts them into nba_player_stats first.
+    from ESPN (analytics/data/nba_espn/ingest.py) and inserts them into
+    nba_player_stats first.
     """
     yest_str = _date_str(yesterday)
     print(f"[Step 0] Reconciling picks for {yest_str} ...")
@@ -209,7 +205,7 @@ def reconcile_picks(yesterday: date) -> None:
 
     if not has_stats:
         print("  No nba_player_stats rows found for yesterday. Attempting fresh box score fetch ...")
-        # Look up game ext_ids from DB first — avoids LeagueGameFinder (times out on GH Actions)
+        # Restrict the ESPN fetch to games the DB knows about for that date
         game_rows = (
             supabase.table("games")
             .select("ext_id")
@@ -303,253 +299,55 @@ def _fetch_and_insert_box_scores(
     game_ext_ids: Optional[list] = None,
 ) -> None:
     """
-    Fetch box scores for target_date via BoxScoreTraditionalV3 and insert rows
-    into nba_player_stats.
+    Fetch basic box scores for target_date from ESPN (Phase 8 hybrid) and
+    upsert nba_player_stats rows + games scores.
 
-    If game_ext_ids is provided (list of zero-padded strings from the DB), use
-    them directly. Otherwise fall back to LeagueGameFinder.
+    game_ext_ids optionally restricts the fetch to specific games.ext_id
+    values (backward-compatible with the old per-game interface — callers
+    like backfill_season pass DB ext_ids). ESPN's scoreboard is date-driven,
+    so events are matched to DB games by (date, home_team, away_team) via
+    teams.espn_id; game ext_ids never touch ESPN.
 
-    Pre-season game IDs (prefix "001") are silently skipped — the NBA stats
-    API does not expose pre-season box scores via this endpoint.
+    Player positions are no longer updated here — rosters own positions
+    (see enrich_games --positions / batch.refresh_positions, both ESPN-backed).
     """
-    try:
-        from nba_api.stats.endpoints import BoxScoreTraditionalV3, BoxScoreTraditionalV2, LeagueGameFinder
-    except ImportError as exc:
-        print(f"  ERROR: nba_api not installed: {exc}")
-        return
+    from analytics.data.nba_espn.ingest import ingest_boxscores_for_date
 
     date_str = _date_str(target_date)
-
-    if game_ext_ids is None:
-        # Fall back: discover game IDs via LeagueGameFinder
-        def _find_games():
-            return LeagueGameFinder(
-                date_from_nullable=date_str,
-                date_to_nullable=date_str,
-                league_id_nullable="00",
-            )
-
-        lgf = api_call_with_retry(_find_games, f"LeagueGameFinder {date_str}")
-        if lgf is None:
-            print("  WARNING: LeagueGameFinder returned nothing for box score fetch.")
-            return
-
-        try:
-            df = lgf.get_data_frames()[0]
-            game_ext_ids = list({str(int(r)).zfill(10) for r in df["GAME_ID"].tolist() if r})
-        except Exception as exc:
-            print(f"  WARNING: could not parse LeagueGameFinder results: {exc}")
-            return
-
-    # Skip pre-season game IDs (001 prefix) — no box score data available
-    regular_ext_ids = [g for g in (game_ext_ids or []) if not g.startswith("001")]
-    skipped = len((game_ext_ids or [])) - len(regular_ext_ids)
-    if skipped:
-        print(f"  Skipping {skipped} pre-season game(s).")
-
-    if not regular_ext_ids:
-        print(f"  No regular-season game IDs for {date_str}. Cannot fetch box scores.")
+    print(f"  Fetching ESPN box scores for {date_str} ...")
+    try:
+        games_done, _stat_rows = ingest_boxscores_for_date(
+            date_str, only_game_ext_ids=game_ext_ids)
+    except RuntimeError as exc:
+        # e.g. espn_id mapping missing — surface loudly, don't crash the batch
+        print(f"  ERROR: ESPN box score fetch failed for {date_str}: {exc}")
         return
-
-    print(f"  Fetching box scores for {len(regular_ext_ids)} game(s) on {date_str} ...")
-
-    # Load player and team ID maps
-    player_rows = supabase.table("players").select("id,ext_id").eq("league", "nba").execute()
-    player_map = {r["ext_id"]: r["id"] for r in (player_rows.data or [])}
-
-    team_rows = supabase.table("teams").select("id,ext_id").eq("league_id", NBA_LEAGUE_ID).execute()
-    team_map = {r["ext_id"]: r["id"] for r in (team_rows.data or [])}
-
-    # Query only the specific games we need — avoids PostgREST 1000-row default cap
-    game_rows = (
-        supabase.table("games")
-        .select("id,ext_id,home_team_id,away_team_id")
-        .eq("league_id", NBA_LEAGUE_ID)
-        .in_("ext_id", regular_ext_ids)
-        .execute()
-    )
-    game_map = {r["ext_id"]: r["id"] for r in (game_rows.data or [])}
-    game_teams = {r["id"]: (r["home_team_id"], r["away_team_id"]) for r in (game_rows.data or [])}
-
-    stat_buffer: list[dict] = []
-    position_updates: dict[int, str] = {}  # player_db_id -> position
-    score_updates: dict[int, dict] = {}
-
-    def _si(val, default=0):
-        if val is None:
-            return default
-        try:
-            return int(float(val))
-        except (ValueError, TypeError):
-            return default
-
-    for ext_id in regular_ext_ids:
-        game_db_id = game_map.get(ext_id)
-        if not game_db_id:
-            print(f"  WARNING: game ext_id {ext_id!r} not found in game_map. Skipping.")
-            continue
-
-        def _trad(gid=ext_id):
-            return BoxScoreTraditionalV3(game_id=gid)
-
-        result = api_call_with_retry(_trad, f"BoxScoreTraditionalV3 {ext_id}")
-
-        # V3 fails for playoff games — try V2
-        if result is None:
-            def _trad_v2(gid=ext_id):
-                return BoxScoreTraditionalV2(game_id=gid)
-            result = api_call_with_retry(_trad_v2, f"BoxScoreTraditionalV2 {ext_id}")
-
-        # Parse whichever stats API responded (V3 or V2)
-        player_rows_from_api: list[dict] = []
-        if result is not None:
-            try:
-                player_df = result.get_data_frames()[0]
-                for _, row in player_df.iterrows():
-                    # V3 uses camelCase int IDs; V2 uses UPPER_CASE string IDs
-                    if "personId" in player_df.columns:
-                        p_ext = str(int(row["personId"]))
-                        t_ext = str(int(row["teamId"]))
-                        player_rows_from_api.append({
-                            "p_ext": p_ext, "t_ext": t_ext,
-                            "pts": _si(row.get("points")),
-                            "reb": _si(row.get("reboundsTotal")),
-                            "ast": _si(row.get("assists")),
-                            "fg3m": _si(row.get("threePointersMade")),
-                            "fouls": _si(row.get("foulsPersonal")),
-                            "mins": _parse_minutes(row.get("minutes")),
-                            "pos": str(row.get("position") or "").strip(),
-                        })
-                    else:
-                        p_ext = str(row.get("PLAYER_ID", "") or "").strip()
-                        t_ext = str(row.get("TEAM_ID", "") or "").strip()
-                        player_rows_from_api.append({
-                            "p_ext": p_ext, "t_ext": t_ext,
-                            "pts": _si(row.get("PTS")),
-                            "reb": _si(row.get("REB")),
-                            "ast": _si(row.get("AST")),
-                            "fg3m": _si(row.get("FG3M")),
-                            "fouls": _si(row.get("PF")),
-                            "mins": _parse_minutes(row.get("MIN")),
-                            "pos": str(row.get("START_POSITION") or "").strip(),
-                        })
-            except Exception as exc:
-                print(f"  WARNING: stats API parse error for {ext_id}: {exc}")
-
-        # stats.nba.com returned nothing — fall back to NBA live data API
-        if not player_rows_from_api:
-            try:
-                from nba_api.live.nba.endpoints.boxscore import BoxScore as LiveBoxScore
-                live = LiveBoxScore(game_id=ext_id)
-                game_data = live.game.get_dict()
-                for team_key in ("homeTeam", "awayTeam"):
-                    team_data = game_data.get(team_key, {})
-                    t_ext = str(team_data.get("teamId", "") or "").strip()
-                    team_score = team_data.get("score")
-                    if team_score is not None and game_db_id in game_teams:
-                        score_updates.setdefault(game_db_id, {})
-                        score_key = "home_score" if team_key == "homeTeam" else "away_score"
-                        score_updates[game_db_id][score_key] = int(team_score)
-                    for player in team_data.get("players", []):
-                        p_ext = str(player.get("personId", "") or "").strip()
-                        stats = player.get("statistics", {})
-                        mins_raw = str(stats.get("minutesCalculated", "") or "")
-                        mins_m = re.match(r"PT(\d+)M", mins_raw)
-                        player_rows_from_api.append({
-                            "p_ext": p_ext, "t_ext": t_ext,
-                            "pts": _si(stats.get("points")),
-                            "reb": _si(stats.get("reboundsTotal")),
-                            "ast": _si(stats.get("assists")),
-                            "fg3m": _si(stats.get("threePointersMade")),
-                            "fouls": _si(stats.get("foulsPersonal")),
-                            "mins": int(mins_m.group(1)) if mins_m else 0,
-                            "pos": str(player.get("position", "") or "").strip(),
-                        })
-                print(f"    {ext_id}: {len(player_rows_from_api)} player rows (live API)")
-            except ImportError:
-                print(f"  WARNING: nba_api.live not available for {ext_id}")
-            except Exception as exc:
-                print(f"  WARNING: live API error for {ext_id}: {exc}")
-        else:
-            print(f"    {ext_id}: {len(player_rows_from_api)} player rows (stats API)")
-
-        if not player_rows_from_api:
-            print(f"  WARNING: no box score data found for {ext_id} from any source.")
-            continue
-
-        # Accumulate team scores from stats API rows (live API sets them above)
-        if result is not None:
-            try:
-                team_pts: dict[str, int] = {}
-                for r in player_rows_from_api:
-                    team_pts[r["t_ext"]] = team_pts.get(r["t_ext"], 0) + r["pts"]
-                if team_pts and game_db_id in game_teams:
-                    home_db_t, away_db_t = game_teams[game_db_id]
-                    pts_by_db = {team_map.get(ext): pts for ext, pts in team_pts.items()}
-                    hs = pts_by_db.get(home_db_t)
-                    aws = pts_by_db.get(away_db_t)
-                    if hs is not None and aws is not None:
-                        score_updates[game_db_id] = {"home_score": hs, "away_score": aws}
-            except Exception:
-                pass
-
-        for r in player_rows_from_api:
-            p_db_id = player_map.get(r["p_ext"])
-            t_db_id = team_map.get(r["t_ext"])
-            if not p_db_id or not t_db_id:
-                continue
-            stat_buffer.append({
-                "game_id": game_db_id,
-                "player_id": p_db_id,
-                "team_id": t_db_id,
-                "game_date": date_str,
-                "points": r["pts"],
-                "rebounds": r["reb"],
-                "assists": r["ast"],
-                "three_points_made": r["fg3m"],
-                "fouls": r["fouls"],
-                "minutes_played": r["mins"],
-            })
-            if r["pos"] and p_db_id:
-                position_updates[p_db_id] = r["pos"]
-
-    if stat_buffer:
-        for i in range(0, len(stat_buffer), BATCH_SIZE):
-            chunk = stat_buffer[i: i + BATCH_SIZE]
-            supabase.table("nba_player_stats").upsert(chunk, on_conflict="game_id,player_id").execute()
-        print(f"  Inserted {len(stat_buffer)} nba_player_stats rows for {date_str}.")
-    else:
-        print("  No box score rows to insert.")
-
-    if score_updates:
-        for gid, scores in score_updates.items():
-            supabase.table("games").update(scores).eq("id", gid).execute()
-        print(f"  Updated scores for {len(score_updates)} game(s).")
-
-    # Flush position updates in batches
-    if position_updates:
-        pos_items = list(position_updates.items())
-        for i in range(0, len(pos_items), BATCH_SIZE):
-            chunk = pos_items[i: i + BATCH_SIZE]
-            for p_db_id, pos in chunk:
-                supabase.table("players").update({"position": pos}).eq("id", p_db_id).execute()
-        print(f"  Updated positions for {len(pos_items)} player(s).")
+    if games_done == 0:
+        print(f"  WARNING: no box score data found for {date_str} on ESPN.")
 
 
 # ── Step 0.5: Backfill Completed Games ───────────────────────────────────────
 
 def backfill_completed_games(up_to: date) -> None:
     """
-    Find the latest game_date in the local games table, then for each date
-    between that date+1 and up_to (exclusive), fetch completed games via
-    LeagueGameFinder and their box scores via _fetch_and_insert_box_scores.
+    Find the latest game_date with stats, then for each date between that
+    date+1 and up_to (exclusive), discover games via the ESPN scoreboard and
+    fetch their box scores via _fetch_and_insert_box_scores (also ESPN).
+
+    ESPN-discovered games are inserted with a PROVISIONAL ext_id (the ESPN
+    event id, also stored in games.espn_id); the advanced-stats path heals
+    ext_id to the NBA-native id (enrich_games.resolve_nba_ext_ids).
 
     Runs before get_slate so rolling averages in daily_conditions are current.
     """
+    from analytics.data.nba_espn.ingest import (
+        build_game_rows_from_events, get_events, load_team_maps,
+    )
+
     try:
-        from nba_api.stats.endpoints import LeagueGameFinder
-    except ImportError as exc:
-        print(f"[Step 0.5] nba_api not installed: {exc}. Skipping backfill.")
+        team_espn_map, _abbrs = load_team_maps()
+    except RuntimeError as exc:
+        print(f"[Step 0.5] {exc} Skipping backfill.")
         return
 
     # Drive the start date from nba_player_stats, not games.
@@ -577,12 +375,6 @@ def backfill_completed_games(up_to: date) -> None:
 
     print(f"[Step 0.5] Backfilling completed games {_date_str(start_date)} to {_date_str(up_to - timedelta(days=1))} ...")
 
-    # Load lookup maps once
-    team_rows = (
-        supabase.table("teams").select("id,ext_id").eq("league_id", NBA_LEAGUE_ID).execute()
-    )
-    team_map = {r["ext_id"]: r["id"] for r in (team_rows.data or [])}
-
     current = start_date
     total_games = 0
 
@@ -600,61 +392,13 @@ def backfill_completed_games(up_to: date) -> None:
         )
 
         if not games_exist.data:
-            # Need to fetch and insert game rows via LeagueGameFinder
-            def _lgf(ds=date_str):
-                return LeagueGameFinder(
-                    date_from_nullable=ds,
-                    date_to_nullable=ds,
-                    league_id_nullable="00",
-                )
-
-            lgf_result = api_call_with_retry(_lgf, f"LeagueGameFinder {date_str}")
-            if lgf_result is None:
-                print(f"  WARNING: no LeagueGameFinder data for {date_str}. Skipping.")
-                current += timedelta(days=1)
-                continue
-
-            try:
-                df = lgf_result.get_data_frames()[0]
-            except Exception as exc:
-                print(f"  WARNING: parse error for {date_str}: {exc}")
-                current += timedelta(days=1)
-                continue
-
-            if df.empty:
-                current += timedelta(days=1)
-                continue
-
-            from collections import defaultdict
-            game_groups: dict[str, list] = defaultdict(list)
-            for _, row in df.iterrows():
-                gid_raw = row.get("GAME_ID")
-                if gid_raw:
-                    gid = str(int(gid_raw)).zfill(10)
-                    game_groups[gid].append(row)
-
-            games_to_insert: list[dict] = []
-            for ext_id, rows in game_groups.items():
-                home_row = next((r for r in rows if " vs. " in str(r.get("MATCHUP", ""))), None)
-                away_row = next((r for r in rows if " @ " in str(r.get("MATCHUP", ""))), None)
-                if home_row is None or away_row is None:
-                    continue
-                home_db = team_map.get(str(home_row.get("TEAM_ID", "")).strip())
-                away_db = team_map.get(str(away_row.get("TEAM_ID", "")).strip())
-                if not home_db or not away_db:
-                    continue
-                games_to_insert.append({
-                    "ext_id": ext_id,
-                    "league_id": NBA_LEAGUE_ID,
-                    "game_date": date_str,
-                    "home_team_id": home_db,
-                    "away_team_id": away_db,
-                    "season": int(date_str[:4]) if int(date_str[5:7]) >= 10 else int(date_str[:4]) - 1,
-                })
-
+            # Discover games for the date via the ESPN scoreboard
+            events = get_events(date_str)
+            games_to_insert = build_game_rows_from_events(
+                date_str, events, team_espn_map)
             if games_to_insert:
                 supabase.table("games").upsert(games_to_insert, on_conflict="league_id,ext_id").execute()
-                print(f"  {date_str}: inserted {len(games_to_insert)} game(s).")
+                print(f"  {date_str}: inserted {len(games_to_insert)} game(s) (ESPN).")
                 total_games += len(games_to_insert)
 
         # Per-game self-heal: only skip games that already have box scores
@@ -690,29 +434,29 @@ def backfill_completed_games(up_to: date) -> None:
             print(f"  {date_str}: fetching box scores for {len(missing_ext_ids)}/{len(date_ext_ids)} game(s).")
             _fetch_and_insert_box_scores(current, game_ext_ids=missing_ext_ids)
 
+        # No inter-date delay: ESPN's API isn't rate-limited (API_DELAY_SECONDS
+        # pacing is reserved for the remaining nba_api advanced-stats calls).
         current += timedelta(days=1)
-        time.sleep(API_DELAY_SECONDS)
 
     print(f"[Step 0.5] Backfill complete. {total_games} new game(s) inserted.")
 
 
 # ── Step 1: Get Slate ────────────────────────────────────────────────────────
 
-def _season_yr(date_str: str) -> int:
-    return int(date_str[:4]) if int(date_str[5:7]) >= 10 else int(date_str[:4]) - 1
-
-
 def get_slate(target_date: date) -> list[dict]:
     """
     Return list of game dicts (id, home_team_id, away_team_id, game_date)
-    for target_date. Three-path fallback strategy:
+    for target_date. Local DB first; otherwise the ESPN scoreboard (Phase 8
+    hybrid — replaces the old ScoreboardV3/V2/live/LeagueGameFinder ladder).
 
-      Path A: ScoreboardV3 (stats API — scheduled + completed, any date)
-      Path B: NBA live scoreboard (live API — today only, fallback if V3 times out)
-      Path C: LeagueGameFinder (stats API — completed games only, last resort)
-
-    Paths are tried in order; first to return >= 1 game wins.
+    ESPN-discovered games are inserted with a PROVISIONAL ext_id (the ESPN
+    event id, also stored durably in games.espn_id); the advanced-stats path
+    heals ext_id to the NBA-native id (enrich_games.resolve_nba_ext_ids).
     """
+    from analytics.data.nba_espn.ingest import (
+        build_game_rows_from_events, get_events, load_team_maps,
+    )
+
     date_str = _date_str(target_date)
     print(f"[Step 1] Fetching slate for {date_str} ...")
 
@@ -729,198 +473,20 @@ def get_slate(target_date: date) -> list[dict]:
         print(f"  Found {len(games)} game(s) in local DB.")
         return games
 
-    print("  No games in local DB. Trying NBA API ...")
+    print("  No games in local DB. Fetching ESPN scoreboard ...")
 
-    # Load team ext_id -> db_id map once (shared across all paths)
-    team_rows = (
-        supabase.table("teams")
-        .select("id,ext_id")
-        .eq("league_id", NBA_LEAGUE_ID)
-        .execute()
-    )
-    team_map = {r["ext_id"]: r["id"] for r in (team_rows.data or [])}
-
-    games_to_insert: list[dict] = []
-    season_yr = _season_yr(date_str)
-
-    # ── Path A: ScoreboardV3 (stats API — any date, scheduled + completed) ─────
-    # ScoreboardV2 has known issues with 2025-26 season data; V3 is the recommended
-    # replacement and is fully backward compatible.
     try:
-        from nba_api.stats.endpoints.scoreboardv3 import ScoreboardV3
+        team_espn_map, _abbrs = load_team_maps()
+    except RuntimeError as exc:
+        print(f"  ERROR: {exc}")
+        return []
 
-        def _sb3():
-            return ScoreboardV3(game_date=date_str, league_id="00")
-
-        sb3_result = api_call_with_retry(_sb3, f"ScoreboardV3 {date_str}")
-        if sb3_result is not None:
-            try:
-                data = sb3_result.get_dict()
-                live_games_v3 = data.get("scoreboard", {}).get("games", [])
-                print(f"  Path A (ScoreboardV3): {len(live_games_v3)} game(s) returned.")
-                seen_sb: set[str] = set()
-                for g in live_games_v3:
-                    raw_gid = str(g.get("gameId", "")).strip()
-                    ext_id = raw_gid.zfill(10) if raw_gid else ""
-                    if not ext_id or ext_id in seen_sb:
-                        continue
-                    seen_sb.add(ext_id)
-                    home_t_ext = str(g.get("homeTeam", {}).get("teamId", "")).strip()
-                    away_t_ext = str(g.get("awayTeam", {}).get("teamId", "")).strip()
-                    home_db_id = team_map.get(home_t_ext)
-                    away_db_id = team_map.get(away_t_ext)
-                    if not home_db_id or not away_db_id:
-                        print(f"    WARNING: team not in DB — home={home_t_ext!r} away={away_t_ext!r}")
-                        continue
-                    games_to_insert.append({
-                        "ext_id": ext_id,
-                        "league_id": NBA_LEAGUE_ID,
-                        "game_date": date_str,
-                        "home_team_id": home_db_id,
-                        "away_team_id": away_db_id,
-                        "season": season_yr,
-                    })
-                print(f"  Path A (ScoreboardV3): {len(games_to_insert)} game(s) parsed.")
-            except Exception as exc:
-                print(f"  Path A (ScoreboardV3) parse error: {exc}")
-        else:
-            print("  Path A (ScoreboardV3): API call failed/timed out.")
-    except ImportError as exc:
-        print(f"  Path A (ScoreboardV3) unavailable: {exc}")
-
-    # ── Path A2: ScoreboardV2 (stats API — works when V3 module is absent) ──────
-    if not games_to_insert:
-        try:
-            from nba_api.stats.endpoints import ScoreboardV2
-
-            def _sb2():
-                return ScoreboardV2(game_date=date_str, league_id="00")
-
-            sb2_result = api_call_with_retry(_sb2, f"ScoreboardV2 {date_str}")
-            if sb2_result is not None:
-                try:
-                    df = sb2_result.get_data_frames()[0]
-                    seen_sb2: set[str] = set()
-                    for _, row in df.iterrows():
-                        raw_gid = str(row.get("GAME_ID", "")).strip()
-                        ext_id = str(int(raw_gid)).zfill(10) if raw_gid else ""
-                        if not ext_id or ext_id in seen_sb2:
-                            continue
-                        seen_sb2.add(ext_id)
-                        home_t_ext = str(row.get("HOME_TEAM_ID", "")).strip()
-                        away_t_ext = str(row.get("VISITOR_TEAM_ID", "")).strip()
-                        home_db_id = team_map.get(home_t_ext)
-                        away_db_id = team_map.get(away_t_ext)
-                        if not home_db_id or not away_db_id:
-                            print(f"    WARNING: team not in DB — home={home_t_ext!r} away={away_t_ext!r}")
-                            continue
-                        games_to_insert.append({
-                            "ext_id": ext_id,
-                            "league_id": NBA_LEAGUE_ID,
-                            "game_date": date_str,
-                            "home_team_id": home_db_id,
-                            "away_team_id": away_db_id,
-                            "season": season_yr,
-                        })
-                    print(f"  Path A2 (ScoreboardV2): {len(games_to_insert)} game(s) parsed.")
-                except Exception as exc:
-                    print(f"  Path A2 (ScoreboardV2) parse error: {exc}")
-            else:
-                print("  Path A2 (ScoreboardV2): API call failed/timed out.")
-        except ImportError as exc:
-            print(f"  Path A2 (ScoreboardV2) unavailable: {exc}")
-
-    # ── Path B: NBA live scoreboard (today only — most reliable for current date) ──
-    if not games_to_insert and target_date == date.today():
-        try:
-            from nba_api.live.nba.endpoints.scoreboard import ScoreBoard as LiveScoreBoard
-
-            live_sb = LiveScoreBoard()
-            data = live_sb.get_dict()
-            live_games = data.get("scoreboard", {}).get("games", [])
-            print(f"  Path B (live scoreboard): {len(live_games)} game(s) from API.")
-            for g in live_games:
-                raw_gid = str(g.get("gameId", "")).strip()
-                ext_id = raw_gid.zfill(10) if raw_gid else ""
-                if not ext_id:
-                    continue
-                home_t_ext = str(g.get("homeTeam", {}).get("teamId", "")).strip()
-                away_t_ext = str(g.get("awayTeam", {}).get("teamId", "")).strip()
-                home_db_id = team_map.get(home_t_ext)
-                away_db_id = team_map.get(away_t_ext)
-                if not home_db_id or not away_db_id:
-                    print(f"    WARNING: team not in DB — home={home_t_ext!r} away={away_t_ext!r}")
-                    continue
-                games_to_insert.append({
-                    "ext_id": ext_id,
-                    "league_id": NBA_LEAGUE_ID,
-                    "game_date": date_str,
-                    "home_team_id": home_db_id,
-                    "away_team_id": away_db_id,
-                    "season": season_yr,
-                })
-            print(f"  Path B (live scoreboard): {len(games_to_insert)} game(s) resolved.")
-        except Exception as exc:
-            print(f"  Path B (live scoreboard) failed: {exc}")
-
-    # ── Path C: LeagueGameFinder (completed games only, last resort) ──────────
-    if not games_to_insert:
-        try:
-            from nba_api.stats.endpoints import LeagueGameFinder
-
-            def _lgf():
-                return LeagueGameFinder(
-                    date_from_nullable=date_str,
-                    date_to_nullable=date_str,
-                    league_id_nullable="00",
-                )
-
-            lgf_result = api_call_with_retry(_lgf, f"LeagueGameFinder {date_str}")
-            if lgf_result is None:
-                print("  Path C (LeagueGameFinder): API call failed/timed out.")
-            else:
-                try:
-                    df = lgf_result.get_data_frames()[0]
-                    print(f"  Path C (LeagueGameFinder): {len(df)} row(s) returned.")
-                    from collections import defaultdict
-                    game_groups: dict[str, list] = defaultdict(list)
-                    for _, row in df.iterrows():
-                        gid_raw = row.get("GAME_ID")
-                        if gid_raw:
-                            gid = str(int(gid_raw)).zfill(10)
-                            game_groups[gid].append(row)
-
-                    seen_lgf: set[str] = set()
-                    for ext_id, rows in game_groups.items():
-                        if ext_id in seen_lgf:
-                            continue
-                        seen_lgf.add(ext_id)
-                        home_row = next((r for r in rows if " vs. " in str(r.get("MATCHUP", ""))), None)
-                        away_row = next((r for r in rows if " @ " in str(r.get("MATCHUP", ""))), None)
-                        if home_row is None or away_row is None:
-                            continue
-                        home_t_ext = str(home_row.get("TEAM_ID", "")).strip()
-                        away_t_ext = str(away_row.get("TEAM_ID", "")).strip()
-                        home_db_id = team_map.get(home_t_ext)
-                        away_db_id = team_map.get(away_t_ext)
-                        if not home_db_id or not away_db_id:
-                            continue
-                        games_to_insert.append({
-                            "ext_id": ext_id,
-                            "league_id": NBA_LEAGUE_ID,
-                            "game_date": date_str,
-                            "home_team_id": home_db_id,
-                            "away_team_id": away_db_id,
-                            "season": season_yr,
-                        })
-                    print(f"  Path C (LeagueGameFinder): {len(games_to_insert)} game(s) parsed.")
-                except Exception as exc:
-                    print(f"  Path C (LeagueGameFinder) parse error: {exc}")
-        except ImportError as exc:
-            print(f"  Path C (LeagueGameFinder) unavailable: {exc}")
+    events = get_events(date_str)
+    print(f"  ESPN scoreboard: {len(events)} event(s) returned.")
+    games_to_insert = build_game_rows_from_events(date_str, events, team_espn_map)
 
     if not games_to_insert:
-        print(f"  WARNING: all 3 paths exhausted — 0 game(s) found for {date_str}.")
+        print(f"  WARNING: ESPN returned 0 mappable game(s) for {date_str}.")
         return []
 
     supabase.table("games").upsert(games_to_insert, on_conflict="league_id,ext_id").execute()

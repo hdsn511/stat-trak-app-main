@@ -62,12 +62,35 @@ LIMIT 10`,
        pr.implied_prob, pr.edge, pr.pick_type, pr.hit_rate
 FROM pick_results pr
 JOIN players p ON pr.entity_id = p.id
-WHERE pr.game_date = CURRENT_DATE
+WHERE pr.league_id = 1
+  AND pr.game_date = CURRENT_DATE
   AND pr.prop_type = 'player'
 ORDER BY pr.edge DESC
 LIMIT 20`,
       narrative:
         "Today's picks sorted by edge over the market, highest first.",
+    }),
+  },
+  {
+    // "Against team X" means the opponent, not the team the player plays for.
+    // Without this example the model reads it as a team filter and returns
+    // Boston's own players.
+    user: 'Which players put up the most rebounds against Boston?',
+    assistant: JSON.stringify({
+      sql: `SELECT p.id AS player_id, p.name, p.team,
+       AVG(s.rebounds) AS avg_rebounds, COUNT(*) AS games
+FROM nba_player_stats s
+JOIN players p ON s.player_id = p.id
+JOIN game_matchups gm ON gm.game_id = s.game_id AND gm.team_id = s.team_id
+JOIN teams opp ON opp.id = gm.opponent_team_id
+WHERE opp.league_id = 1
+  AND (opp.abbreviation = 'BOS' OR opp.name ILIKE '%celtics%')
+GROUP BY p.id, p.name, p.team
+HAVING COUNT(*) >= 2
+ORDER BY avg_rebounds DESC
+LIMIT 20`,
+      narrative:
+        'Players averaging the most rebounds in games against Boston, minimum two meetings.',
     }),
   },
   {
@@ -100,7 +123,8 @@ JOIN players p ON s.player_id = p.id
 JOIN player_game_conditions pgc ON pgc.player_id = p.id AND pgc.game_id = s.game_id
 JOIN games g ON g.id = s.game_id
 WHERE p.name ILIKE '%anthony%edwards%'
-  AND g.season = (SELECT MAX(season) FROM games)
+  AND g.league_id = 1
+  AND g.season = (SELECT MAX(season) FROM games WHERE league_id = 1)
 GROUP BY pgc.home_away`,
       narrative:
         "Anthony Edwards's home vs away scoring averages for the current season.",
@@ -128,6 +152,7 @@ LIMIT 40`,
 FROM player_game_conditions pgc
 JOIN players p ON pgc.player_id = p.id
 JOIN daily_lines dl ON dl.entity_id = p.id
+  AND dl.league_id = 1
   AND dl.prop_type = 'player'
   AND dl.game_date = CURRENT_DATE
 WHERE pgc.game_date = CURRENT_DATE

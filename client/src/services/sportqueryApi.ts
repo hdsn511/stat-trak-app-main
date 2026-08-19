@@ -1,4 +1,5 @@
-const BASE = 'http://localhost:3000/api/sportquery'
+// See services/api.ts for why this is relative by default.
+const BASE = `${import.meta.env.VITE_API_BASE_URL ?? '/api'}/sportquery`
 
 export type SessionSummary = {
   id: string
@@ -7,6 +8,12 @@ export type SessionSummary = {
   updated_at: string
 }
 
+/** Shape the server detected for a result set; drives which card renders. */
+export type ResultShape = 'player_trends' | 'player_games' | 'picks' | 'lines' | 'generic'
+
+/** One result row. Columns vary by shape, so this stays open. */
+export type ResultRow = Record<string, unknown>
+
 export type MessageRow = {
   id: string
   session_id: string
@@ -14,105 +21,139 @@ export type MessageRow = {
   content: string
   sql_executed: string | null
   result_count: number | null
+  result_rows: ResultRow[] | null
+  result_shape: ResultShape | null
   created_at: string
 }
 
-export type PlayerResultRow = {
-  id?: number
-  player_id?: number
-  name?: string
-  team?: string
-  position?: string
-  z_score?: number
-  rolling_avg?: number
-  [k: string]: unknown
+async function json<T>(res: Response): Promise<T> {
+  const body = await res.json().catch(() => null)
+  if (!res.ok || !body?.success) {
+    throw new Error(body?.error || `Request failed (${res.status})`)
+  }
+  return body.data as T
 }
 
 export async function createSession(): Promise<string> {
-  const r = await fetch(`${BASE}/session`, { method: 'POST' })
-  const j = await r.json()
-  if (!j.success) throw new Error(j.error)
-  return j.data.sessionId
+  const res = await fetch(`${BASE}/session`, { method: 'POST' })
+  const data = await json<{ sessionId: string }>(res)
+  return data.sessionId
 }
 
 export async function listSessions(): Promise<SessionSummary[]> {
-  const r = await fetch(`${BASE}/sessions`)
-  const j = await r.json()
-  if (!j.success) throw new Error(j.error)
-  return j.data
+  return json(await fetch(`${BASE}/sessions`))
 }
 
 export async function loadMessages(sessionId: string): Promise<MessageRow[]> {
-  const r = await fetch(`${BASE}/session/${sessionId}/messages`)
-  const j = await r.json()
-  if (!j.success) throw new Error(j.error)
-  return j.data
+  return json(await fetch(`${BASE}/session/${sessionId}/messages`))
 }
 
 export async function deleteSession(sessionId: string): Promise<void> {
-  const r = await fetch(`${BASE}/session/${sessionId}`, { method: 'DELETE' })
-  const j = await r.json()
-  if (!j.success) throw new Error(j.error)
+  const res = await fetch(`${BASE}/session/${sessionId}`, { method: 'DELETE' })
+  await json<unknown>(res)
 }
+
+export type Disambiguation = { candidates: string[]; prompt: string }
 
 export type StreamEvent =
   | { type: 'narrative'; token: string }
   | {
       type: 'results'
-      rows: PlayerResultRow[]
-      disambiguation?: { candidates: string[]; prompt: string } | null
-      follow_up_suggestions?: string[]
+      rows: ResultRow[]
+      shape: ResultShape
+      /** Set when the query asked for today and the server used the next slate. */
+      wideningNote: string | null
+      /** Set when SQL was generated but never ran successfully. */
+      queryError: string | null
+      disambiguation: Disambiguation | null
+      followUps: string[]
     }
   | { type: 'done' }
   | { type: 'error'; error: string }
 
+/**
+ * POST a message and dispatch the server-sent events it streams back.
+ *
+ * The endpoint answers with SSE on success but plain JSON on rejection (a rate
+ * limit, a validation error), so the content type is checked before the body
+ * is treated as a stream.
+ */
 export async function streamMessage(
   sessionId: string,
   message: string,
-  onEvent: (e: StreamEvent) => void
+  onEvent: (e: StreamEvent) => void,
+  signal?: AbortSignal
 ): Promise<void> {
   const res = await fetch(`${BASE}/message`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ sessionId, message }),
+    signal,
   })
 
-  if (!res.body) throw new Error('No response body')
+  const contentType = res.headers.get('content-type') ?? ''
+  if (!contentType.includes('text/event-stream')) {
+    const body = await res.json().catch(() => null)
+    const error =
+      body?.error ??
+      (res.status === 429 ? 'Rate limited — slow down for a moment.' : `Request failed (${res.status})`)
+    onEvent({ type: 'error', error })
+    return
+  }
+
+  if (!res.body) {
+    onEvent({ type: 'error', error: 'No response body' })
+    return
+  }
+
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
 
-  while (true) {
+  const dispatch = (chunk: string) => {
+    const eventLine = chunk.match(/^event:\s*(.+)$/m)
+    // A data payload can wrap across lines; join every data: line in the frame.
+    const dataLines = [...chunk.matchAll(/^data:\s?(.*)$/gm)].map((m) => m[1])
+    if (!eventLine || dataLines.length === 0) return
+
+    let data: Record<string, unknown>
+    try {
+      data = JSON.parse(dataLines.join('\n'))
+    } catch {
+      return
+    }
+
+    switch (eventLine[1]!.trim()) {
+      case 'narrative':
+        onEvent({ type: 'narrative', token: String(data.token ?? '') })
+        break
+      case 'results':
+        onEvent({
+          type: 'results',
+          rows: (data.rows as ResultRow[]) ?? [],
+          shape: (data.shape as ResultShape) ?? 'generic',
+          wideningNote: (data.widening_note as string) ?? null,
+          queryError: (data.query_error as string) ?? null,
+          disambiguation: (data.disambiguation as Disambiguation) ?? null,
+          followUps: (data.follow_up_suggestions as string[]) ?? [],
+        })
+        break
+      case 'done':
+        onEvent({ type: 'done' })
+        break
+      case 'error':
+        onEvent({ type: 'error', error: String(data.error ?? 'unknown') })
+        break
+    }
+  }
+
+  for (;;) {
     const { value, done } = await reader.read()
     if (done) break
     buffer += decoder.decode(value, { stream: true })
-    const parts = buffer.split('\n\n')
-    buffer = parts.pop() ?? ''
-    for (const part of parts) {
-      const eventLine = part.match(/^event:\s*(.+)$/m)
-      const dataLine = part.match(/^data:\s*(.+)$/m)
-      if (!eventLine || !dataLine) continue
-      const eventName = eventLine[1]!.trim()
-      const data = JSON.parse(dataLine[1]!)
-      switch (eventName) {
-        case 'narrative':
-          onEvent({ type: 'narrative', token: data.token })
-          break
-        case 'results':
-          onEvent({
-            type: 'results',
-            rows: data.rows ?? [],
-            disambiguation: data.disambiguation ?? null,
-            follow_up_suggestions: data.follow_up_suggestions ?? [],
-          })
-          break
-        case 'done':
-          onEvent({ type: 'done' })
-          break
-        case 'error':
-          onEvent({ type: 'error', error: data.error ?? 'unknown' })
-          break
-      }
-    }
+    const frames = buffer.split('\n\n')
+    buffer = frames.pop() ?? ''
+    frames.forEach(dispatch)
   }
+  if (buffer.trim()) dispatch(buffer)
 }

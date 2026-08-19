@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { nbaApi, PlayerStreakRow, TopPickPlayer, LeagueApi } from '@/services/api'
-import { playerPath } from '@/lib/playerPath'
+import { playerPath } from '@/lib/paths'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 

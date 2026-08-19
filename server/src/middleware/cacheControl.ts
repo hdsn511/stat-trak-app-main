@@ -39,8 +39,21 @@ export function cacheControl() {
       return
     }
 
+    // Deferred until res.json() actually fires, not set up front: the route
+    // handler hasn't run yet here, so res.statusCode is still the express
+    // default (200) even for a request that's about to fail. Caching a 5xx as
+    // `public` would let Cloudflare serve a transient error to every visitor
+    // for the rest of the TTL.
     const [maxAge, swr] = policyFor(req.path)
-    res.setHeader('Cache-Control', `public, max-age=${maxAge}, stale-while-revalidate=${swr}`)
+    const originalJson = res.json.bind(res)
+    res.json = (body?: unknown) => {
+      const ok = res.statusCode >= 200 && res.statusCode < 300
+      res.setHeader(
+        'Cache-Control',
+        ok ? `public, max-age=${maxAge}, stale-while-revalidate=${swr}` : 'no-store'
+      )
+      return originalJson(body)
+    }
     next()
   }
 }

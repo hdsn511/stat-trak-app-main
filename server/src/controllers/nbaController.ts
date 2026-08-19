@@ -106,14 +106,17 @@ async function buildTrendingPayload(opts: {
 
   const today = new Date().toISOString().slice(0, 10);
 
-  // Step 1: today's slate (DB) + games for availability lookup
+  // Step 1: today's slate (DB) + games for availability lookup.
+  // NFL/NHL have a trends table but no conditions table (dailyConditionsTable
+  // is null for them) — skip the lookup rather than passing null through, or
+  // Postgres gets asked for a table literally named "null".
   const [gamesResult, conditionsDate] = await Promise.all([
     supabaseAdmin
       .from('games')
       .select('id, home_team_id, away_team_id')
       .eq('game_date', today)
       .eq('league_id', lg.leagueId),
-    findNearestConditionsDate(today, lg.dailyConditionsTable),
+    lg.dailyConditionsTable ? findNearestConditionsDate(today, lg.dailyConditionsTable) : null,
   ]);
 
   const todayGamesRaw = (gamesResult.data || []) as any[];
@@ -201,7 +204,7 @@ async function buildTrendingPayload(opts: {
     ? 'player_id, game_id, opp_starter_hand, park_factor, rolling_pa_5g'
     : 'player_id, game_id, rolling_usg_5g, season_avg_usg, rolling_min_5g, rolling_pace_5g';
   const condByPlayerId = new Map<number, any>();
-  if (playerIds.length > 0) {
+  if (playerIds.length > 0 && lg.dailyConditionsTable) {
     const { data: condRows } = await supabaseAdmin
       .from(lg.dailyConditionsTable)
       .select(condSelect)
@@ -645,8 +648,8 @@ async function getTodaysGamesFromDb(res: Response) {
   // flagged 0. Scores are the reliable signal, so they win; a past game with
   // no score is reported as a gap rather than mislabelled "Scheduled".
   const statusLabel = (g: any): string => {
-    if (g.home_score != null && g.away_score != null) return 'Final';
     if (g.status === 1) return 'Live';
+    if (g.home_score != null && g.away_score != null) return 'Final';
     return g.game_date < today ? 'No score' : 'Scheduled';
   };
 

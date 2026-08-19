@@ -148,16 +148,20 @@ export async function getGameById(req: Request<{ id: string }>, res: Response) {
 
     // The pre-game preview averages a team's season to date. A finished game
     // has a real box score, so those two 600-row scans are pure waste there.
-    const seasonRowsFor = (teamId: number) =>
-      isCompleted
-        ? Promise.resolve({ data: [] as any[] })
-        : supabaseAdmin
-            .from(lg.statsTable)
-            .select(`${statSelect}, players!inner(name, position)`)
-            .eq('team_id', teamId)
-            .lte('game_date', g.game_date)
-            .order('game_date', { ascending: false })
-            .limit(600);
+    const seasonRowsFor = (teamId: number) => {
+      if (isCompleted) return Promise.resolve({ data: [] as any[] });
+      let q = supabaseAdmin
+        .from(lg.statsTable)
+        .select(`${statSelect}, players!inner(name, position)`)
+        .eq('team_id', teamId)
+        .lte('game_date', g.game_date);
+      // Garbage-time floor: NBA's primary group gates on minutes_played, and a
+      // 1-4 minute token appearance shouldn't drag a rotation player's season
+      // average down. Other leagues' gate columns (plate_appearances,
+      // toi_seconds, attempts, ...) never had an equivalent floor.
+      if (primaryGroup.gate === 'minutes_played') q = q.gte('minutes_played', 5);
+      return q.order('game_date', { ascending: false }).limit(600);
+    };
 
     const [
       boxResult,

@@ -138,10 +138,11 @@ export function parseRow(
       valueLabel = `${asString(row.statLabel) ?? 'LINE'}${row.directionLabel ? ` ${row.directionLabel}` : ''}`
       const hit = asNumber(row.hit_rate)
       const conf = asNumber(row.confidence_score)
+      const edge = asNumber(row.edgePct)
       secondary = [
         hit != null ? `hit ${Math.round(hit * 100)}%` : null,
         conf != null ? `conf ${Math.round(conf)}` : null,
-        row.edgePct != null ? `edge ${asNumber(row.edgePct)}%` : null,
+        edge != null ? `edge ${edge}%` : null,
       ]
         .filter(Boolean)
         .join(' · ')

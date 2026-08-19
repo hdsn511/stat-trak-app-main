@@ -34,9 +34,15 @@ export function usePlayerFilters({ games, statDefs, initial }: Args) {
   // Recompute the untouched line whenever the slice or stat changes.
   const sig = `${filters.window}|${filters.vsTeam}|${filters.homeAway}|${filters.stat}`
   const lastSig = useRef<string | null>(null)
+  // `sig` alone misses a player swap that lands on the same filter values
+  // (e.g. two players both viewed on the default window/stat) — SportQuery's
+  // DetailPane reuses this hook across selections without remounting it, so
+  // the games array reference is the only signal a different player loaded.
+  const lastGames = useRef<GameRow[] | null>(null)
   useEffect(() => {
-    if (lastSig.current === sig) return
+    if (lastSig.current === sig && lastGames.current === games) return
     lastSig.current = sig
+    lastGames.current = games
     setFilters((f) => {
       if (f.lineTouched) return f
       const def = defFor(f.stat)

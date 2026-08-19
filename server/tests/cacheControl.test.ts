@@ -7,17 +7,25 @@ import { cacheControl } from '../src/middleware/cacheControl';
 // — for /sportquery — lets a shared cache serve one visitor's session to
 // another, since the API has no per-user auth.
 
-function run(method: string, path: string) {
+/**
+ * `statusCode` defaults to 200 and `json()` is called after the middleware
+ * runs, mirroring how a real handler works: the header can only reflect the
+ * response's outcome once the handler has actually decided one.
+ */
+function run(method: string, path: string, statusCode = 200) {
   const headers: Record<string, string> = {};
   const req = { method, path } as Request;
   const res = {
+    statusCode,
     setHeader: (k: string, v: string) => {
       headers[k] = v;
     },
+    json: () => res,
   } as unknown as Response;
   const next = vi.fn() as unknown as NextFunction;
 
   cacheControl()(req, res, next);
+  if (method === 'GET' && !path.startsWith('/sportquery')) res.json({});
   return { cacheControlHeader: headers['Cache-Control'], next };
 }
 
@@ -69,4 +77,11 @@ describe('cacheControl', () => {
   ])('never caches per-session path %s', (path) => {
     expect(run('GET', path).cacheControlHeader).toBe('no-store');
   });
+
+  it.each([[500], [503], [404]])(
+    'never caches a %d response as public, even on a normally-cacheable path',
+    (statusCode) => {
+      expect(run('GET', '/nba/trends/top', statusCode).cacheControlHeader).toBe('no-store');
+    }
+  );
 });

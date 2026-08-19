@@ -69,7 +69,7 @@ export default function ResultCards({
     .slice(0, MAX_CARDS)
     .map((row) => ({ row, meta: parseRow(row, shape, metricKey) }))
   // Cards only make sense when the rows actually name something openable.
-  const openable = parsed.filter((p) => p.meta.playerName || p.meta.playerId)
+  const openable = parsed.filter((p) => p.meta.playerName || p.meta.playerId != null)
 
   if (openable.length === 0) return <GenericTable rows={rows} />
 
@@ -81,7 +81,7 @@ export default function ResultCards({
           selection.kind === 'player' &&
           selection.playerId === meta.playerId
 
-        const label = meta.playerName ?? (meta.playerId ? `#${meta.playerId}` : '—')
+        const label = meta.playerName ?? (meta.playerId != null ? `#${meta.playerId}` : '—')
         const canOpen = meta.playerId != null && meta.playerId > 0
 
         const body = (

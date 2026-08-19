@@ -64,6 +64,12 @@ export default function DetailPane({ selection, onClose }: DetailPaneProps) {
       )}
       {!loading && data && (
         <PlayerView
+          // Selecting a different player reuses this same DetailPane instance
+          // rather than remounting it, so without a key tied to the player,
+          // PlayerView's internal filter state (seeded once via useState's
+          // lazy initializer) would carry over instead of applying the newly
+          // parsed initialFilters below.
+          key={playerId}
           slug={LEAGUE}
           data={data}
           mode="panel"

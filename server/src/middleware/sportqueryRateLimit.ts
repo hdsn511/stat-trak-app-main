@@ -3,15 +3,22 @@ import rateLimit from 'express-rate-limit'
 import { Ratelimit } from '@upstash/ratelimit'
 import { redis } from '../config/redis'
 
-/**
- * Shared by every limiter and declared at module scope on purpose — Upstash
- * reads it before touching the network, so an already-blocked caller costs zero
- * Redis commands for as long as the container stays warm. That is what keeps
- * the free tier's 500K commands/month budget intact under a burst.
- */
-const ephemeralCache = new Map<string, number>()
-
 type Window = `${number} ${'ms' | 's' | 'm' | 'h' | 'd'}`
+
+/**
+ * The client's real IP. `req.ip` is useless here without `app.set('trust
+ * proxy', ...)`, which this app deliberately doesn't set — the Lambda sits
+ * behind Lambda Web Adapter, so trusting an arbitrary hop count of
+ * X-Forwarded-For is fragile. Cloudflare's edge sets CF-Connecting-IP on
+ * every request and overwrites any client-supplied value, so it's a safe,
+ * unspoofable source of the caller's IP for the one path (the Pages Function
+ * proxy) that's allowed to reach this Lambda at all.
+ */
+function clientIdentifier(req: Request): string {
+  const cfIp = req.headers['cf-connecting-ip']
+  if (typeof cfIp === 'string' && cfIp) return cfIp
+  return req.ip ?? 'unknown'
+}
 
 /**
  * A sliding-window limiter backed by Upstash, falling back to an in-process
@@ -39,6 +46,13 @@ function makeLimiter(limit: number, window: Window, prefix: string, message: str
 
   if (!redis) return memoryLimiter
 
+  // One Map per limiter, not shared across the minute/daily instances: Upstash
+  // reads this before touching the network, so an already-blocked caller costs
+  // zero Redis commands for as long as the container stays warm — but a Map
+  // shared between limiters mixes up which limiter actually blocked a given
+  // identifier, since the cache key doesn't carry the prefix.
+  const ephemeralCache = new Map<string, number>()
+
   const ratelimit = new Ratelimit({
     redis,
     limiter: Ratelimit.slidingWindow(limit, window),
@@ -50,7 +64,7 @@ function makeLimiter(limit: number, window: Window, prefix: string, message: str
   })
 
   return async (req: Request, res: Response, next: NextFunction) => {
-    const identifier = req.ip ?? 'unknown'
+    const identifier = clientIdentifier(req)
     try {
       const { success, reset } = await ratelimit.limit(identifier)
       if (!success) {

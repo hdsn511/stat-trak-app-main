@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { ResultRow, ResultShape } from '@/services/sportqueryApi'
 import { formatCell, genericColumns, humanizeKey, inferMetricKey, parseRow } from './resultRows'
 import type { Selection } from './selection'
@@ -14,9 +15,10 @@ interface ResultCardsProps {
 const MAX_CARDS = 12
 
 /** Rows the generic table renders when nothing recognisable is in them. */
-function GenericTable({ rows }: { rows: ResultRow[] }) {
+function GenericTable({ rows, expanded }: { rows: ResultRow[]; expanded: boolean }) {
   const columns = genericColumns(rows)
   if (columns.length === 0) return null
+  const shown = expanded ? rows : rows.slice(0, MAX_CARDS)
 
   return (
     <div className="bg-[#1B1715] border border-[#2C2624] rounded-lg overflow-x-auto">
@@ -34,7 +36,7 @@ function GenericTable({ rows }: { rows: ResultRow[] }) {
           </tr>
         </thead>
         <tbody>
-          {rows.slice(0, MAX_CARDS).map((row, i) => (
+          {shown.map((row, i) => (
             <tr key={i} className="border-t border-[#221D1A]">
               {columns.map((c) => (
                 <td
@@ -60,18 +62,36 @@ export default function ResultCards({
   selection,
   onSelect,
 }: ResultCardsProps) {
+  const [expanded, setExpanded] = useState(false)
+
   if (rows.length === 0) return null
 
   // Inferred over the full result set, not the visible slice — the sort signal
   // is stronger with more rows.
   const metricKey = inferMetricKey(rows)
-  const parsed = rows
-    .slice(0, MAX_CARDS)
-    .map((row) => ({ row, meta: parseRow(row, shape, metricKey) }))
+  const shown = expanded ? rows : rows.slice(0, MAX_CARDS)
+  const parsed = shown.map((row) => ({ row, meta: parseRow(row, shape, metricKey) }))
   // Cards only make sense when the rows actually name something openable.
   const openable = parsed.filter((p) => p.meta.playerName || p.meta.playerId != null)
 
-  if (openable.length === 0) return <GenericTable rows={rows} />
+  const expandToggle = rows.length > MAX_CARDS && (
+    <button
+      type="button"
+      onClick={() => setExpanded((v) => !v)}
+      className="text-left font-martian font-bold text-[9px] text-[#FF6B3D] tracking-[1px] px-1 py-1 hover:text-[#FFD9C9] cursor-pointer"
+    >
+      {expanded ? `// SHOW TOP ${MAX_CARDS} ↑` : `// SHOW ALL ${rows.length} ROWS ↓`}
+    </button>
+  )
+
+  if (openable.length === 0) {
+    return (
+      <div className="flex flex-col gap-2">
+        <GenericTable rows={rows} expanded={expanded} />
+        {expandToggle}
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col gap-2">
@@ -139,11 +159,7 @@ export default function ResultCards({
         )
       })}
 
-      {rows.length > MAX_CARDS && (
-        <div className="font-martian text-[9px] text-[#665F5D] tracking-[1px] px-1">
-          {`// SHOWING ${MAX_CARDS} OF ${rows.length} ROWS`}
-        </div>
-      )}
+      {expandToggle}
     </div>
   )
 }

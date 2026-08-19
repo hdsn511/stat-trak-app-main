@@ -16,7 +16,7 @@ export default defineConfig({
     // so the client's relative API paths work identically in dev and deployed.
     proxy: {
       '/api': {
-        target: process.env.VITE_DEV_API_TARGET ?? 'http://localhost:3000',
+        target: process.env.VITE_DEV_API_TARGET ?? 'http://localhost:3001',
         changeOrigin: true,
       },
     },

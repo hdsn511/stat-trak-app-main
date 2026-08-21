@@ -84,6 +84,24 @@ jobs:
 
       - name: SAM deploy
         run: |
+          # AllowedOrigins is normally empty (same-origin via the Pages proxy
+          # needs no CORS allowlist), and newer sam/aws-cli rejects a
+          # shorthand `Key=` override with nothing after the `=`. The
+          # CloudFormation parameter already defaults to '', so the fix is to
+          # not pass the override at all when there's no value.
+          params=(
+            SupabaseUrl="${{ secrets.SUPABASE_URL }}"
+            SupabaseServiceRoleKey="${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}"
+            SportqueryDbUrl="${{ secrets.SPORTQUERY_DB_URL }}"
+            GroqApiKey="${{ secrets.GROQ_API_KEY }}"
+            UpstashRedisRestUrl="${{ secrets.UPSTASH_REDIS_REST_URL }}"
+            UpstashRedisRestToken="${{ secrets.UPSTASH_REDIS_REST_TOKEN }}"
+            ApiSharedSecret="${{ secrets.API_SHARED_SECRET }}"
+          )
+          if [ -n "${{ vars.ALLOWED_ORIGINS }}" ]; then
+            params+=(AllowedOrigins="${{ vars.ALLOWED_ORIGINS }}")
+          fi
+
           sam deploy \
             --template infra/template.yaml \
             --stack-name "$STACK_NAME" \
@@ -92,15 +110,7 @@ jobs:
             --resolve-s3 \
             --no-confirm-changeset \
             --no-fail-on-empty-changeset \
-            --parameter-overrides \
-              SupabaseUrl="${{ secrets.SUPABASE_URL }}" \
-              SupabaseServiceRoleKey="${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
-              SportqueryDbUrl="${{ secrets.SPORTQUERY_DB_URL }}" \
-              GroqApiKey="${{ secrets.GROQ_API_KEY }}" \
-              UpstashRedisRestUrl="${{ secrets.UPSTASH_REDIS_REST_URL }}" \
-              UpstashRedisRestToken="${{ secrets.UPSTASH_REDIS_REST_TOKEN }}" \
-              ApiSharedSecret="${{ secrets.API_SHARED_SECRET }}" \
-              AllowedOrigins="${{ vars.ALLOWED_ORIGINS }}"
+            --parameter-overrides "${params[@]}"
 
       - name: Show Function URL
         run: |

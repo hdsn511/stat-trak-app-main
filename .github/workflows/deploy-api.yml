@@ -33,11 +33,11 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
           cache-dependency-path: server/package-lock.json
 
@@ -51,20 +51,32 @@ jobs:
         working-directory: server
         run: npm run build
 
+      # supabaseAdmin.ts throws at import time without these, which every
+      # controller transitively imports — the deploy secrets below only reach
+      # the deployed Lambda, not this step, so the suite needs its own copy.
       - name: Test
         working-directory: server
         run: npm test
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SPORTQUERY_DB_URL: ${{ secrets.SPORTQUERY_DB_URL }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
+          UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
+          API_SHARED_SECRET: ${{ secrets.API_SHARED_SECRET }}
 
       - name: Build Lambda bundle
         working-directory: server
         run: npm run build:lambda
 
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - uses: aws-actions/setup-sam@v2
+      - uses: aws-actions/setup-sam@v3
         with:
           use-installer: true
 

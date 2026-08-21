@@ -25,7 +25,7 @@ const result = await build({
   bundle: true,
   platform: 'node',
   // Matches the SAM runtime in infra/template.yaml.
-  target: 'node20',
+  target: 'node24',
   format: 'cjs',
   external,
   // Not minified on purpose: the artifact is already small, and readable

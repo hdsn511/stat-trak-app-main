@@ -57,7 +57,7 @@ Resources:
       # The Lambda Web Adapter layer execs this script and proxies invocations
       # to the HTTP server it starts, so the Express app needs no adapter shim.
       Handler: run.sh
-      Runtime: nodejs20.x
+      Runtime: nodejs24.x
       Layers:
         - !Sub 'arn:aws:lambda:${AWS::Region}:753240598075:layer:LambdaAdapterLayerArm64:28'
       Environment:

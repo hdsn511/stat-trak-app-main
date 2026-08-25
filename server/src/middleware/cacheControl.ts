@@ -48,8 +48,6 @@ export function cacheControl() {
     const originalJson = res.json.bind(res)
     res.json = (body?: unknown) => {
       const ok = res.statusCode >= 200 && res.statusCode < 300
-      res.setHeader('X-Debug-Status', String(res.statusCode))
-      res.setHeader('X-Debug-Path', req.path)
       res.setHeader(
         'Cache-Control',
         ok ? `public, max-age=${maxAge}, stale-while-revalidate=${swr}` : 'no-store'

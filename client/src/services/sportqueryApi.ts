@@ -1,5 +1,12 @@
+import { getSportQueryClientId } from '@/lib/sportqueryClientId'
+
 // See services/api.ts for why this is relative by default.
 const BASE = `${import.meta.env.VITE_API_BASE_URL ?? '/api'}/sportquery`
+const CLIENT_ID_HEADER = 'x-sportquery-client-id'
+
+function clientHeaders(extra?: HeadersInit): HeadersInit {
+  return { [CLIENT_ID_HEADER]: getSportQueryClientId(), ...extra }
+}
 
 export type SessionSummary = {
   id: string
@@ -35,21 +42,24 @@ async function json<T>(res: Response): Promise<T> {
 }
 
 export async function createSession(): Promise<string> {
-  const res = await fetch(`${BASE}/session`, { method: 'POST' })
+  const res = await fetch(`${BASE}/session`, { method: 'POST', headers: clientHeaders() })
   const data = await json<{ sessionId: string }>(res)
   return data.sessionId
 }
 
 export async function listSessions(): Promise<SessionSummary[]> {
-  return json(await fetch(`${BASE}/sessions`))
+  return json(await fetch(`${BASE}/sessions`, { headers: clientHeaders() }))
 }
 
 export async function loadMessages(sessionId: string): Promise<MessageRow[]> {
-  return json(await fetch(`${BASE}/session/${sessionId}/messages`))
+  return json(await fetch(`${BASE}/session/${sessionId}/messages`, { headers: clientHeaders() }))
 }
 
 export async function deleteSession(sessionId: string): Promise<void> {
-  const res = await fetch(`${BASE}/session/${sessionId}`, { method: 'DELETE' })
+  const res = await fetch(`${BASE}/session/${sessionId}`, {
+    method: 'DELETE',
+    headers: clientHeaders(),
+  })
   await json<unknown>(res)
 }
 
@@ -86,7 +96,7 @@ export async function streamMessage(
 ): Promise<void> {
   const res = await fetch(`${BASE}/message`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: clientHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ sessionId, message }),
     signal,
   })

@@ -12,6 +12,17 @@ import {
 } from '../services/sportquerySession'
 import { detectShape, enrich } from '../services/sportqueryEnrich'
 import { supabaseAdmin } from '../config/supabaseAdmin'
+import { ownsSession } from '../services/sportquerySession'
+
+const CLIENT_ID_HEADER = 'x-sportquery-client-id'
+
+/** No login exists, so a per-browser id (generated and stored client-side) is
+ * the only thing scoping "whose session is this" — see sportquerySession.ts's
+ * ownsSession for why every route below checks it. */
+function clientIdFrom(req: Request): string {
+  const raw = req.get(CLIENT_ID_HEADER)
+  return typeof raw === 'string' && raw.trim() ? raw.trim().slice(0, 128) : 'anonymous'
+}
 
 type SlateTable = 'pick_results' | 'daily_lines'
 
@@ -94,18 +105,18 @@ async function maybeWidenToNearestSlate(
   }
 }
 
-export async function postSession(_req: Request, res: Response) {
+export async function postSession(req: Request, res: Response) {
   try {
-    const s = await createSession()
+    const s = await createSession(clientIdFrom(req))
     res.json({ success: true, data: { sessionId: s.id } })
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message })
   }
 }
 
-export async function getSessions(_req: Request, res: Response) {
+export async function getSessions(req: Request, res: Response) {
   try {
-    const rows = await listSessions()
+    const rows = await listSessions(clientIdFrom(req))
     res.json({ success: true, data: rows })
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message })
@@ -114,6 +125,10 @@ export async function getSessions(_req: Request, res: Response) {
 
 export async function getSessionMessages(req: Request, res: Response) {
   try {
+    if (!(await ownsSession(req.params.id!, clientIdFrom(req)))) {
+      res.status(404).json({ success: false, error: 'session not found' })
+      return
+    }
     const rows = await getMessages(req.params.id!)
     res.json({ success: true, data: rows })
   } catch (err: any) {
@@ -123,7 +138,7 @@ export async function getSessionMessages(req: Request, res: Response) {
 
 export async function deleteSessionHandler(req: Request, res: Response) {
   try {
-    await deleteSession(req.params.id!)
+    await deleteSession(req.params.id!, clientIdFrom(req))
     res.json({ success: true })
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message })
@@ -136,6 +151,11 @@ export async function postMessage(req: Request, res: Response) {
     res
       .status(400)
       .json({ success: false, error: 'sessionId and message required' })
+    return
+  }
+
+  if (!(await ownsSession(sessionId, clientIdFrom(req)))) {
+    res.status(404).json({ success: false, error: 'session not found' })
     return
   }
 

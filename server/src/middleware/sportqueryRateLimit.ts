@@ -93,3 +93,14 @@ export const sportqueryDailyLimiter = makeLimiter(
   'sportquery-day',
   'rate_limit: daily cap reached'
 )
+
+// Session create/list/read/delete cost a single cheap row operation each —
+// not an LLM call — so this is far more generous than the message limiter.
+// It exists only to stop someone from scripting mass session creation or
+// mass deletion, not to throttle normal use.
+export const sportquerySessionLimiter = makeLimiter(
+  60,
+  '1 m',
+  'sportquery-session',
+  'rate_limit: slow down'
+)

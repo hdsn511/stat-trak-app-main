@@ -28,7 +28,7 @@ export type AppendExtras = {
   resultShape?: string | null
 }
 
-export async function createSession(userId = 'local'): Promise<SessionRow> {
+export async function createSession(userId: string): Promise<SessionRow> {
   const { data, error } = await supabaseAdmin
     .from('sportquery_sessions')
     .insert({ user_id: userId })
@@ -38,7 +38,7 @@ export async function createSession(userId = 'local'): Promise<SessionRow> {
   return data as SessionRow
 }
 
-export async function listSessions(userId = 'local'): Promise<SessionRow[]> {
+export async function listSessions(userId: string): Promise<SessionRow[]> {
   const { data, error } = await supabaseAdmin
     .from('sportquery_sessions')
     .select('*')
@@ -47,6 +47,23 @@ export async function listSessions(userId = 'local'): Promise<SessionRow[]> {
     .limit(50)
   if (error) throw error
   return data as SessionRow[]
+}
+
+/**
+ * True when the session exists and belongs to userId. Every read/write below
+ * a sessionId gates on this first — without it, knowing (or guessing) any
+ * session's UUID would let a caller read or mutate someone else's
+ * conversation, since there is no other form of auth on this API.
+ */
+export async function ownsSession(sessionId: string, userId: string): Promise<boolean> {
+  const { data, error } = await supabaseAdmin
+    .from('sportquery_sessions')
+    .select('id')
+    .eq('id', sessionId)
+    .eq('user_id', userId)
+    .maybeSingle()
+  if (error) throw error
+  return data != null
 }
 
 export async function getMessages(sessionId: string): Promise<MessageRow[]> {
@@ -101,10 +118,13 @@ export async function setSessionTitle(
   if (error) throw error
 }
 
-export async function deleteSession(sessionId: string): Promise<void> {
+/** Scoped to userId directly (not a check-then-delete) so there is no race
+ * where the row changes owner between the check and the delete. */
+export async function deleteSession(sessionId: string, userId: string): Promise<void> {
   const { error } = await supabaseAdmin
     .from('sportquery_sessions')
     .delete()
     .eq('id', sessionId)
+    .eq('user_id', userId)
   if (error) throw error
 }

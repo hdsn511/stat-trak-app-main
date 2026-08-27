@@ -5,11 +5,13 @@
 // Adapter invokes as the function handler.
 import { build } from 'esbuild'
 import { cp, mkdir, rm, readFile, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const serverRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const outDir = resolve(serverRoot, 'build/lambda')
+const require = createRequire(import.meta.url)
 
 await rm(outDir, { recursive: true, force: true })
 await mkdir(outDir, { recursive: true })
@@ -41,6 +43,15 @@ await cp(
   resolve(outDir, 'node_modules/libpg-query'),
   { recursive: true }
 )
+
+// libpg-query's wasm build does a real runtime `require('@pgsql/types')` —
+// it is not a types-only package despite the name — so it has to ship too.
+// Resolved via Node's own algorithm rather than assumed at a fixed path:
+// npm's hoisting decision for this package is not guaranteed stable across
+// installs, and a wrong assumption here fails silently until SportQuery
+// actually runs a query against the deployed Lambda.
+const pgsqlTypesDir = dirname(require.resolve('@pgsql/types/package.json'))
+await cp(pgsqlTypesDir, resolve(outDir, 'node_modules/@pgsql/types'), { recursive: true })
 
 await cp(resolve(serverRoot, 'lambda/run.sh'), resolve(outDir, 'run.sh'))
 

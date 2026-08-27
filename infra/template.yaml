@@ -43,7 +43,13 @@ Parameters:
 Globals:
   Function:
     Timeout: 60
-    MemorySize: 1024
+    # libpg-query's WASM parser is CPU/memory-heavy to instantiate — under
+    # 1024MB, SportQuery hung for ~27s per request in production (never
+    # locally, where memory isn't constrained) with no error event, which
+    # points at Lambda's memory-proportional CPU throttling rather than a
+    # logic bug. Lambda bills GB-seconds, so more memory here can be cheaper
+    # overall if it finishes faster than it costs.
+    MemorySize: 2048
     # ~20% cheaper per GB-second than x86_64.
     Architectures:
       - arm64

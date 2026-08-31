@@ -26,10 +26,22 @@ function clientIdFrom(req: Request): string {
 
 type SlateTable = 'pick_results' | 'daily_lines'
 
-// SportQuery's documented schema is NBA-only, so every slate lookup is too.
-// Without this the fallback finds an MLB date, substitutes it into an
-// NBA-scoped query, and still comes back empty.
-const SPORTQUERY_LEAGUE_ID = 1
+// daily_lines/pick_results only ever hold NBA (1) and MLB (2) rows — see
+// leagues.ts's hasMarkets. A widening attempt for any other league_id would
+// just re-query an empty table, so it's skipped rather than defaulted to NBA.
+const LEAGUES_WITH_MARKETS = new Set([1, 2])
+
+// The system prompt now covers four sports, so the league a query targets has
+// to be read off the SQL the model actually wrote rather than assumed to be
+// NBA. Every example and rule in the prompt scopes shared tables with a
+// literal `league_id = <n>` filter, so this is reliable in practice; a query
+// with no such filter (a genuinely cross-sport UNION) just skips widening.
+const LEAGUE_ID_RE = /\bleague_id\s*=\s*(\d+)/i
+
+function extractLeagueId(sql: string): number | null {
+  const m = LEAGUE_ID_RE.exec(sql)
+  return m ? Number(m[1]) : null
+}
 
 /**
  * The slate closest to today, preferring an upcoming one. Looking only forward
@@ -37,7 +49,8 @@ const SPORTQUERY_LEAGUE_ID = 1
  * between slates and during an off-season.
  */
 async function findNearestSlate(
-  table: SlateTable
+  table: SlateTable,
+  leagueId: number
 ): Promise<{ date: string; direction: 'upcoming' | 'past' } | null> {
   const today = new Date().toISOString().slice(0, 10)
 
@@ -45,7 +58,7 @@ async function findNearestSlate(
     supabaseAdmin
       .from(table)
       .select('game_date')
-      .eq('league_id', SPORTQUERY_LEAGUE_ID)
+      .eq('league_id', leagueId)
       .gte('game_date', today)
       .order('game_date', { ascending: true })
       .limit(1)
@@ -53,7 +66,7 @@ async function findNearestSlate(
     supabaseAdmin
       .from(table)
       .select('game_date')
-      .eq('league_id', SPORTQUERY_LEAGUE_ID)
+      .eq('league_id', leagueId)
       .lt('game_date', today)
       .order('game_date', { ascending: false })
       .limit(1)
@@ -83,8 +96,11 @@ async function maybeWidenToNearestSlate(
   const linesMatch = /FROM\s+daily_lines/i.test(sql)
   if (!/CURRENT_DATE/.test(sql) || (!picksMatch && !linesMatch)) return { rows, note: null }
 
+  const leagueId = extractLeagueId(sql)
+  if (leagueId === null || !LEAGUES_WITH_MARKETS.has(leagueId)) return { rows, note: null }
+
   const table: SlateTable = picksMatch ? 'pick_results' : 'daily_lines'
-  const slate = await findNearestSlate(table)
+  const slate = await findNearestSlate(table, leagueId)
   if (!slate) return { rows, note: null }
 
   const v = await validateSql(sql.replace(/CURRENT_DATE/g, `'${slate.date}'`))

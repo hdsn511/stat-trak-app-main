@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**StatTrak** is a full-stack sports statistics and trends analysis app focused on identifying betting-relevant player performance trends. Currently only NBA data infrastructure is complete; NFL/MLB/NHL render a ComingSoon page.
+**StatTrak** is a full-stack sports statistics and trends analysis app focused on identifying betting-relevant player performance trends. NBA, MLB, NFL and NHL all have real data pipelines and league pages (see `server/src/config/leagues.ts`'s per-league registry); only NBA and MLB have a betting/picks pipeline (`hasMarkets: true`) — NFL and NHL have game and player stat data but no `daily_lines`/`pick_results` rows.
 
 ## Architecture
 

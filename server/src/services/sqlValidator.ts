@@ -25,6 +25,7 @@ const ALLOWED_TABLES = new Set([
   'games',
   'leagues',
   'rosters',
+  'team_standings',
   'nba_player_stats',
   'nba_trends',
   'player_game_conditions',
@@ -35,6 +36,16 @@ const ALLOWED_TABLES = new Set([
   'daily_lines',
   'pick_results',
   'game_matchups',
+  'mlb_player_stats',
+  'mlb_trends',
+  'mlb_player_game_conditions',
+  'mlb_daily_conditions',
+  'mlb_park_factors',
+  'mlb_pitcher_quality',
+  'nfl_player_stats',
+  'nfl_trends',
+  'nhl_player_stats',
+  'nhl_trends',
 ])
 
 function collectRangeVars(node: any, bucket: string[]): void {

@@ -94,25 +94,6 @@ LIMIT 20`,
     }),
   },
   {
-    user: 'Who has faced the worst defenses against their position recently?',
-    assistant: JSON.stringify({
-      sql: `SELECT p.id, p.name, p.team, p.position, opd.league_rank, opd.pts_allowed_pg
-FROM players p
-JOIN opponent_position_defense opd ON opd.team_id IN (
-  SELECT pgc.opponent_team_id
-  FROM player_game_conditions pgc
-  WHERE pgc.player_id = p.id
-    AND pgc.game_date >= CURRENT_DATE - INTERVAL '14 days'
-)
-AND opd.position_group = LEFT(p.position, 1)
-WHERE opd.league_rank >= 25
-ORDER BY opd.league_rank DESC
-LIMIT 20`,
-      narrative:
-        'Players who in the last 14 days faced teams ranked in the bottom 6 defensively against their position.',
-    }),
-  },
-  {
     user: 'What home/away split does Anthony Edwards have on points this season?',
     assistant: JSON.stringify({
       sql: `SELECT pgc.home_away,
@@ -195,6 +176,45 @@ ORDER BY t.trend_val DESC
 LIMIT 20`,
       narrative:
         "Guards on today's slate trending up on points (10-game window) against a bottom-10 positional defense.",
+    }),
+  },
+  {
+    // Teaches the mlb_trends stat encoding (0=hits, DIFFERENT from nba_trends's
+    // 0=points) and that a named player picks the sport, not a stat filter.
+    user: "What's Ohtani's home run trend over the last 10 games?",
+    assistant: JSON.stringify({
+      sql: `SELECT p.id AS player_id, p.name, p.team, t.trend_val AS z_score, t.rolling_avg, t.season_avg
+FROM mlb_trends t
+JOIN players p ON t.player_id = p.id
+WHERE p.name ILIKE '%ohtani%'
+  AND t.stat = 4 AND t.window_size = 10`,
+      narrative: "Shohei Ohtani's 10-game home run trend against his season average.",
+    }),
+  },
+  {
+    // NFL has no picks/lines pipeline and no per-position played-gate column —
+    // this shows scoping to league_id 3 and using targets as the played signal.
+    user: 'Which wide receivers are trending up on receiving yards over the last 5 games?',
+    assistant: JSON.stringify({
+      sql: `SELECT p.id AS player_id, p.name, p.team, t.trend_val AS z_score, t.rolling_avg
+FROM nfl_trends t
+JOIN players p ON t.player_id = p.id
+WHERE p.league_id = 3 AND p.position = 'WR'
+  AND t.stat = 4 AND t.window_size = 5
+ORDER BY t.trend_val DESC
+LIMIT 20`,
+      narrative: 'Wide receivers trending up on receiving yards (5-game z-score) against their season baseline.',
+    }),
+  },
+  {
+    // NHL: skaters and goalies share nhl_player_stats; toi is stored in
+    // seconds. Also demonstrates declining a picks/lines question for a
+    // no-markets league instead of returning an empty result silently.
+    user: 'Give me tonight\'s best value picks for the NHL slate.',
+    assistant: JSON.stringify({
+      sql: null,
+      narrative:
+        "StatTrak doesn't generate betting picks or lines for the NHL yet — that pipeline only covers NBA and MLB. I can show trending or streaking NHL skaters/goalies instead if that helps.",
     }),
   },
 ]

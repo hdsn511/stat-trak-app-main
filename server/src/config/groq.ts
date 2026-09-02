@@ -14,7 +14,8 @@ export const SPORTQUERY_MODEL = 'openai/gpt-oss-120b'
 export const SQL_TEMPERATURE = 0.1
 export const NARRATIVE_TEMPERATURE = 0.5
 export const MAX_INPUT_TOKENS = 8000
-// Multi-sport docs pushed the system prompt close to Groq's 8K TPM ceiling
-// (which counts prompt + this reservation together), so this was trimmed
-// from 2000 — observed JSON envelopes (sql + narrative) run well under 1000.
-export const MAX_OUTPUT_TOKENS = 1000
+// Groq's 8K TPM ceiling counts prompt + this reservation together, which is
+// why this isn't 2000 (the original value) — but a gaps-and-islands streak
+// query needs more than the 1000 that was tried first, which cut the model
+// off mid-JSON on exactly that kind of question. 1600 is the balance point.
+export const MAX_OUTPUT_TOKENS = 1600

@@ -18,21 +18,6 @@ LIMIT 20`,
     }),
   },
   {
-    user: 'Which guards are trending up on assists over the last 5 games?',
-    assistant: JSON.stringify({
-      sql: `SELECT p.id, p.name, p.team, p.position, t.trend_val AS z_score, t.rolling_avg
-FROM nba_trends t
-JOIN players p ON t.player_id = p.id
-WHERE t.stat = 2 AND t.window_size = 5
-  AND (p.position ILIKE '%G%' OR p.position IN ('PG','SG','G'))
-  AND t.trend_val > 0.8
-ORDER BY t.trend_val DESC
-LIMIT 20`,
-      narrative:
-        'Guards with positive assist trends (z > 0.8) over their last 5 games.',
-    }),
-  },
-  {
     user: "LeBron's last 10 games without Austin Reaves.",
     assistant: JSON.stringify({
       sql: `SELECT s.game_date, g.ext_id, s.points, s.rebounds, s.assists,
@@ -94,21 +79,31 @@ LIMIT 20`,
     }),
   },
   {
-    user: 'What home/away split does Anthony Edwards have on points this season?',
+    // Gaps-and-islands streak counting: the general pattern for any "how many
+    // times has team/player X gone on a N+ game streak" question, on any
+    // sport. Deliberately terse — this is the shape completions should match,
+    // not sprawl into, since a bloated version of this can run the model out
+    // of its output budget before the JSON closes.
+    user: 'How many times have the Brewers gone on more than a 2-game losing streak this season?',
     assistant: JSON.stringify({
-      sql: `SELECT pgc.home_away,
-       AVG(s.points) AS avg_points,
-       COUNT(*) AS games
-FROM nba_player_stats s
-JOIN players p ON s.player_id = p.id
-JOIN player_game_conditions pgc ON pgc.player_id = p.id AND pgc.game_id = s.game_id
-JOIN games g ON g.id = s.game_id
-WHERE p.name ILIKE '%anthony%edwards%'
-  AND g.league_id = 1
-  AND g.season = (SELECT MAX(season) FROM games WHERE league_id = 1)
-GROUP BY pgc.home_away`,
-      narrative:
-        "Anthony Edwards's home vs away scoring averages for the current season.",
+      sql: `WITH team_games AS (
+  SELECT g.game_date,
+         CASE WHEN (g.home_team_id = tm.id AND g.home_score < g.away_score)
+                OR (g.away_team_id = tm.id AND g.away_score < g.home_score)
+              THEN 1 ELSE 0 END AS is_loss
+  FROM games g
+  JOIN teams tm ON tm.id IN (g.home_team_id, g.away_team_id)
+  WHERE g.league_id = 2 AND tm.abbreviation = 'MIL'
+    AND g.home_score IS NOT NULL AND g.away_score IS NOT NULL
+    AND g.season = (SELECT MAX(season) FROM games WHERE league_id = 2)
+), grouped AS (
+  SELECT is_loss,
+         ROW_NUMBER() OVER (ORDER BY game_date) - ROW_NUMBER() OVER (PARTITION BY is_loss ORDER BY game_date) AS grp
+  FROM team_games
+)
+SELECT COUNT(*) AS losing_streaks_over_2
+FROM (SELECT 1 FROM grouped WHERE is_loss = 1 GROUP BY grp HAVING COUNT(*) > 2) s`,
+      narrative: 'Number of times the Brewers have lost more than 2 games in a row this season.',
     }),
   },
   {

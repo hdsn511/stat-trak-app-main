@@ -43,6 +43,11 @@ CONDITIONS_LOOKBACK_DAYS = 45  # Incremental mode: how far back to look for a pl
 
 # ── Supabase pagination helper ──────────────────────────────────────────────────
 
+# Tables without a surrogate `id` column page over their composite key.
+_PK_ORDER: dict[str, list[str]] = {
+    "nba_player_stats": ["game_id", "player_id"],
+}
+
 def _fetch_all(table: str, select: str = "*", filters: Optional[list] = None) -> list[dict]:
     """
     Paginate through a Supabase table, fetching up to 1000 rows per request.
@@ -56,10 +61,17 @@ def _fetch_all(table: str, select: str = "*", filters: Optional[list] = None) ->
     rows: list[dict] = []
     page = 0
     page_size = 1000
+    # range() paging over an unordered query is not stable in Postgres: pages
+    # can overlap or skip rows, silently dropping data from a derived table.
+    # Always page over the table's primary key.
+    order_cols = _PK_ORDER.get(table, ["id"])
     while True:
         start = page * page_size
         end = start + page_size - 1
-        q = supabase.table(table).select(select).range(start, end)
+        q = supabase.table(table).select(select)
+        for col in order_cols:
+            q = q.order(col)
+        q = q.range(start, end)
         if filters:
             for method, *args in filters:
                 target = q

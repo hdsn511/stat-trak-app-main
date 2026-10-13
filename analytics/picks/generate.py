@@ -37,7 +37,7 @@ from datetime import date as _date
 from datetime import date, datetime, timedelta
 from typing import Optional
 
-from analytics.db.connection import supabase
+from analytics.db.connection import NBA_LEAGUE_ID, supabase
 from analytics.engine.backtest import backtest_player, backtest_game_prop, backtest_winner, build_team_form_cache, load_completed_games
 from analytics.engine.scorer import score, MIN_HIT_RATE, MIN_EDGE, MAX_IMPLIED_PROB
 from analytics.kalshi.client import KalshiClient
@@ -90,7 +90,12 @@ def _parse_ticker_game_date(ticker: str, fallback: str) -> str:
         yr = 2000 + int(m.group(1))
         mo = _MONTH_MAP[m.group(2)]
         dy = int(m.group(3))
-        return _date(yr, mo, dy).isoformat()
+        # Some Kalshi series prefix the date as DDMONYY ('27APR26' = 2026-04-27)
+        # instead of YYMONDD. A date months in the future is that form: swap.
+        parsed = _date(yr, mo, dy)
+        if parsed > _date.today() + timedelta(days=120):
+            parsed = _date(2000 + dy, mo, int(m.group(1)))
+        return parsed.isoformat()
     except (KeyError, ValueError):
         return fallback
 
@@ -113,6 +118,7 @@ def _store_daily_lines(
         entity_id = name_to_id.get(player_name)
         for entry in lines:
             rows.append({
+                "league_id": NBA_LEAGUE_ID,
                 "game_date": _parse_ticker_game_date(entry.get("ticker", ""), date_str),
                 "prop_type": "player",
                 "entity_id": entity_id,
@@ -132,6 +138,7 @@ def _store_daily_lines(
             team_abbr = entry.get("team_abbr")
             team_id = abbr_to_team_id.get(team_abbr) if team_abbr else None
             rows.append({
+                "league_id": NBA_LEAGUE_ID,
                 "game_date": _parse_ticker_game_date(entry.get("ticker", ""), date_str),
                 "prop_type": prop_type,
                 "entity_id": game_id,
@@ -195,6 +202,7 @@ def _store_picks(game_date: date, picks: list[dict]) -> None:
 
     for p in picks:
         rows.append({
+            "league_id": NBA_LEAGUE_ID,
             "game_date": date_str,
             "prop_type": p.get("prop_type", "player"),
             "entity_id": p["entity_id"],

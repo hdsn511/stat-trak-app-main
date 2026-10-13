@@ -112,7 +112,7 @@ def run_injury_check(target_date: date, league: str = "nba") -> None:
     # Step 1: Load today's games — source of truth for which teams are playing
     game_rows = (
         supabase.table("games")
-        .select("id,home_team_id,away_team_id")
+        .select("id,home_team_id,away_team_id,status,home_score,away_score")
         .eq("game_date", date_str)
         .eq("league_id", cfg.league_id)
         .execute()
@@ -120,6 +120,19 @@ def run_injury_check(target_date: date, league: str = "nba") -> None:
     today_games = game_rows.data or []
     if not today_games:
         print("  No games scheduled today. Skipping.")
+        return
+
+    # Early exit: every game today is already final, so there is nothing left to
+    # invalidate and no ESPN/injury work to do (the hourly cron keeps firing
+    # through the late-night hours). Final = status 2, or both scores recorded
+    # (NBA status codes lag the data; scores are written only at final).
+    def _is_final(g: dict) -> bool:
+        return g.get("status") == 2 or (
+            g.get("home_score") is not None and g.get("away_score") is not None
+        )
+
+    if all(_is_final(g) for g in today_games):
+        print(f"  All {len(today_games)} game(s) today are final. Skipping.")
         return
 
     team_rows = (

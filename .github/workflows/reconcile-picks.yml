@@ -1,10 +1,10 @@
+# RETIRED (manual-only): superseded by .github/workflows/daily-data-sync.yml, which runs
+# every step of this workflow on a single daily cron. Kept only as a manual escape hatch.
 name: Reconcile Picks
 
 # Runs at noon ET daily (4:00pm UTC during EDT) to resolve yesterday's picks
 # once box scores from last night are in the DB.
 on:
-  schedule:
-    - cron: '0 16 * * *'
   workflow_dispatch:
 
 jobs:

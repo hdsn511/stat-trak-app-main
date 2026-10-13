@@ -247,6 +247,25 @@ order; a single slate is hundreds of rows.
 - **NBA players table only covers rows seeded earlier.** Boxscore athletes with no `players` row (e.g. new draft classes) are warned and skipped, never fabricated — extend `players` before expecting their stats.
 - **Condition loosening trades precision for sample size.** When few games match all 5 conditions, the engine drops conditions to meet `MIN_SAMPLE_SIZE`, which may reduce signal quality.
 
+## Scheduling (GitHub Actions)
+
+Production scheduling is GitHub Actions; the in-process `node-cron` scheduler is
+local/PM2 only (see `docs/RUNBOOK.md` 3.3).
+
+| Workflow | Cron (UTC) | What |
+|----------|-----------|------|
+| `daily-data-sync.yml` | `0 11 * * *` | Job `data`: NFL+NHL ESPN ingest (last 3 days, `--rosters`), MLB rosters + `mlb_nightly --today` (reconcile) + enrich + trends, NBA `nightly` (reconcile, backfill, conditions) + 7-day slate sync + trends, then `freshness_check`. Job `picks` (needs `data`, `continue-on-error`): MLB + NBA pick generation. Manual: `league` = all/nba/mlb/nfl/nhl, `force`, NFL/NHL date overrides. |
+| `mlb-selfheal-picks.yml` | hourly `13-23`, `0-4` | MLB picks only (additive-lock) as Kalshi opens per-game markets. Feeds the performance report. |
+| `injury-check.yml` | hourly `14-23`, `0-3` | NBA + MLB injury invalidation; exits early if no games today or all final. |
+| `mlb-performance-report.yml` | `30 17 * * *` | Forward performance + calibration report. |
+
+The old per-league workflows (`nightly-pipeline`, `mlb-nightly-pipeline`,
+`espn-nightly-ingest`, `reconcile-picks`, `mlb-reconcile-picks`) are
+`workflow_dispatch`-only; reconcile runs inside the NBA/MLB nightly batches.
+
+Read-only freshness check (also runs at the end of the daily sync):
+`python -m analytics.batch.freshness_check [--league nba] [--max-stale-days 2]`.
+
 ---
 
 ## Roadmap
@@ -254,5 +273,4 @@ order; a single slate is hundreds of rows.
 - **Calibration analysis** -- Track pick accuracy over time to tune hit rate and edge thresholds.
 - **Live Kalshi integration** -- Move from mock to real-time market data for production use.
 - **Frontend integration** -- Surface daily picks in the StatTrak React UI.
-- **Automated scheduling** -- Cron job for nightly batch and pick generation.
 - **Multi-sport expansion** -- Extend the pipeline to NFL, MLB, and NHL.

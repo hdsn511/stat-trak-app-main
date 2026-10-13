@@ -1,3 +1,5 @@
+# RETIRED (manual-only): superseded by .github/workflows/daily-data-sync.yml, which runs
+# every step of this workflow on a single daily cron. Kept only as a manual escape hatch.
 name: Nightly NFL + NHL Ingest
 
 # Daily ESPN ingest for the leagues with game + player stat data but no
@@ -7,8 +9,6 @@ name: Nightly NFL + NHL Ingest
 # missed run — self-heals on the next one. Off-season days are a cheap no-op
 # (empty scoreboard). Rosters are refreshed too so new players resolve.
 on:
-  schedule:
-    - cron: '0 10 * * *'   # 06:00 ET — after Monday-night / west-coast games are final
   workflow_dispatch:
     inputs:
       start_date:

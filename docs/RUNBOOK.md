@@ -122,34 +122,48 @@ npm start                        # node dist/server.js
 
 Serve the `client/dist` folder via any static host (nginx, Cloudflare Pages, Vercel, etc). The Express server runs the API + the in-process cron scheduler.
 
-### 3.3 The scheduler — how it runs
+### 3.3 Production scheduling: GitHub Actions
 
-`server/src/jobs/scheduler.ts` registers cron jobs via `node-cron` **inside the Express server process**. It starts automatically when the server boots (`startScheduler()` call at the end of `src/server.ts`).
+Production data sync runs on GitHub Actions, **not** the in-process scheduler.
+`server/src/server.ts` (local / PM2 entrypoint) calls `startScheduler()`
+(`server/src/jobs/scheduler.ts`, node-cron); `server/src/lambda.ts` (what
+`deploy-api.yml` builds via `build:lambda`) does not, and says so. So in
+production the node-cron jobs never run; they only matter for a local or PM2
+host. Do not run both against the same database.
 
-**Key implication:** jobs only run while the server process is alive. For 24/7 operation, keep the server running via a process manager (`pm2`, `systemd`, Docker, your platform's equivalent). When the server restarts, the scheduler re-registers — no state is lost between runs because the jobs are idempotent (each reads DB + external APIs).
+| Workflow | Cron (UTC) | Purpose |
+|----------|-----------|---------|
+| `daily-data-sync.yml` | `0 11 * * *` | One daily sync. Job `data`: NFL/NHL ESPN ingest, MLB rosters + nightly (incl. reconcile) + enrich + trends, NBA nightly (incl. reconcile, backfill, conditions) + 7-day slate + trends, then the read-only freshness check. Job `picks`: MLB + NBA picks (never fails `data`). |
+| `mlb-selfheal-picks.yml` | `0 13-23`, `0 0-4` | MLB picks only; adds newly opened Kalshi markets for not-yet-started games. |
+| `injury-check.yml` | `0 14-23`, `0 0-3` | Injury check + pick invalidation (NBA, MLB). Early exit when no games or all games final. |
+| `mlb-performance-report.yml` | `30 17 * * *` | Performance + calibration report (needs reconciled picks from the 11:00 sync). |
 
-Verify jobs are registered: tail `server/logs/cron.log` after startup. Expect:
+Manual run of one league: Actions -> Daily Data Sync -> Run workflow -> `league`.
+Retired (manual-only): `nightly-pipeline`, `mlb-nightly-pipeline`,
+`espn-nightly-ingest`, `reconcile-picks`, `mlb-reconcile-picks`.
 
-```
-[cron] Scheduler starting — registering jobs...
-[cron] Registered 5 jobs. PYTHON=<path>. REPO_ROOT=<repo>.
-```
+Freshness: `python -m analytics.batch.freshness_check` (read-only). Fails if an
+in-season league (any game within +/-3 days) has no final box score in 2 days;
+off-season leagues pass.
 
-### 3.4 Scheduled jobs
+### 3.4 Local node-cron scheduler (local / PM2 only)
+
+`server/src/jobs/scheduler.ts` registers jobs via `node-cron` inside the Express
+process started by `server.ts`. Jobs only run while that process is alive.
 
 | Cron | What runs | Purpose |
 |------|-----------|---------|
-| `0 2 * * *` (2:00 am) | `python -m analytics.batch.nightly --date <today>` | Fetch today's NBA slate + compute `daily_conditions` for each player (rolling avgs, minutes, rest, opp def rank) |
-| `30 2 * * *` (2:30 am) | `nightly --date <today+1>` through `<today+7>` — 7 serial runs | Pre-fetch upcoming week's games so `entity_id` joins work on `daily_lines` when Kalshi lists future markets |
-| `0 3 * * *` (3:00 am) | `python -m analytics.picks.generate --date <today>` | Fetch Kalshi lines, run condition-matched backtests, score, store to `pick_results` |
-| `0 10-23 * * *` (every hour, 10am–11pm) | `python -m analytics.batch.injury_check --date <today>` | Pull ESPN injuries, upsert `player_availability`, invalidate picks for players ruled Out |
-| `0 12 * * *` (12:00 pm) | `nightly --date <yesterday>` | Reconcile yesterday's picks — fill `actual_result` / `did_hit` on `pick_results` |
+| `0 2 * * *` | `python -m analytics.batch.nightly --date <today>` | NBA slate + `daily_conditions` |
+| `30 2 * * *` | `nightly --date <today+1..+7>` | Pre-fetch upcoming week |
+| `0 3 * * *` | `python -m analytics.picks.generate --date <today>` | NBA picks |
+| `0 10-23 * * *` | `injury_check --date <today>` | Injury check |
+| `0 12 * * *` | `nightly --date <yesterday>` | Reconcile |
 
-All timestamps are in the server's local timezone. If deploying to a cloud host, double-check `TZ` env var or explicit `cron.schedule({ timezone: 'America/Chicago' }, ...)` if the jobs need to align with a specific timezone.
+Times are server-local. See `scheduler.ts` for the authoritative list.
 
 ### 3.5 Alternative: system cron (if you don't want the server running 24/7)
 
-The scheduler is just a convenience wrapper. You can instead run the Python modules directly from system cron:
+Local/self-hosted only (production uses GitHub Actions, 3.3). The scheduler is just a convenience wrapper. You can instead run the Python modules directly from system cron:
 
 ```crontab
 # /etc/cron.d/stat-trak (Linux)
@@ -294,6 +308,6 @@ Expect entries like `[cron:start] nightly`, `[cron:done] nightly (exit 0)`, and 
 - [ ] `python -m analytics.batch.backfill_season --since <season start>` run once — games and player_stats populated from ESPN
 - [ ] `client/` + `server/` both build cleanly (`npm run build` in each)
 - [ ] Server runs: `node server/dist/server.js` (or via process manager)
-- [ ] Tail `server/logs/cron.log` after first 2am window — confirm jobs ran and exited 0
+- [ ] Production: confirm the first `Daily Data Sync` Actions run (11:00 UTC) is green. Local/PM2 only: tail `server/logs/cron.log` after the first 2am window — confirm jobs ran and exited 0
 - [ ] Spot-check `pick_results.created_at` advances daily
 - [ ] Spot-check `daily_lines.game_date` coverage extends 7 days ahead of current date

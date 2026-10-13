@@ -1,10 +1,10 @@
+# RETIRED (manual-only): superseded by .github/workflows/daily-data-sync.yml, which runs
+# every step of this workflow on a single daily cron. Kept only as a manual escape hatch.
 name: Reconcile MLB Picks
 
 # Runs at noon ET (16:00 UTC during EDT) to resolve yesterday's MLB picks once
 # the prior night's box scores are in the DB. Mirrors the NBA reconcile job.
 on:
-  schedule:
-    - cron: '0 16 * * *'
   workflow_dispatch:
 
 jobs:

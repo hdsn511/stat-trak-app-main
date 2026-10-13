@@ -1,3 +1,5 @@
+# RETIRED (manual-only): superseded by .github/workflows/daily-data-sync.yml, which runs
+# every step of this workflow on a single daily cron. Kept only as a manual escape hatch.
 name: Nightly NBA Pipeline
 
 # Runs daily. The NBA pipeline is ESPN-only (basic box scores; no nba_api /
@@ -5,8 +7,6 @@ name: Nightly NBA Pipeline
 # earlier stats.nba.com hang that forced this workflow to manual-only (2026-06-24)
 # no longer applies. In the off-season the run is a cheap no-op (empty slate).
 on:
-  schedule:
-    - cron: '0 13 * * *'   # 09:00 ET — after overnight games are final
   workflow_dispatch:
 
 concurrency:

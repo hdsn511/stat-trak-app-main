@@ -43,7 +43,7 @@ def refresh(dry_run: bool = False) -> None:
     page = 0
     while True:
         batch = (supabase.table("players").select("id,name,position")
-                 .eq("league", "nba")
+                 .eq("league", "nba").order("id")
                  .range(page * 1000, page * 1000 + 999).execute()).data or []
         db_players.update({r["id"]: r for r in batch})
         if len(batch) < 1000:

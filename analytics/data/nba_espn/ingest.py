@@ -131,7 +131,7 @@ def load_player_espn_map() -> dict[str, int]:
     page = 0
     while True:
         batch = (supabase.table("players").select("id,espn_id")
-                 .eq("league", "nba").not_.is_("espn_id", "null")
+                 .eq("league", "nba").not_.is_("espn_id", "null").order("id")
                  .range(page * 1000, page * 1000 + 999).execute()).data or []
         out.update({r["espn_id"]: r["id"] for r in batch})
         if len(batch) < 1000:
@@ -146,7 +146,7 @@ def _load_all_nba_players() -> list[dict]:
     page = 0
     while True:
         batch = (supabase.table("players").select("id,name,team,espn_id")
-                 .eq("league", "nba")
+                 .eq("league", "nba").order("id")
                  .range(page * 1000, page * 1000 + 999).execute()).data or []
         out.extend(batch)
         if len(batch) < 1000:
@@ -552,6 +552,7 @@ def compare_date(date_str: str, heal_ids: bool = True) -> dict:
             batch = (supabase.table("nba_player_stats")
                      .select("game_id,player_id," + ",".join(_COMPARE_COLS))
                      .in_("game_id", chunk)
+                     .order("game_id").order("player_id")
                      .range(page * 1000, page * 1000 + 999).execute()).data or []
             db_rows.extend(batch)
             if len(batch) < 1000:

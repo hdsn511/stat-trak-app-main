@@ -62,6 +62,9 @@ def _build_features():
             q = supabase.table(table).select(cols).gte("game_date", HIST_START)
             if extra:
                 q = extra(q)
+            # Stable paging: composite key for the stat table, `id` otherwise.
+            for col in (["game_id", "player_id"] if table == "mlb_player_stats" else ["id"]):
+                q = q.order(col)
             batch = q.range(p * 1000, p * 1000 + 999).execute().data or []
             rows.extend(batch)
             if len(batch) < 1000:

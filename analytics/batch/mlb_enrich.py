@@ -27,10 +27,18 @@ from analytics.db.connection import BATCH_SIZE, MLB_LEAGUE_ID, supabase
 OUTS_PER_GAME = 27.0
 
 
+# Page over the primary key: range() over an unordered query can skip or repeat
+# rows between pages. Stat tables have a composite key and no `id`.
+_PK_ORDER = {"mlb_player_stats": ["game_id", "player_id"]}
+
+
 def _fetch_all(table: str, select: str, filters: list) -> list[dict]:
     rows, page, size = [], 0, 1000
     while True:
-        q = supabase.table(table).select(select).range(page * size, page * size + size - 1)
+        q = supabase.table(table).select(select)
+        for col in _PK_ORDER.get(table, ["id"]):
+            q = q.order(col)
+        q = q.range(page * size, page * size + size - 1)
         for method, *args in filters:
             if method == "not_is":          # q.not_.is_(col, val)
                 q = q.not_.is_(*args)

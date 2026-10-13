@@ -585,6 +585,7 @@ def load_completed_games(before_date: str) -> list:
             .neq("game_type", "preseason")
             .not_.is_("home_score", "null")
             .not_.is_("away_score", "null")
+            .order("id")
             .range(start, start + page_size - 1)
             .execute()
         )

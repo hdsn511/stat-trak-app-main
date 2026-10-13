@@ -243,7 +243,7 @@ async function paginateStatsForIds(
  *  1000-row cap silently truncated streak eligibility to half the league. */
 async function fetchAllPlayers(leagueTag: string): Promise<any[]> {
   return paginateStats(
-    () => supabaseAdmin.from('players').select('id, name, team, position').eq('league', leagueTag),
+    () => supabaseAdmin.from('players').select('id, name, team, position').eq('league', leagueTag).order('id'),
     'id',
   );
 }
@@ -413,7 +413,9 @@ export async function getStreakOutcomes(req: Request<{}, {}, {}, { days?: string
           .gte('game_date', extCutoff)
           .lte('game_date', today)
           .gt(lg.playedGate.col, lg.playedGate.min)
-          .order('game_date', { ascending: true }),
+          .order('game_date', { ascending: true })
+          .order('game_id', { ascending: true })
+          .order('player_id', { ascending: true }),
         relevantIds,
         col,
       );
@@ -659,7 +661,9 @@ export async function getStreakPerformance(req: Request<{}, {}, {}, { days?: str
         .gte('game_date', extCutoff)
         .lte('game_date', today)
         .gt(lg.playedGate.col, lg.playedGate.min)
-        .order('game_date', { ascending: true }),
+        .order('game_date', { ascending: true })
+        .order('game_id', { ascending: true })
+        .order('player_id', { ascending: true }),
       relevantIds,
       col,
     );

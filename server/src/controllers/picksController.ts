@@ -390,6 +390,8 @@ export async function getPerfectStreaks(req: Request<{}, {}, {}, { type?: string
           .lt('game_date', today)
           .gte('game_date', windowFloor)
           .order('game_date', { ascending: false })
+          .order('game_id', { ascending: false })
+          .order('player_id', { ascending: true })
           .range(page * 1000, page * 1000 + 999);
         const rowsB = (batch ?? []) as any[];
         for (const r of rowsB) {

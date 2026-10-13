@@ -46,6 +46,9 @@ def _page(table: str, cols: str, start: str, extra=None):
         q = supabase.table(table).select(cols).gte("game_date", start)
         if extra:
             q = extra(q)
+        # Stable paging: composite key for stat tables, `id` otherwise.
+        for col in (["game_id", "player_id"] if table.endswith("_player_stats") else ["id"]):
+            q = q.order(col)
         batch = q.range(p * 1000, p * 1000 + 999).execute().data or []
         rows.extend(batch)
         if len(batch) < 1000:

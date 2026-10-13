@@ -82,7 +82,7 @@ def _stat_game_ids(table: str, lo: date, hi: date) -> set[int]:
             .select("game_id")
             .gte("game_date", lo.isoformat())
             .lte("game_date", hi.isoformat())
-            .order("game_id")
+            .order("game_id").order("player_id")
             .range(offset, offset + PAGE - 1)
             .execute()
         )

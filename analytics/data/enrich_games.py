@@ -509,6 +509,7 @@ def backfill_opp_defense(snapshot_date: str | None = None):
                 supabase.table("nba_player_stats")
                 .select("player_id,team_id,game_id,points,rebounds,assists,three_points_made")
                 .in_("game_id", chunk)
+                .order("game_id").order("player_id")
                 .range(start, start + page_size - 1)
                 .execute()
             )

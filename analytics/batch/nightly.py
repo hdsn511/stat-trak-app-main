@@ -117,6 +117,7 @@ def _compute_recent_opp_form(
                 supabase.table("nba_player_stats")
                 .select("game_id,team_id,points,rebounds,assists,three_points_made")
                 .in_("game_id", ids_chunk)
+                .order("game_id").order("player_id")
                 .range(start, start + page_size - 1)
                 .execute()
             )

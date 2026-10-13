@@ -53,6 +53,7 @@ def _get_game_dates_in_range(since: date, until: date) -> list[str]:
             .eq("league_id", NBA_LEAGUE_ID)
             .gte("game_date", since.isoformat())
             .lte("game_date", until.isoformat())
+            .order("id")
             .range(offset, offset + batch - 1)
             .execute()
         )

@@ -100,6 +100,7 @@ def _players_missing_position(spec: PositionSpec) -> list[dict]:
     while True:
         batch = (supabase.table("players").select("id,name,ext_id")
                  .eq("league_id", spec.league_id).is_("position", "null")
+                 .order("id")
                  .range(page * PAGE, page * PAGE + PAGE - 1).execute()).data or []
         rows.extend(batch)
         if len(batch) < PAGE:

@@ -110,6 +110,7 @@ def _report_health(days: int = 7) -> None:
     while True:  # paginate — a week of box scores exceeds the 1000-row default
         batch = (supabase.table("mlb_player_stats").select("game_date")
                  .gte("game_date", cutoff).lt("game_date", today.isoformat())
+                 .order("game_id").order("player_id")
                  .range(page * 1000, page * 1000 + 999).execute()).data or []
         for s in batch:
             rows_by_date[s["game_date"]] += 1

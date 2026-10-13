@@ -144,7 +144,7 @@ def _player_map(spec: LeagueSpec) -> dict[str, int]:
     page = 0
     while True:
         batch = (supabase.table("players").select("id,ext_id")
-                 .eq("league_id", spec.league_id)
+                 .eq("league_id", spec.league_id).order("id")
                  .range(page * 1000, page * 1000 + 999).execute()).data or []
         out.update({r["ext_id"]: r["id"] for r in batch})
         if len(batch) < 1000:

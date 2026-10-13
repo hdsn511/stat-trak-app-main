@@ -81,7 +81,7 @@ def _all_mlb_players(cols: str) -> list[dict]:
     page = 0
     while True:
         batch = (supabase.table("players").select(cols)
-                 .eq("league_id", MLB_LEAGUE_ID)
+                 .eq("league_id", MLB_LEAGUE_ID).order("id")
                  .range(page * 1000, page * 1000 + 999).execute()).data or []
         out.extend(batch)
         if len(batch) < 1000:
@@ -533,6 +533,7 @@ def reconcile_picks(through_date: date) -> None:
     while True:
         batch = (supabase.table("mlb_player_stats").select("team_id,game_date")
                  .gte("game_date", min_date).lte("game_date", cutoff)
+                 .order("game_id").order("player_id")
                  .range(page * 1000, page * 1000 + 999).execute()).data or []
         for s in batch:
             k = (s["game_date"], s["team_id"])

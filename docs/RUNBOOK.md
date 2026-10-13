@@ -10,7 +10,7 @@ How to install, run, and keep the pipeline healthy. Covers both one-off setup an
 |------|---------|-------|
 | Node | 20+ | `node --version` |
 | npm | 10+ | ships with Node |
-| Python | 3.12 | required by `nba_api` + `supabase-py` |
+| Python | 3.12 | required by `supabase-py` |
 | git | any | |
 | Supabase project | — | URL + service-role key |
 
@@ -52,7 +52,7 @@ OPENAI_API_KEY=sk-...
 # Groq (used by SportQuery main path)
 GROQ_API_KEY=gsk_...
 
-# API-Sports (nba_api fallback for some endpoints)
+# API-Sports
 API_SPORTS_KEY=...
 
 # Postgres direct (Supavisor pooler)
@@ -74,14 +74,10 @@ New install — hydrate NBA data before anything else works:
 
 ```bash
 source venv/Scripts/activate     # (once per shell)
-python server/scripts/nba_init.py
+python -m analytics.batch.backfill_season --since 2025-10-01
 ```
 
-This fetches last 3 seasons of teams, players, rosters, games, and player stats. Takes 20-40 minutes depending on NBA API rate limits. Resume mid-run with:
-
-```bash
-python server/scripts/resume_nba_stats.py
-```
+This walks every game date missing box scores and fetches them from the ESPN API (no `nba_api`, no rate limits). It is idempotent, so re-run it to resume. NHL/NFL: `python -m analytics.batch.nhl_init --rosters --season 2026` (and `nfl_init`).
 
 Verify once done:
 

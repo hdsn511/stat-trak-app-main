@@ -1,0 +1,62 @@
+name: Nightly NFL + NHL Ingest
+
+# Daily ESPN ingest for the leagues with game + player stat data but no
+# betting pipeline (hasMarkets: false): NFL and NHL. ESPN is not IP-blocked from
+# Actions. Each run re-ingests the last 3 days (idempotent upserts on
+# league_id,ext_id / game_id,player_id), so a game ESPN finalizes late — or a
+# missed run — self-heals on the next one. Off-season days are a cheap no-op
+# (empty scoreboard). Rosters are refreshed too so new players resolve.
+on:
+  schedule:
+    - cron: '0 10 * * *'   # 06:00 ET — after Monday-night / west-coast games are final
+  workflow_dispatch:
+    inputs:
+      start_date:
+        description: 'Override start date (YYYY-MM-DD); default = 3 days ago'
+        type: string
+        required: false
+      end_date:
+        description: 'Override end date (YYYY-MM-DD); default = today'
+        type: string
+        required: false
+
+concurrency:
+  group: espn-nightly-ingest
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    name: Ingest ${{ matrix.league }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        league: [nfl, nhl]
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      PYTHONUNBUFFERED: '1'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: analytics/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r analytics/requirements.txt
+
+      - name: Ingest ${{ matrix.league }}
+        env:
+          START: ${{ github.event.inputs.start_date }}
+          END: ${{ github.event.inputs.end_date }}
+        run: |
+          START="${START:-$(date -u -d '3 days ago' +%F)}"
+          END="${END:-$(date -u +%F)}"
+          python -m analytics.batch.${{ matrix.league }}_init \
+            --rosters --start-date "$START" --end-date "$END"

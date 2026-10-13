@@ -19,12 +19,14 @@ from analytics.batch.espn_init import LeagueSpec, build_arg_parser, run_cli
 from analytics.data.nfl.ingest import parse_summary_boxscore
 from analytics.db.connection import NFL_LEAGUE_ID
 
-DEFAULT_SEASON = 2025
+DEFAULT_SEASON = 2026
 
 # Season start year -> (first game date, last game date incl. playoffs).
 # 2025: kickoff 2025-09-04 through Super Bowl LX on 2026-02-08 (buffer to 02-09).
 SEASON_RANGES = {
     2025: ("2025-09-04", "2026-02-09"),
+    # 2026 = the 2026 season (buffered window through the Super Bowl).
+    2026: ("2026-09-01", "2027-02-15"),
 }
 
 SPEC = LeagueSpec(

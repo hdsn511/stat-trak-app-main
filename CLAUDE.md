@@ -11,9 +11,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Three-layer stack:**
 1. **`client/`** — React 18 + TypeScript + Vite frontend (port 5173)
 2. **`server/`** — Express 5 + TypeScript backend (port 3000)
-3. **`server/scripts/`** — Python data pipeline using `nba_api` → Supabase (PostgreSQL)
+3. **`analytics/`** — Python data pipelines (ESPN API for NBA/NFL/NHL, MLB Stats API for MLB) → Supabase (PostgreSQL)
 
-**Data flow:** Python scripts fetch NBA data → store in Supabase → TypeScript job `computeNBATrends.ts` computes z-scores/rolling averages → Express API serves to React frontend.
+**Data flow:** Python pipelines in `analytics/` fetch league data from ESPN (no `nba_api`) → store in Supabase → TypeScript job `computeNBATrends.ts` computes z-scores/rolling averages → Express API serves to React frontend.
 
 **Database:** Supabase (PostgreSQL) with tables: `players`, `teams`, `nba_player_stats`, `nba_trends`. Initialized via `supabaseAdmin.ts` with service role key from `server/.env`.
 
@@ -45,8 +45,9 @@ npm run dev:both      # Frontend + backend simultaneously
 # Activate venv first (Windows/WSL)
 source venv/Scripts/activate   # or venv/bin/activate on Linux
 
-python server/scripts/nba_init.py          # Initial NBA data population
-python server/scripts/resume_nba_stats.py  # Resume incomplete data fetch
+python -m analytics.batch.backfill_season --since 2025-10-01   # NBA box scores via ESPN (fills gaps)
+python -m analytics.batch.nhl_init --rosters --season 2026      # NHL via ESPN
+python -m analytics.batch.nfl_init --rosters --season 2026      # NFL via ESPN
 python server/scripts/check_missing_stats.py
 ```
 

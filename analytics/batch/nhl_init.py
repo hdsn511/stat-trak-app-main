@@ -20,13 +20,15 @@ from analytics.batch.espn_init import LeagueSpec, build_arg_parser, run_cli
 from analytics.data.nhl.ingest import parse_summary_boxscore
 from analytics.db.connection import NHL_LEAGUE_ID
 
-DEFAULT_SEASON = 2025
+DEFAULT_SEASON = 2026
 
 # Season start year -> (first game date, last game date incl. playoffs).
 # 2025 = the 2025-26 season: opening night 2025-10-07 through the latest
 # possible Stanley Cup Final date (buffer to 2026-06-20).
 SEASON_RANGES = {
     2025: ("2025-10-07", "2026-06-20"),
+    # 2026 = the 2026-27 season (buffered window through the latest Cup Final).
+    2026: ("2026-10-01", "2027-06-30"),
 }
 
 SPEC = LeagueSpec(

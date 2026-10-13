@@ -143,6 +143,16 @@ jobs:
       # ── NBA (ESPN-only) ──
       # Backfill missed dates + today's box scores + reconcile yesterday's picks
       # + derive player_game_conditions + compute today's daily_conditions.
+      # Link existing players to ESPN ids, then create rows for athletes on a
+      # current ESPN roster that we don't have (rookies, signings, two-ways) so
+      # their box scores aren't skipped. No-op when nothing changed.
+      - name: NBA roster sync (new players)
+        id: nba_roster
+        if: ${{ !cancelled() && (env.LEAGUE == 'all' || env.LEAGUE == 'nba') }}
+        run: |
+          python -m analytics.batch.map_espn_ids --players
+          python -m analytics.batch.seed_nba_players
+
       - name: NBA nightly batch (incl. reconcile)
         id: nba_nightly
         if: ${{ !cancelled() && (env.LEAGUE == 'all' || env.LEAGUE == 'nba') }}

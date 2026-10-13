@@ -4,13 +4,15 @@ analytics/engine/backtest.py
 Condition-matched backtesting engine for StatTrak Analytics.
 
 For each player prop or game prop, finds historical games where the
-contextual conditions (usage rate, pace, rest, matchup tier, home/away)
-were similar to today, then computes hit rates against a given line.
+contextual conditions were similar to today, then computes hit rates against a
+given line. Uses ONLY basic ESPN box-score data (no advanced stats):
+  - player props: minutes played, rest, home/away, opponent position-defense rank
+  - game props:   each team's rolling points scored / allowed (final scores)
 
-Condition loosening: if the initial 5-condition query returns fewer than
+Condition loosening: if the initial query returns fewer than
 MIN_SAMPLE_SIZE games, conditions are dropped one at a time in
 CONDITION_DROP_ORDER until either the sample is large enough or we hit
-the MIN_CONDITIONS_ACTIVE floor, at which point we return None.
+the end of CONDITION_DROP_ORDER, at which point we return None.
 
 CLI:
     python -m analytics.engine.backtest --player-id 123 --stat pts --line 25.5 --date 2026-03-22
@@ -29,36 +31,19 @@ from analytics.engine.common import weighted_hit_rate as _weighted_hit_rate_gene
 
 # ── Tunable constants ────────────────────────────────────────────────────────────
 
-USG_BUCKET_WIDTH = 0.06
-# +/- usage rate bucket applied when filtering historical games.
-# Used only as the legacy fallback when today's touches signal is missing.
-# Once PlayerTrackV3 backfill is complete this branch becomes unreachable.
+MINUTES_BUCKET = 6.0
+# +/- minutes around today's rolling-5-game minutes. Historical single-game
+# minutes are matched against a 5-game average, so the window is deliberately
+# wide (~1 std dev of a rotation player's game-to-game minutes). This is the
+# only "opportunity" signal: it comes straight from the box score.
 
-# Picks v2: touches replaces usage as the opportunity signal. TOP intentionally
-# not used — V3 doesn't expose it. See fetch_player_track docstring.
-# Tuned 2026-05-03 against observed pgc distribution (mean 58, stddev 19.4
-# for rotation players). ±24 ≈ 1.25 std dev — wider than the strict 1-stddev
-# initial pass to compensate for rolling-avg-vs-single-game variance and the
-# rest filter's data-quality losses (see CONDITION_DROP_ORDER comment).
-OPPORTUNITY_TOUCH_BUCKET = 24.0   # ± touches around today's rolling avg
+TEAM_POINTS_BUCKET_WIDTH = 5.0
+# +/- points-per-game bucket applied to each of the four team-form conditions
+# for game props (home points for/against, away points for/against), each a
+# rolling TEAM_FORM_WINDOW-game average entering the game.
 
-PACE_BUCKET_WIDTH = 5.0
-# +/- pace bucket (possessions per 48 min).
-# Widened from 3.0 to 5.0 for the same rolling-vs-single-game mismatch reason as USG.
-# Single-game pace has ~5-7 possession std dev; rolling avg is smoother.
-
-OFF_RATING_BUCKET_WIDTH = 10.0
-# +/- offensive rating bucket used when matching team conditions for game props.
-# Widened to 10.0 because during the playoffs the team pool is small and unique
-# rolling stats would yield zero matches at ±3.0 across four conditions at once.
-
-DEF_RATING_BUCKET_WIDTH = 10.0
-# +/- defensive rating bucket for game props.
-# Mirrors OFF_RATING_BUCKET_WIDTH; tune together for consistent strictness.
-
-COMBINED_PACE_BUCKET_WIDTH = 8.0
-# +/- combined pace (home_pace + away_pace) bucket for game-level props.
-# Wider than per-team because combined pace has higher natural variance.
+TEAM_FORM_WINDOW = 10
+TEAM_FORM_MIN_GAMES = 5
 
 MATCHUP_RANK_WINDOW = 12
 # Opponent defensive rank window for player prop matchup filtering.
@@ -72,8 +57,8 @@ MAX_DAYS_REST = 10
 # Historical games with days_rest > this value are excluded from the sample.
 # Values above 10 indicate cross-season rows (first game back from summer break,
 # 100-300+ days) which are meaningless context comparisons against mid-season rest.
-# These account for ~66% of player_game_conditions rows and pollute the "extended"
-# rest bucket, causing the rest filter to discard nearly all valid candidates.
+# These pollute the "extended" rest bucket, causing the rest filter to discard
+# nearly all valid candidates.
 
 MIN_SAMPLE_SIZE = 8
 # Hard floor. If fewer than this many matching historical games are found,
@@ -82,8 +67,8 @@ MIN_SAMPLE_SIZE = 8
 # cost of statistical reliability.
 
 CONDITION_DROP_ORDER = ["home_away", "matchup_rank", "rest"]
-# Picks v2: home_away → matchup_rank → rest, in that order. Rest is included
-# because days_rest in player_game_conditions has data-quality gaps (multi-game
+# home_away → matchup_rank → rest, in that order. Rest is included
+# because stored days_rest has had data-quality gaps (multi-game
 # absences and across-season rows produce 50-450 day "rest" values that fail
 # MAX_DAYS_REST). For players with limited normal-rest samples (e.g. centers
 # pulled for foul trouble), the rest filter alone can collapse the sample to 0.
@@ -101,10 +86,9 @@ EXTENDED_REST_THRESHOLD = 7
 # 7 days covers standard inter-round waits (5-10 days) without touching
 # typical b2b / short / normal rest scenarios.
 
-MIN_CONDITIONS_ACTIVE = 2
-# We never loosen below this many active conditions among the 5 core ones.
-# With opportunity/pace/rest non-droppable and home_away+matchup_rank droppable,
-# the floor is naturally 3 (3 non-droppable).
+PLAYER_TOTAL_CONDITIONS = 4
+# Core player-prop conditions: minutes (non-droppable), rest, home_away,
+# matchup_rank (droppable in CONDITION_DROP_ORDER).
 
 # Picks v2: recency-weighted hit rate. weight_i = HIT_RATE_DECAY ** i where
 # i=0 is the most recent matched historical game.
@@ -169,13 +153,67 @@ def _weighted_hit_rate(historical_results: list[tuple[str, bool]]) -> float:
     return _weighted_hit_rate_generic(historical_results, HIT_RATE_DECAY)
 
 
+def _player_season_history(player_id: int, season_start: str, before_date: str) -> list[dict]:
+    """The player's current-season played games (minutes > 0), straight from
+    nba_player_stats + games: {game_id, game_date, minutes, days_rest,
+    home_away, opponent_team_id}. days_rest is calendar days since the player's
+    previous played game; the season opener has days_rest None (excluded, like
+    the old cross-season rows). Basic box-score data only — independent of the
+    player_game_conditions table."""
+    st = (
+        supabase.table("nba_player_stats")
+        .select("game_id,game_date,team_id,minutes_played")
+        .eq("player_id", player_id)
+        .gte("game_date", season_start)
+        .lt("game_date", before_date)
+        .gt("minutes_played", 0)
+        .order("game_date")
+        .execute()
+    ).data or []
+    if not st:
+        return []
+    gids = [r["game_id"] for r in st]
+    games: dict[int, dict] = {}
+    for i in range(0, len(gids), 100):
+        res = (
+            supabase.table("games")
+            .select("id,home_team_id,away_team_id,game_type")
+            .in_("id", gids[i:i + 100])
+            .execute()
+        )
+        for g in (res.data or []):
+            games[g["id"]] = g
+    from datetime import date as _date
+    out: list[dict] = []
+    prev: Optional[_date] = None
+    for r in st:
+        gd = _date.fromisoformat(r["game_date"])
+        g = games.get(r["game_id"])
+        rest = (gd - prev).days if prev is not None else None
+        prev = gd
+        if not g or g.get("game_type") == "preseason":
+            continue
+        if r["team_id"] == g["home_team_id"]:
+            ha, opp = "home", g["away_team_id"]
+        elif r["team_id"] == g["away_team_id"]:
+            ha, opp = "away", g["home_team_id"]
+        else:
+            continue
+        out.append({
+            "game_id": r["game_id"], "game_date": r["game_date"],
+            "minutes": r["minutes_played"], "days_rest": rest,
+            "home_away": ha, "opponent_team_id": opp,
+        })
+    return out
+
+
 def _history_with_teammate_intersect(
     candidate_id: int,
     target_teammates: list[int],
 ) -> set[int]:
     """
     Return the set of game_ids where:
-      - candidate_id played (had a player_game_conditions row with minutes>0), AND
+      - candidate_id played (had a nba_player_stats row with minutes>0), AND
       - at least one of `target_teammates` had status='out' on that same game_id
         (per player_availability).
 
@@ -187,7 +225,7 @@ def _history_with_teammate_intersect(
 
     # Candidate's history with team & game info
     own_games = (
-        supabase.table("player_game_conditions")
+        supabase.table("nba_player_stats")
         .select("game_id")
         .eq("player_id", candidate_id)
         .gt("minutes_played", 0)
@@ -267,7 +305,7 @@ def backtest_player(
     dc_result = (
         supabase.table("daily_conditions")
         .select(
-            "rolling_usg_5g,rolling_touches_5g,rolling_pace_5g,days_rest,home_away,"
+            "rolling_min_5g,days_rest,home_away,"
             "opp_def_rank_position,opp_reb_rank_position,"
             "opp_ast_rank_position,opp_fg3m_rank_position,"
             "key_teammates_out,game_id"
@@ -286,9 +324,7 @@ def backtest_player(
         return None
 
     dc = dc_result.data[0]
-    today_touches = dc.get("rolling_touches_5g")
-    today_usg = dc.get("rolling_usg_5g")
-    today_pace = dc.get("rolling_pace_5g")
+    today_min = dc.get("rolling_min_5g")
     today_rest = dc.get("days_rest")
     today_home_away = dc.get("home_away")
     today_game_id = dc.get("game_id")
@@ -298,18 +334,9 @@ def backtest_player(
     rank_col = STAT_OPP_RANK_COL.get(stat, "opp_def_rank_position")
     today_opp_rank = dc.get(rank_col) or dc.get("opp_def_rank_position")
 
-    # Picks v2: prefer the touches signal. Fall back to usg only when touches
-    # is unavailable today (rampup window before backfill catches up).
-    use_touches = today_touches is not None
-    if not use_touches and today_usg is None:
+    if today_min is None:
         print(
-            f"  WARNING: neither rolling_touches_5g nor rolling_usg_5g for "
-            f"player_id={player_id} on {game_date}. Cannot backtest."
-        )
-        return None
-    if today_pace is None:
-        print(
-            f"  WARNING: rolling_pace_5g is None for player_id={player_id} "
+            f"  WARNING: rolling_min_5g is None for player_id={player_id} "
             f"on {game_date}. Cannot backtest."
         )
         return None
@@ -319,18 +346,12 @@ def backtest_player(
         today_rest = 3
 
     # ── 2. Compute condition ranges ──────────────────────────────────────────
-    if use_touches:
-        opp_lo = today_touches - OPPORTUNITY_TOUCH_BUCKET
-        opp_hi = today_touches + OPPORTUNITY_TOUCH_BUCKET
-    else:
-        opp_lo = today_usg - USG_BUCKET_WIDTH
-        opp_hi = today_usg + USG_BUCKET_WIDTH
-    pace_lo = today_pace - PACE_BUCKET_WIDTH
-    pace_hi = today_pace + PACE_BUCKET_WIDTH
+    min_lo = today_min - MINUTES_BUCKET
+    min_hi = today_min + MINUTES_BUCKET
     today_rest_cat = _rest_category(today_rest)
 
-    # Condition state: 5 core conditions. opportunity/pace are non-droppable;
-    # home_away, matchup_rank, rest are droppable in that order.
+    # Condition state: minutes is non-droppable; home_away, matchup_rank, rest
+    # are droppable in that order.
     droppable = {
         "home_away": True,
         "matchup_rank": True,
@@ -348,6 +369,9 @@ def backtest_player(
         if len(teammate_match_game_ids) >= MIN_TEAMMATE_HISTORICAL_SAMPLES:
             teammate_active = True
 
+    # Season history (basic box score + games), loaded once per call.
+    history = _player_season_history(player_id, season_start, game_date)
+
     # ── 3. Iteratively loosen until we have enough samples ───────────────────
     drop_order = (
         CONDITION_DROP_ORDER_EXTENDED_REST
@@ -357,32 +381,21 @@ def backtest_player(
     drop_idx = 0  # pointer into drop_order
 
     while True:
-        # ── Query player_game_conditions for matching game_ids ───────────────
-        # Picks v2: filter on touches when today_touches is set; otherwise fall back to usg.
-        opp_col = "touches" if use_touches else "usg_pct"
-        q = (
-            supabase.table("player_game_conditions")
-            .select("game_id,days_rest,home_away,opponent_team_id,touches,usg_pct")
-            .eq("player_id", player_id)
-            .gte("game_date", season_start)  # current-season sample only
-            .gte(opp_col, opp_lo)
-            .lte(opp_col, opp_hi)
-            .gte("pace", pace_lo)
-            .lte("pace", pace_hi)
-            .lte("days_rest", MAX_DAYS_REST)  # exclude cross-season openers
-        )
-        if today_game_id is not None:
-            q = q.neq("game_id", today_game_id)
-
-        pgc_result = q.execute()
-        candidate_rows = pgc_result.data or []
+        # ── Candidate games: minutes in range, no cross-season rest gaps ─────
+        candidate_rows = [
+            h for h in history
+            if min_lo <= h["minutes"] <= min_hi
+            and h["days_rest"] is not None
+            and h["days_rest"] <= MAX_DAYS_REST
+            and (today_game_id is None or h["game_id"] != today_game_id)
+        ]
 
         # ── Filter rest, home_away (droppable), teammate (optional) ──
         filtered_game_ids: list[int] = []
         for row in candidate_rows:
             # Rest filter — droppable
             if droppable["rest"]:
-                row_rest_cat = _rest_category(row.get("days_rest") or 3)
+                row_rest_cat = _rest_category(row["days_rest"])
                 if row_rest_cat != today_rest_cat:
                     continue
 
@@ -463,13 +476,11 @@ def backtest_player(
     hit_rate = _weighted_hit_rate(historical_results)
 
     # Core condition count (excludes the optional teammate condition)
-    conditions_matched = 2 + sum(1 for v in droppable.values() if v)  # 2 = opp+pace (non-droppable)
+    conditions_matched = 1 + sum(1 for v in droppable.values() if v)  # 1 = minutes (non-droppable)
 
     # ── 6. Build condition breakdown ─────────────────────────────────────────
-    opportunity_label = "active" + ("(touches)" if use_touches else "(usg_legacy)")
     condition_breakdown = {
-        "opportunity":      opportunity_label,
-        "pace":             "active",
+        "minutes":          "active",
         "rest":             "active" if droppable["rest"] else "dropped",
         "home_away":        "active" if droppable["home_away"] else "dropped",
         "matchup_rank":     "active" if droppable["matchup_rank"] else "dropped",
@@ -483,7 +494,7 @@ def backtest_player(
         "hit_rate": hit_rate,
         "sample_size": len(valid),
         "conditions_matched": conditions_matched,
-        "total_conditions": 5,  # 5 core (excludes optional teammate)
+        "total_conditions": PLAYER_TOTAL_CONDITIONS,  # excludes optional teammate
         "games_queried": len(filtered_game_ids),
         "condition_breakdown": condition_breakdown,
         "key_teammate_out_active": teammate_active,
@@ -492,32 +503,57 @@ def backtest_player(
 
 # ── Shared data loaders (call once per run, pass to backtest_game_prop) ──────────
 
-def build_tgs_cache() -> dict:
-    """Load all team_game_stats into {game_id: {team_id: {pace, off_rating, def_rating}}}.
+def build_team_form_cache(completed_games: list) -> dict:
+    """Per-game team scoring form entering each game, from final scores only.
 
-    Uses manual pagination to bypass PostgREST's 1000-row default cap.
+    Returns {game_id: {team_id: {"pf": avg points for, "pa": avg points
+    against}}} where each average covers that team's previous
+    TEAM_FORM_WINDOW completed games in the SAME season (Oct-1 floor), and the
+    team has at least TEAM_FORM_MIN_GAMES of them. Games without enough prior
+    history for a team are omitted for that team.
     """
+    by_team: dict[int, list[tuple[str, int, float, float]]] = {}
+    for g in completed_games:
+        if g.get("home_score") is None or g.get("away_score") is None:
+            continue
+        hs, a_s = float(g["home_score"]), float(g["away_score"])
+        by_team.setdefault(g["home_team_id"], []).append((g["game_date"], g["id"], hs, a_s))
+        by_team.setdefault(g["away_team_id"], []).append((g["game_date"], g["id"], a_s, hs))
+
     cache: dict[int, dict[int, dict]] = {}
-    page, page_size = 0, 1000
-    while True:
-        start = page * page_size
-        result = (
-            supabase.table("team_game_stats")
-            .select("team_id,game_id,pace,off_rating,def_rating")
-            .range(start, start + page_size - 1)
-            .execute()
-        )
-        batch = result.data or []
-        for row in batch:
-            cache.setdefault(row["game_id"], {})[row["team_id"]] = {
-                "pace": row.get("pace"),
-                "off_rating": row.get("off_rating"),
-                "def_rating": row.get("def_rating"),
+    for team_id, rows in by_team.items():
+        rows.sort(key=lambda r: (r[0], r[1]))
+        for i, (gd, gid, _pf, _pa) in enumerate(rows):
+            floor = _season_start(gd)
+            prior = [r for r in rows[max(0, i - TEAM_FORM_WINDOW):i] if r[0] >= floor]
+            if len(prior) < TEAM_FORM_MIN_GAMES:
+                continue
+            cache.setdefault(gid, {})[team_id] = {
+                "pf": sum(r[2] for r in prior) / len(prior),
+                "pa": sum(r[3] for r in prior) / len(prior),
             }
-        if len(batch) < page_size:
-            break
-        page += 1
     return cache
+
+
+def team_form_before(completed_games: list, team_id: int, game_date: str) -> Optional[dict]:
+    """Team's current-season rolling points for/against before game_date."""
+    floor = _season_start(game_date)
+    rows = []
+    for g in completed_games:
+        if g["game_date"] >= game_date or g["game_date"] < floor:
+            continue
+        if g.get("home_score") is None or g.get("away_score") is None:
+            continue
+        if g["home_team_id"] == team_id:
+            rows.append((g["game_date"], float(g["home_score"]), float(g["away_score"])))
+        elif g["away_team_id"] == team_id:
+            rows.append((g["game_date"], float(g["away_score"]), float(g["home_score"])))
+    rows.sort(reverse=True)
+    rows = rows[:TEAM_FORM_WINDOW]
+    if len(rows) < TEAM_FORM_MIN_GAMES:
+        return None
+    return {"pf": sum(r[1] for r in rows) / len(rows),
+            "pa": sum(r[2] for r in rows) / len(rows)}
 
 
 def load_completed_games(before_date: str) -> list:
@@ -525,13 +561,14 @@ def load_completed_games(before_date: str) -> list:
 
     Excludes preseason games only. Including playoff history is necessary
     during the postseason so that game prop backtests have any data at all —
-    the pace/rating condition filters will naturally select contextually
+    the team-form condition filters will naturally select contextually
     similar games regardless of game_type.
 
     NOTE: deliberately NOT season-floored (unlike the player backtest and
     _rolling_team_stats). This is the comparison pool for total/spread props,
-    matched purely on pace/off/def ratings — a high-pace game two seasons ago is
-    still a valid high-pace context, and roster identity doesn't enter the match.
+    matched purely on each team's rolling points for/against — a high-scoring
+    matchup two seasons ago is still a valid context, and roster identity doesn't
+    enter the match.
     The volume from prior seasons improves coverage when the bucket filters are
     strict. Today's team *form*, by contrast, is current-season only.
 
@@ -566,12 +603,13 @@ def backtest_game_prop(
     prop_type: str,
     line: float,
     game_date: str,
-    tgs_cache: Optional[dict] = None,
+    form_cache: Optional[dict] = None,
     completed_games: Optional[list] = None,
 ) -> Optional[dict]:
     """
-    Find historical games where both teams faced similar pace/rating conditions
-    to today's matchup, then compute hit rates for the given game prop.
+    Find historical games where both teams entered with similar scoring form
+    (rolling points for / against) to today's matchup, then compute hit rates
+    for the given game prop.
 
     Supported prop_type values: "total" (home+away combined score),
     "spread" (home_score - away_score).
@@ -581,7 +619,8 @@ def backtest_game_prop(
         prop_type:       "total" or "spread".
         line:            The line to beat.
         game_date:       ISO date string "YYYY-MM-DD" for today's game.
-        tgs_cache:       Pre-loaded {game_id: {team_id: stats}} dict. If None, loads from DB.
+        form_cache:      Pre-built build_team_form_cache(completed_games). If
+                         None, built from completed_games.
         completed_games: Pre-loaded list of completed historical games. If None, loads from DB.
 
     Returns:
@@ -608,101 +647,44 @@ def backtest_game_prop(
     home_team_id = game_info["home_team_id"]
     away_team_id = game_info["away_team_id"]
 
-    # ── 2. Compute rolling 10-game team stats for today ──────────────────────
-    def _rolling_team_stats(team_id: int) -> Optional[dict]:
-        """
-        Average pace, off_rating, def_rating over the last 10 games
-        before game_date for the given team.
-        """
-        r = (
-            supabase.table("team_game_stats")
-            .select("pace,off_rating,def_rating,game_date")
-            .eq("team_id", team_id)
-            .gte("game_date", _season_start(game_date))  # current-season form only
-            .lt("game_date", game_date)
-            .order("game_date", desc=True)
-            .limit(10)
-            .execute()
-        )
-        rows = r.data or []
-        if not rows:
-            return None
-        paces = [x["pace"] for x in rows if x.get("pace") is not None]
-        offs = [x["off_rating"] for x in rows if x.get("off_rating") is not None]
-        defs = [x["def_rating"] for x in rows if x.get("def_rating") is not None]
-        if not paces or not offs or not defs:
-            return None
-        avg_pace = sum(paces) / len(paces)
-        avg_off = sum(offs) / len(offs)
-        avg_def = sum(defs) / len(defs)
-        return {"pace": avg_pace, "off_rating": avg_off, "def_rating": avg_def}
-
-    home_stats = _rolling_team_stats(home_team_id)
-    away_stats = _rolling_team_stats(away_team_id)
-
-    if home_stats is None or away_stats is None:
-        print(
-            f"  WARNING: insufficient team_game_stats for game_id={game_id} "
-            "to compute rolling averages. Skipping."
-        )
-        return None
-
-    combined_pace_today = home_stats["pace"] + away_stats["pace"]
-    home_off_today = home_stats["off_rating"]
-    away_off_today = away_stats["off_rating"]
-    home_def_today = home_stats["def_rating"]
-    away_def_today = away_stats["def_rating"]
-
-    # ── 3. Bulk-load ALL team_game_stats into memory (once per run) ─────────────
-    _tgs = tgs_cache if tgs_cache is not None else build_tgs_cache()
-
-    # ── 4. Load all historical games (once per run) ───────────────────────────
+    # ── 2. Load historical games (once per run) ──────────────────────────────
     historical_games = completed_games if completed_games is not None else load_completed_games(game_date)
-
     if not historical_games:
         print("  WARNING: no historical games with scores found.")
         return None
 
-    # ── 5. Match historical games by conditions ──────────────────────────────
+    # ── 3. Today's rolling team scoring form ─────────────────────────────────
+    home_form = team_form_before(historical_games, home_team_id, game_date)
+    away_form = team_form_before(historical_games, away_team_id, game_date)
+    if home_form is None or away_form is None:
+        print(
+            f"  WARNING: insufficient completed games for game_id={game_id} "
+            "to compute rolling team scoring form. Skipping."
+        )
+        return None
+
+    _form = form_cache if form_cache is not None else build_team_form_cache(historical_games)
+
+    # ── 4. Match historical games by conditions ──────────────────────────────
     matched_actuals: list[float] = []
 
     for hgame in historical_games:
         hgid = hgame["id"]
-        hhome = hgame["home_team_id"]
-        haway = hgame["away_team_id"]
+        hform = _form.get(hgid, {})
+        h = hform.get(hgame["home_team_id"])
+        a = hform.get(hgame["away_team_id"])
+        if h is None or a is None:
+            continue  # not enough prior games for one of the teams
 
-        # Look up both teams' stats in the in-memory cache
-        home_row = _tgs.get(hgid, {}).get(hhome)
-        away_row = _tgs.get(hgid, {}).get(haway)
-
-        if home_row is None or away_row is None:
-            continue  # No advanced stats for this game — skip
-        if None in (home_row["pace"], away_row["pace"],
-                    home_row["off_rating"], away_row["off_rating"],
-                    home_row["def_rating"], away_row["def_rating"]):
-            continue  # Incomplete stats
-
-        h_pace = home_row["pace"]
-        a_pace = away_row["pace"]
-        combined_pace = h_pace + a_pace
-        h_off = home_row["off_rating"]
-        a_off = away_row["off_rating"]
-        h_def = home_row["def_rating"]
-        a_def = away_row["def_rating"]
-
-        # Apply condition buckets
-        if abs(combined_pace - combined_pace_today) > COMBINED_PACE_BUCKET_WIDTH:
+        if abs(h["pf"] - home_form["pf"]) > TEAM_POINTS_BUCKET_WIDTH:
             continue
-        if abs(h_off - home_off_today) > OFF_RATING_BUCKET_WIDTH:
+        if abs(h["pa"] - home_form["pa"]) > TEAM_POINTS_BUCKET_WIDTH:
             continue
-        if abs(a_off - away_off_today) > OFF_RATING_BUCKET_WIDTH:
+        if abs(a["pf"] - away_form["pf"]) > TEAM_POINTS_BUCKET_WIDTH:
             continue
-        if abs(h_def - home_def_today) > DEF_RATING_BUCKET_WIDTH:
-            continue
-        if abs(a_def - away_def_today) > DEF_RATING_BUCKET_WIDTH:
+        if abs(a["pa"] - away_form["pa"]) > TEAM_POINTS_BUCKET_WIDTH:
             continue
 
-        # Compute the actual prop value for this historical game
         h_score = hgame["home_score"]
         a_score = hgame["away_score"]
         if h_score is None or a_score is None:
@@ -720,25 +702,22 @@ def backtest_game_prop(
     if sample_size < MIN_SAMPLE_SIZE:
         return None
 
-    # ── 6. Compute hit rate ──────────────────────────────────────────────────
+    # ── 5. Compute hit rate ──────────────────────────────────────────────────
     hits = sum(1 for v in matched_actuals if v > line)
     hit_rate = hits / sample_size
 
-    # Game props use 5 conditions (combined_pace, home_off, away_off, home_def, away_def)
-    conditions_matched = 5
     condition_breakdown = {
-        "combined_pace": "active",
-        "home_off_rating": "active",
-        "away_off_rating": "active",
-        "home_def_rating": "active",
-        "away_def_rating": "active",
+        "home_points_for": "active",
+        "home_points_against": "active",
+        "away_points_for": "active",
+        "away_points_against": "active",
     }
 
     return {
         "hit_rate": hit_rate,
         "sample_size": sample_size,
-        "conditions_matched": conditions_matched,
-        "total_conditions": 5,
+        "conditions_matched": 4,
+        "total_conditions": 4,
         "games_queried": len(historical_games),
         "condition_breakdown": condition_breakdown,
     }

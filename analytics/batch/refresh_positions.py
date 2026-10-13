@@ -2,7 +2,7 @@
 analytics/batch/refresh_positions.py
 
 Refreshes player positions in the players table from ESPN's current team
-rosters (Phase 8 hybrid — replaces nba_api's CommonTeamRoster). Iterates all
+rosters (ESPN-only). Iterates all
 30 NBA teams and updates each mapped player's position to the current value.
 
 Players are resolved through players.espn_id ONLY; roster athletes without a

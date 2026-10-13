@@ -7,18 +7,21 @@ hidden site API via the shared analytics/data/espn/client.py:
   summary(event)    -> per-player basic box score -> nba_player_stats
   teams()/roster()  -> team/player espn_id mapping + position refresh
 
-Advanced stats (BoxScoreAdvancedV3 / PlayerTrackV3 / BoxScoreSummaryV2) stay on
-nba_api in analytics/data/enrich_games.py — untouched here.
+ESPN is the ONLY NBA data source; nba_api / stats.nba.com is not used anywhere.
+Advanced stats (usage, pace, ratings, touches) are intentionally not collected.
 
 Identity model:
-  - teams.ext_id / players.ext_id / games.ext_id remain nba_api-native.
+  - teams.ext_id / players.ext_id and all pre-2026-27 games.ext_id values are
+    legacy nba_api-native ids (left in place; never rewritten).
   - teams.espn_id / players.espn_id carry ESPN ids, populated by
     analytics/batch/map_espn_ids.py (never silent name-guessing at ingest).
   - games.espn_id is stamped as ESPN events are matched to DB games by
     (game_date, home_team, away_team). ESPN-discovered games that don't exist
-    yet are inserted with ext_id = ESPN event id as a PROVISIONAL value; the
-    advanced-stats path heals ext_id to the NBA-native id (it needs it anyway
-    to call stats.nba.com) — see enrich_games.resolve_nba_ext_ids().
+    yet are inserted with a PERMANENT ESPN-derived ext_id: the ESPN event id
+    prefixed with the NBA game-type code (001 preseason / 002 regular /
+    004 playoff / 005 play-in) — see espn_ext_id(). The prefix keeps the
+    generated games.game_type column (which reads left(ext_id,3)) correct;
+    the 12-char length never collides with native 10-char '00xxxxxxxx' ids.
   - Boxscore athletes resolve through players.espn_id ONLY. An unmapped
     athlete triggers a loud warning plus one self-heal attempt via the same
     normalized-name rule the mapper uses; if still ambiguous the row is
@@ -88,7 +91,7 @@ def normalize_name(name: str) -> str:
 
 def _int0(raw) -> int:
     """'33' -> 33; ''/'--'/None -> 0 (basic box columns are zero-defaulted,
-    matching the nba_api path's _safe_int behavior)."""
+    matching the legacy nba_api path's _safe_int behavior)."""
     if raw in (None, "", "--"):
         return 0
     try:
@@ -180,7 +183,7 @@ def match_events_to_games(
     """Match ESPN events to DB `games` rows for one date.
 
     Matching is by (home_team_db_id, away_team_db_id) — never by game ext_id,
-    which is nba_api-native. Returns {espn_event_id: game_row}. With stamp=True
+    which may be a legacy nba_api-native id. Returns {espn_event_id: game_row}. With stamp=True
     (default) each matched game's games.espn_id is persisted if missing, so
     later runs and other jobs can join directly. Unmatched events (All-Star,
     exhibitions, teams missing espn_id) warn loudly and are excluded.
@@ -218,6 +221,20 @@ def match_events_to_games(
     return out
 
 
+# ESPN event season.type -> NBA game-type code used by the generated
+# games.game_type column (left(ext_id, 3)). Verified live: 1=preseason,
+# 2=regular, 3=post-season, 5=play-in. Anything else -> '009' (game_type
+# 'other', i.e. excluded like All-Star/exhibitions).
+_ESPN_SEASON_TYPE_PREFIX = {1: "001", 2: "002", 3: "004", 5: "005"}
+
+
+def espn_ext_id(event: dict) -> str:
+    """Permanent games.ext_id for an ESPN-discovered NBA game."""
+    stype = (event.get("season") or {}).get("type")
+    prefix = _ESPN_SEASON_TYPE_PREFIX.get(stype, "009")
+    return f"{prefix}{event.get('id', '')}"
+
+
 def build_game_rows_from_events(
     date_str: str,
     events: list[dict],
@@ -225,9 +242,9 @@ def build_game_rows_from_events(
 ) -> list[dict]:
     """Build `games` upsert rows from ESPN events NOT already in the DB.
 
-    ext_id is set to the ESPN event id as a PROVISIONAL value (ESPN does not
-    expose the NBA-native game id — verified live); games.espn_id carries the
-    same id durably. The advanced-stats path heals ext_id to nba-native later.
+    ext_id is a permanent ESPN-derived id (game-type prefix + ESPN event id,
+    see espn_ext_id); games.espn_id carries the raw ESPN event id. Nothing
+    heals ext_id to an nba_api-native value any more.
     Final events get status=2 + scores; scheduled events keep status default.
     """
     season_yr = (int(date_str[:4]) if int(date_str[5:7]) >= 10
@@ -247,7 +264,7 @@ def build_game_rows_from_events(
         espn_year = (ev.get("season") or {}).get("year")
         row = {
             "league_id": NBA_LEAGUE_ID,
-            "ext_id": ev_id,          # provisional — healed by advanced path
+            "ext_id": espn_ext_id(ev),
             "espn_id": ev_id,
             "game_date": date_str,
             "home_team_id": home_db,
@@ -272,7 +289,7 @@ def parse_summary_boxscore(summary: dict, event_id: str) -> list[dict]:
     `team_espn_id` plus the nba_player_stats basic columns (points, rebounds,
     assists, three_points_made, fouls, minutes_played). DNP athletes (empty
     stats array) are emitted with zeros — mirroring the nba_api path, which
-    stored 0-minute rows for dressed non-participants.
+    stored 0-minute rows for dressed non-participants (legacy parity).
 
     ESPN NBA groups are UNNAMED (name=None, one group per team) so resolution
     uses the `keys` array exclusively; missing required keys warn loudly.
@@ -514,9 +531,9 @@ def compare_date(date_str: str, heal_ids: bool = True) -> dict:
     identity data only, same unique-name-or-skip rule) — historical boxscores
     are the best source for players no longer on a current roster.
 
-    MIN caveat: the nba_api path truncated 'MM:SS' to MM while ESPN reports a
-    whole number that may round up — ±1 minute diffs are reported separately
-    from hard stat mismatches.
+    MIN caveat: legacy rows (from the retired nba_api path) truncated 'MM:SS'
+    to MM while ESPN reports a whole number that may round up — ±1 minute
+    diffs are reported separately from hard stat mismatches.
     """
     team_espn_map, team_abbr_by_espn = load_team_maps()
     player_espn_map = load_player_espn_map()

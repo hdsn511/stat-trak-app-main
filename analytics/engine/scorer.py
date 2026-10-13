@@ -95,8 +95,8 @@ def score(
     Args:
         hit_rate:           Recency-weighted hit rate from backtest (0.0-1.0).
         sample_size:        Number of historical games in the backtest.
-        conditions_matched: Number of active core conditions matched (max 5).
-        total_conditions:   Total core conditions (5 in v2).
+        conditions_matched: Number of active core conditions matched (max = total_conditions).
+        total_conditions:   Total core conditions (4 for NBA player props and game props).
         implied_prob:       Market-implied probability (0.0-1.0).
         days_rest:          Days of rest for the player (0 = back-to-back).
         stat:               Stat abbreviation (e.g. "pts").

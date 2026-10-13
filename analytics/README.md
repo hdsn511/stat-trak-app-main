@@ -28,9 +28,9 @@ enrich_games.py -> nightly.py -> screen.py -> generate.py
                                                 +-- scorer.py         (confidence + edge)
 ```
 
-1. **Enrich** -- Backfill box scores and player positions into Supabase. NBA runs hybrid (Phase 8): basic box scores, rosters/positions, slate/schedule, and playoff scores come from ESPN's hidden API; `nba_api` is kept ONLY for advanced stats (BoxScoreAdvancedV3, PlayerTrackV3 touches, BoxScoreSummaryV2 inactives) plus a one-call-per-date ScoreboardV3 lookup that heals ESPN-discovered games to nba-native ext_ids.
+1. **Enrich** -- Backfill box scores and player positions into Supabase. NBA is ESPN-only: basic box scores, rosters/positions, slate/schedule and playoff scores come from ESPN's hidden API; `player_game_conditions` (minutes, rest, home/away, opponent) is derived from those box scores. No `nba_api` / stats.nba.com anywhere.
 2. **Nightly** -- Reconcile yesterday's picks, fetch today's slate, compute rolling conditions per player.
-3. **Screen** -- Pre-filter player and game candidates by minutes, usage, and stat thresholds.
+3. **Screen** -- Pre-filter player and game candidates by minutes and rolling stat thresholds.
 4. **Generate** -- Pull Kalshi markets, run condition-matched backtests, score confidence/edge, select and store picks.
 
 ---
@@ -41,13 +41,13 @@ enrich_games.py -> nightly.py -> screen.py -> generate.py
 |--------|------|---------|
 | **connection** | `db/connection.py` | Shared Supabase client, env loading from `server/.env`, constants (seasons, position groups, API delays) |
 | **migrate** | `db/migrate.py` | Reference migration for 7 tables (`player_game_conditions`, `team_game_stats`, `opponent_position_defense`, `player_availability`, `daily_conditions`, `daily_lines`, `pick_results`). Supports `--verify` and `--print-sql` |
-| **enrich_games** | `data/enrich_games.py` | Backfills advanced stats (BoxScoreAdvancedV3 + PlayerTrackV3 — the only remaining `nba_api` fetches), basic stats (ESPN summaries), and player positions (ESPN rosters). `resolve_nba_ext_ids()` heals ESPN-discovered games to nba-native ext_ids |
+| **enrich_games** | `data/enrich_games.py` | ESPN-backed positions + basic-stats gap fill, opponent-position-defense ranks, and DB-derived `player_game_conditions` (`--conditions`) |
 | **nba_espn ingest** | `data/nba_espn/ingest.py` | ESPN NBA layer: scoreboard→games, summary→`nba_player_stats` basic rows, espn_id-only player resolution with loud self-heal, `--compare` parity mode |
 | **map_espn_ids** | `batch/map_espn_ids.py` | Populates `espn_id` on NBA `teams`/`players` (abbreviation + normalized-name matching; ambiguous → reported and skipped, never guessed) |
 | **nightly** | `batch/nightly.py` | Daily batch job: reconciles yesterday's picks, fetches today's slate (ESPN scoreboard), computes `daily_conditions` (rolling 5-game averages, rest days, opponent defense) |
-| **screen** | `screener/screen.py` | Pre-filters player candidates (min minutes, usage, stat thresholds) and game candidates |
+| **screen** | `screener/screen.py` | Pre-filters player candidates (min minutes, stat thresholds) and game candidates |
 | **client** | `kalshi/client.py` | Kalshi API client with RSA-PSS authentication. Discovers NBA series, pulls markets, parses into player/game props. Auto-fallback to mock mode |
-| **backtest** | `engine/backtest.py` | Condition-matched backtesting with 5 conditions (usage +/-0.03, pace +/-3.0, rest bucket, matchup tier, home/away). Loosening fallback requires min 3 active conditions |
+| **backtest** | `engine/backtest.py` | Condition-matched backtesting on basic box-score data. Player props: minutes (+/-6), rest bucket, opponent position-defense rank, home/away (4 conditions; loosening drops home/away, matchup, rest in order). Game props: each team's rolling 10-game points for/against (+/-5) |
 | **scorer** | `engine/scorer.py` | Confidence (0-100) and edge scoring. Gates: min 82% hit rate, min 8% edge, B2B penalty on points, 1H confidence cap at 50 |
 | **generate** | `picks/generate.py` | End-to-end pipeline: screen, pull Kalshi markets, backtest, score, select safe/value picks, store to Supabase |
 
@@ -75,7 +75,7 @@ source venv/Scripts/activate   # Windows
 source venv/bin/activate       # Linux / macOS
 
 # Install dependencies
-pip install supabase nba_api cryptography requests python-dotenv
+pip install supabase cryptography requests python-dotenv
 
 # Verify all 7 analytics tables exist in Supabase
 python -m analytics.db.migrate --verify
@@ -91,8 +91,8 @@ python -m analytics.db.migrate --verify
 # Backfill player positions (approx 30 API calls)
 python -m analytics.data.enrich_games --positions
 
-# Enrich a full season of game data (advanced + basic stats)
-python -m analytics.data.enrich_games --season 2024
+# Derive player_game_conditions (minutes/rest/home-away) from box scores already in the DB
+python -m analytics.data.enrich_games --conditions --since 2025-10-01
 
 # Backfill only basic stats for a prior season
 python -m analytics.data.enrich_games --basic-stats --season 2023
@@ -135,7 +135,7 @@ python -m analytics.kalshi.client --test
 
 NFL and NHL ingestion runs on ESPN's hidden site API (`site.api.espn.com`) — free, keyless, and not IP-blocked, so it uses the same simple bounded-retry style as the MLB client. Validated endpoint inventory: `docs/superpowers/specs/2026-07-28-espn-api-research-findings.md`.
 
-**NBA hybrid (Phase 8, 2026-07-31):** the NBA pipeline is ESPN for everything basic — traditional box scores (`nba_player_stats`), rosters/positions, schedule/slate/scoreboard, injuries, playoff-score backfill — and `nba_api` ONLY for advanced stats (usage/pace/ratings via BoxScoreAdvancedV3, touches via PlayerTrackV3, inactives via BoxScoreSummaryV2), which ESPN does not mirror. Identity bridging: `teams.espn_id` / `players.espn_id` / `games.espn_id` columns sit alongside the nba_api-native `ext_id`s (populated by `batch/map_espn_ids.py`; boxscore ingestion resolves players via `espn_id` only, with a loud unique-name self-heal — never silent guessing). ESPN-discovered games carry a provisional ESPN event id in `ext_id` until `enrich_games.resolve_nba_ext_ids()` (one ScoreboardV3 call per date, part of the advanced path) heals them to nba-native ids. Quirk to know: ESPN NBA summaries have ONE unnamed boxscore stat group per team (`name: None`) — parsing keys off the `keys` array, unlike NFL/NHL's named groups. Parity vs the old nba_api rows was verified on 2026-02-11 + 2026-03-25: 570/570 players exact (ESPN MIN rounds where nba_api truncated; ±1 diffs only).
+**NBA is ESPN-only (2026-10):** traditional box scores (`nba_player_stats`), rosters/positions, schedule/slate/scoreboard, injuries and playoff scores all come from ESPN. The former `nba_api` advanced-stats path (usage/pace/ratings via BoxScoreAdvancedV3, touches via PlayerTrackV3, inactives via BoxScoreSummaryV2, ScoreboardV3 ext_id healing) was removed; the `usg_pct`/`pace`/rating/touches columns stay in the schema as legacy and are no longer written or read. Identity: `teams.espn_id` / `players.espn_id` / `games.espn_id` sit alongside legacy nba-native `ext_id`s (`batch/map_espn_ids.py`). New games get a permanent ESPN-derived `ext_id` = game-type prefix (001/002/004/005) + ESPN event id so the generated `games.game_type` stays correct. Quirk: ESPN NBA summaries have ONE unnamed boxscore stat group per team (`name: None`) — parsing keys off the `keys` array.
 
 ```bash
 # One-time: populate espn_id mappings (teams must be 30/30 or it aborts)
@@ -231,7 +231,7 @@ order; a single slate is hundreds of rows.
 | `B2B_PTS_PENALTY` | `scorer.py` | 0.93 | Multiplier on points hit rate for back-to-backs |
 | `FIRST_HALF_CONFIDENCE_CAP` | `scorer.py` | 50 | Maximum confidence for 1H props |
 | `MIN_ROLLING_MINUTES` | `screen.py` | 25 | Rolling minutes filter for candidate screening |
-| `API_DELAY_SECONDS` | `connection.py` | 1.0 | Delay between `nba_api` calls |
+| `API_DELAY_SECONDS` | `connection.py` | 1.0 | Legacy external-API delay (unused by the ESPN path) |
 | `BACKOFF_BASE_SECONDS` | `connection.py` | 5 | Retry backoff base for failed requests |
 | `BATCH_SIZE` | `connection.py` | 500 | Supabase upsert batch size |
 
@@ -244,7 +244,7 @@ order; a single slate is hundreds of rows.
 - **1H props use total/2 approximation.** There is no separate first-half backtesting dataset.
 - **Position backfill reflects ESPN's current rosters** (not season-pinned). Re-run `--positions` after trades; during the offseason it will apply offseason moves to `players.team`. Players who have since left the league are invisible to the roster path entirely — `batch/backfill_positions.py` covers them via the per-athlete endpoint.
 - **NFL/NHL standings need a hand-maintained season boundary.** `games.game_type` is `'other'` for every ESPN-ingested row, so `compute_standings.py` reads the regular-season cutoff from its `regular_season_end` map. A missing season aborts the job rather than folding playoff games into the table; the result is validated against the league's games-per-team before anything is written.
-- **NBA players table only covers rows nba_api once seeded.** Boxscore athletes with no `players` row (e.g. new draft classes) are warned and skipped, never fabricated — extend `players` before expecting their stats.
+- **NBA players table only covers rows seeded earlier.** Boxscore athletes with no `players` row (e.g. new draft classes) are warned and skipped, never fabricated — extend `players` before expecting their stats.
 - **Condition loosening trades precision for sample size.** When few games match all 5 conditions, the engine drops conditions to meet `MIN_SAMPLE_SIZE`, which may reduce signal quality.
 
 ---

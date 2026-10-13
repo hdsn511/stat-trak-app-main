@@ -23,6 +23,9 @@ from analytics.db.connection import supabase
 # All CREATE TABLE statements (exactly as specified)
 CREATE_TABLES = [
     """
+    -- NOTE: usg_pct/pace/off_rating/def_rating/touches* columns are LEGACY: the
+    -- nba_api advanced-stats scraper was removed; new rows carry only minutes,
+    -- home_away, days_rest, opponent_team_id (derived from ESPN box scores).
     CREATE TABLE IF NOT EXISTS player_game_conditions (
         id BIGSERIAL PRIMARY KEY, player_id BIGINT REFERENCES players(id),
         game_id BIGINT REFERENCES games(id), game_date DATE NOT NULL,

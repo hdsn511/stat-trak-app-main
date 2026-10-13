@@ -139,7 +139,7 @@ Verify jobs are registered: tail `server/logs/cron.log` after startup. Expect:
 
 | Cron | What runs | Purpose |
 |------|-----------|---------|
-| `0 2 * * *` (2:00 am) | `python -m analytics.batch.nightly --date <today>` | Fetch today's NBA slate + compute `daily_conditions` for each player (rolling avgs, usage, rest, opp def rank) |
+| `0 2 * * *` (2:00 am) | `python -m analytics.batch.nightly --date <today>` | Fetch today's NBA slate + compute `daily_conditions` for each player (rolling avgs, minutes, rest, opp def rank) |
 | `30 2 * * *` (2:30 am) | `nightly --date <today+1>` through `<today+7>` — 7 serial runs | Pre-fetch upcoming week's games so `entity_id` joins work on `daily_lines` when Kalshi lists future markets |
 | `0 3 * * *` (3:00 am) | `python -m analytics.picks.generate --date <today>` | Fetch Kalshi lines, run condition-matched backtests, score, store to `pick_results` |
 | `0 10-23 * * *` (every hour, 10am–11pm) | `python -m analytics.batch.injury_check --date <today>` | Pull ESPN injuries, upsert `player_availability`, invalidate picks for players ruled Out |
@@ -278,7 +278,7 @@ Expect entries like `[cron:start] nightly`, `[cron:done] nightly (exit 0)`, and 
 
 | Symptom | Fix |
 |---------|-----|
-| `nba_api` ModuleNotFoundError when cron fires | `PYTHON_PATH` not pointing at venv. Set it in `server/.env`, or ensure `venv/Scripts/python.exe` exists (Windows) / `venv/bin/python` (Unix) — scheduler auto-picks this path. |
+| Python `ModuleNotFoundError` (e.g. `supabase`) when cron fires | `PYTHON_PATH` not pointing at venv. Set it in `server/.env`, or ensure `venv/Scripts/python.exe` exists (Windows) / `venv/bin/python` (Unix) — scheduler auto-picks this path. |
 | `/api/nba/trends/top` returns empty | `nba_trends` not populated. Run `npx tsx server/src/jobs/computeNBATrends.ts` manually. |
 | `daily_lines.entity_id` NULL for recent game-prop rows | `games` table missing rows for those dates. Run the catch-up loop in §4. Kalshi markets list ~7 days out; the 2:30am job back-fills this going forward. |
 | Picks pipeline returns "No candidates found" | Either no games on slate or all players filtered out by availability / min-minutes thresholds. Check `player_availability` hasn't marked the whole slate Out by mistake. |
@@ -291,7 +291,7 @@ Expect entries like `[cron:start] nightly`, `[cron:done] nightly (exit 0)`, and 
 
 - [ ] `.env` populated with real (non-example) values
 - [ ] Python venv created; `pip install -r analytics/requirements.txt` done
-- [ ] `nba_init.py` run once — teams, players, games, player_stats populated
+- [ ] `python -m analytics.batch.backfill_season --since <season start>` run once — games and player_stats populated from ESPN
 - [ ] `client/` + `server/` both build cleanly (`npm run build` in each)
 - [ ] Server runs: `node server/dist/server.js` (or via process manager)
 - [ ] Tail `server/logs/cron.log` after first 2am window — confirm jobs ran and exited 0

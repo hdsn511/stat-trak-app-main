@@ -1,20 +1,23 @@
 name: Nightly NBA Pipeline
 
-# DISABLED INDEFINITELY (2026-06-24). statsapi/nba endpoints are IP-blocked from
-# GitHub-hosted runners (see memory: nba-pipeline-ip-block), so every scheduled
-# run hung for the full 120-min timeout and was cancelled with zero output —
-# burning ~2400 GitHub Actions minutes/month (the bulk of the 3000-min budget)
-# for nothing. The schedule is removed; only manual dispatch remains so it can be
-# re-enabled IF the data fetch is ever proxied/unblocked. Re-add the cron then.
+# Runs daily. The NBA pipeline is ESPN-only (basic box scores; no nba_api /
+# stats.nba.com), and ESPN is not IP-blocked from GitHub-hosted runners — the
+# earlier stats.nba.com hang that forced this workflow to manual-only (2026-06-24)
+# no longer applies. In the off-season the run is a cheap no-op (empty slate).
 on:
+  schedule:
+    - cron: '0 13 * * *'   # 09:00 ET — after overnight games are final
   workflow_dispatch:
+
+concurrency:
+  group: nba-nightly
+  cancel-in-progress: false
 
 jobs:
   pipeline:
     name: Nightly Pipeline
     runs-on: ubuntu-latest
-    # Safety net: cap any accidental manual run so an IP-block hang can't burn 2h.
-    timeout-minutes: 15
+    timeout-minutes: 45
 
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}

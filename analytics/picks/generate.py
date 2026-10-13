@@ -38,7 +38,7 @@ from datetime import date, datetime, timedelta
 from typing import Optional
 
 from analytics.db.connection import supabase
-from analytics.engine.backtest import backtest_player, backtest_game_prop, backtest_winner, build_tgs_cache, load_completed_games
+from analytics.engine.backtest import backtest_player, backtest_game_prop, backtest_winner, build_team_form_cache, load_completed_games
 from analytics.engine.scorer import score, MIN_HIT_RATE, MIN_EDGE, MAX_IMPLIED_PROB
 from analytics.kalshi.client import KalshiClient
 from analytics.screener.screen import screen_player_candidates, screen_game_candidates
@@ -484,8 +484,8 @@ def generate_picks(game_date: date, mock_kalshi: bool = False) -> list[dict]:
     game_results_count = 0
 
     # Pre-load expensive data once — shared across all game prop calls
-    _tgs_cache = build_tgs_cache()
     _completed_games = load_completed_games(date_str)
+    _form_cache = build_team_form_cache(_completed_games)
 
     for game_candidate in game_candidates:
         game_id = game_candidate["game_id"]
@@ -508,7 +508,7 @@ def generate_picks(game_date: date, mock_kalshi: bool = False) -> list[dict]:
                     bt = backtest_winner(game_id, date_str)
                 else:
                     bt = backtest_game_prop(game_id, prop_type, line_val, date_str,
-                                            tgs_cache=_tgs_cache, completed_games=_completed_games)
+                                            form_cache=_form_cache, completed_games=_completed_games)
 
                 if bt is None:
                     continue

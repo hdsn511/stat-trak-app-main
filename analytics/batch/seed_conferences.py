@@ -9,7 +9,7 @@ standings resource nests divisions under conferences at level=3; the flat
 default only returns conferences.
 
 NFL/NHL were ingested from ESPN directly, so teams.ext_id IS the ESPN team id
-and matching is exact. NBA (nba_api) and MLB (MLB Stats API) have their own id
+and matching is exact. NBA (legacy nba_api ids) and MLB (MLB Stats API) have their own id
 schemes, so those two match on abbreviation instead, via a short, explicit
 alias table for the handful of codes ESPN spells differently (SAS/SA,
 NYK/NY, ...) — never fuzzy name-guessed.

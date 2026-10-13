@@ -11,7 +11,7 @@ const LOG_FILE = path.join(LOG_DIR, 'cron.log');
 
 // Default to the repo's venv Python when PYTHON_PATH isn't set. The scheduler
 // shells out to `python -m analytics.<module>`, which requires the venv's
-// dependencies (nba_api, supabase, pandas). Using system `python` silently
+// dependencies (supabase, pandas, requests). Using system `python` silently
 // fails on module-not-found.
 const VENV_PYTHON = process.platform === 'win32'
   ? path.resolve(REPO_ROOT, 'venv', 'Scripts', 'python.exe')
@@ -106,7 +106,7 @@ export function startScheduler(): void {
   // 2:30am — sync upcoming week's slate. Kalshi markets are listed ~7 days
   // ahead of each game, but `games` rows are needed for entity_id join on
   // daily_lines + for backtest history. Serially run nightly for each of
-  // the next 7 days to fetch/insert future slates via ScoreboardV3.
+  // the next 7 days to fetch/insert future slates via the ESPN scoreboard.
   cron.schedule('30 2 * * *', async () => {
     for (let offset = 1; offset <= 7; offset++) {
       const dateStr = dateOffsetStr(offset);

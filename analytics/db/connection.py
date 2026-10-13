@@ -53,7 +53,7 @@ def season_int_to_str(y: int) -> str:
 # These are used across multiple modules. Module-specific constants
 # live at the top of their own files.
 
-API_DELAY_SECONDS = 1.0          # Min seconds between nba_api calls
+API_DELAY_SECONDS = 1.0          # Min seconds between external API calls (legacy; ESPN/MLB clients do their own pacing)
 BACKOFF_BASE_SECONDS = 5         # Exponential backoff starting point
 BACKOFF_MAX_SECONDS = 60         # Max backoff wait
 MAX_RETRIES = 5                  # Max retry attempts per API call

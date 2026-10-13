@@ -12,9 +12,9 @@ Usage:
     python backfill.py --from <id>   # restart from a specific step ID
 
 Step IDs (in order):
-    nba_init        Fetch leagues, teams, players, games, and all player stats
-    positions       Backfill player positions from team rosters
-    enrich_games    BoxScoreAdvancedV2 -> player_game_conditions / team_game_stats
+    box_scores      ESPN box scores for every game date missing them
+    positions       Backfill player positions from ESPN rosters
+    enrich_games    Derive player_game_conditions (minutes/rest/home-away) from DB
     opp_defense     Compute opponent-position-defense rankings
     nightly         Compute daily_conditions for today's slate
     generate_picks  Score + store today's picks
@@ -48,23 +48,23 @@ PY    = sys.executable
 
 STEPS: list[dict] = [
     {
-        "id":   "nba_init",
-        "name": "NBA init (leagues / teams / players / games / player stats)",
-        "cmd":  [PY, "server/scripts/nba_init.py"],
+        "id":   "box_scores",
+        "name": "ESPN box scores (gap fill for the current season)",
+        "cmd":  [PY, "-m", "analytics.batch.backfill_season"],
     },
     {
         "id":   "positions",
-        "name": "Backfill player positions (CommonTeamRoster)",
+        "name": "Backfill player positions (ESPN rosters)",
         "cmd":  [PY, "-m", "analytics.data.enrich_games", "--positions"],
     },
     {
         "id":   "enrich_games",
-        "name": "Enrich games -> player_game_conditions / team_game_stats",
-        "cmd":  [PY, "-m", "analytics.data.enrich_games", "--resume", "--yes"],
+        "name": "Derive player_game_conditions from box scores",
+        "cmd":  [PY, "-m", "analytics.data.enrich_games", "--conditions"],
     },
     {
         "id":   "basic_stats_fill",
-        "name": "Fill gaps in nba_player_stats (BoxScoreTraditionalV2)",
+        "name": "Fill gaps in nba_player_stats (ESPN)",
         "cmd":  [PY, "-m", "analytics.data.enrich_games", "--basic-stats", "--resume", "--yes"],
     },
     {
@@ -147,7 +147,7 @@ def run_step(step: dict) -> bool:
         _log(f"  Running: {' '.join(step['cmd'])}")
 
         try:
-            # Force UTF-8 in the child process so emoji in scripts (nba_init.py etc.)
+            # Force UTF-8 in the child process so emoji in scripts (pipeline scripts)
             # don't crash on Windows cp1252 terminals.
             child_env = {
                 **os.environ,

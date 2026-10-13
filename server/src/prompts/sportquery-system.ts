@@ -74,9 +74,13 @@ nba_trends(player_id, stat, window_size, trend_val, rolling_avg, season_avg, sea
   - PK (player_id, stat, window_size). stat SMALLINT: 0=pts,1=reb,2=ast,3=3PM,4=fouls,5=min.
     window_size ∈ {3,5,10}. trend_val = z-score, higher = stronger positive trend.
 player_game_conditions(id, player_id, game_id, game_date, usg_pct, pace, off_rating,
+                        -- !! usg_pct/pace/off_rating/def_rating/touches*/avg_speed are LEGACY: populated only
+                        -- for games through the 2025-26 season and NULL afterwards. Use minutes_played,
+                        -- home_away, days_rest, opponent_team_id for anything current.
                         def_rating, home_away, days_rest, opponent_team_id, minutes_played,
                         touches, front_court_touches, time_of_possession, paint_touches, avg_speed)
 team_game_stats(id, team_id, game_id, game_date, pace, off_rating, def_rating)
+  - LEGACY: no rows after 2025-26. For team scoring use games.home_score/away_score.
 player_availability(id, player_id, game_id, status)
   - status typically 'inactive'/'out'; has gaps — prefer minutes_played > 0 for "played".
 opponent_position_defense(id, team_id, position_group, snapshot_date, pts_allowed_pg,

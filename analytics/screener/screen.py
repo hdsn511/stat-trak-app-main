@@ -30,19 +30,12 @@ MIN_ROLLING_REB = 3         # Min rolling reb avg to check reb props
 MIN_ROLLING_AST = 2         # Min rolling ast avg to check ast props
 MIN_ROLLING_FG3M = 1        # Min rolling 3pm avg to check fg3m props
 
-# Picks v2: gate on touches as the direct opportunity signal (replacing the
-# inferred-usage gate). TOP was dropped intentionally — V3 doesn't expose it
-# and V2 returns invalid JSON for many games. See fetch_player_track docstring.
-# TODO: tune against the distribution of touches across active NBA rotations.
-# Current estimate: bench rotation players average ~25 touches per game.
-MIN_ROLLING_TOUCHES = 25.0
-
 
 # ── Player screener ───────────────────────────────────────────────────────────
 
 def screen_player_candidates(game_date: date) -> list[dict]:
     """
-    Query daily_conditions for game_date, apply minute and usage filters,
+    Query daily_conditions for game_date, apply minute and rolling-average filters,
     and determine which prop types to check for each passing player.
 
     Returns:
@@ -68,23 +61,10 @@ def screen_player_candidates(game_date: date) -> list[dict]:
 
     for row in rows:
         rolling_min = row.get("rolling_min_5g")
-        rolling_touches = row.get("rolling_touches_5g")
-        rolling_usg = row.get("rolling_usg_5g")
 
         # Hard gate: must have sufficient minutes
         if rolling_min is None:
             continue
-
-        # Picks v2: gate on touches when available. During the backfill rampup,
-        # rolling_touches_5g will be NULL for players whose 5-game window has
-        # no touches data yet — fall back to the legacy usage gate to avoid
-        # screening out the entire slate while history fills in.
-        if rolling_touches is not None:
-            if rolling_touches < MIN_ROLLING_TOUCHES:
-                continue
-        else:
-            if rolling_usg is None:
-                continue  # neither signal available — cannot judge opportunity
 
         stats_to_check: list[str] = []
 
@@ -185,15 +165,11 @@ def run_screener(game_date: date) -> None:
     print(f"\nPlayer candidates: {len(player_candidates)}")
     for p in player_candidates:
         cond = p["conditions"]
-        touches = cond.get("rolling_touches_5g")
-        usg = cond.get("rolling_usg_5g")
         print(
             f"  player_id={p['player_id']}  "
             f"game_id={p['game_id']}  "
             f"stats={p['stats_to_check']}  "
-            f"min={cond.get('rolling_min_5g')}  "
-            f"touches={touches if touches is not None else '-'}  "
-            f"usg={usg if usg is not None else '-'}"
+            f"min={cond.get('rolling_min_5g')}"
         )
 
     print("=" * 60)

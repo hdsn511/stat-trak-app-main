@@ -134,8 +134,7 @@ def backfill(since: date, until: date, dry_run: bool = False) -> None:
             print("  No game ext_ids in DB for this date. Skipping.")
             continue
 
-        # No inter-date delay: ESPN isn't rate-limited (API_DELAY_SECONDS
-        # pacing is reserved for the remaining nba_api advanced-stats calls).
+        # No inter-date delay: ESPN isn't rate-limited.
         _fetch_and_insert_box_scores(target, game_ext_ids=ext_ids)
 
     print(f"\nBackfill complete — {len(missing)} date(s) processed.")

@@ -6,7 +6,9 @@ Nightly batch processor. Runs ~2am to prepare daily_conditions for upcoming game
 Steps:
   0. reconcile_picks(yesterday)    -- fill actual_result / did_hit on pick_results
   1. get_slate(target_date)        -- fetch today's/tomorrow's game list
-  2+3. compute_daily_conditions()  -- rolling avgs, usage, rest, opponent rank -> daily_conditions
+  2+3. compute_daily_conditions()  -- rolling avgs, minutes, rest, opponent rank -> daily_conditions
+
+NBA data is ESPN-only (basic box scores); no advanced stats are used.
 
 CLI:
     python -m analytics.batch.nightly --date 2026-03-22
@@ -34,10 +36,11 @@ from analytics.db.connection import (
 )
 
 
-# ── Picks v2 tunables ─────────────────────────────────────────────────────────
-# TODO: tune against observed lineup behavior. 3 captures the team's primary
-# creators without dragging in role players whose absence has minimal lineup impact.
-TOP_USAGE_TEAMMATE_COUNT = 3
+# ── Teammate-out tunables ─────────────────────────────────────────────────────
+# Rotation size used for the "key teammate out" signal: the team's top-N players
+# by season average minutes (basic box-score data; no usage rate). 3 captures the
+# primary rotation without dragging in role players whose absence has minimal impact.
+TOP_MINUTES_TEAMMATE_COUNT = 3
 
 # TODO: window N=7 chosen as "recent enough to capture trend, not so short as to
 # be noisy". Recalibrate after collecting recent_opp_form data for a full season.
@@ -334,9 +337,9 @@ def backfill_completed_games(up_to: date) -> None:
     date+1 and up_to (exclusive), discover games via the ESPN scoreboard and
     fetch their box scores via _fetch_and_insert_box_scores (also ESPN).
 
-    ESPN-discovered games are inserted with a PROVISIONAL ext_id (the ESPN
-    event id, also stored in games.espn_id); the advanced-stats path heals
-    ext_id to the NBA-native id (enrich_games.resolve_nba_ext_ids).
+    ESPN-discovered games are inserted with an ESPN-derived ext_id
+    (game-type prefix + event id; raw event id also in games.espn_id).
+    Afterwards player_game_conditions is derived (DB-only) for the recent window.
 
     Runs before get_slate so rolling averages in daily_conditions are current.
     """
@@ -434,11 +437,20 @@ def backfill_completed_games(up_to: date) -> None:
             print(f"  {date_str}: fetching box scores for {len(missing_ext_ids)}/{len(date_ext_ids)} game(s).")
             _fetch_and_insert_box_scores(current, game_ext_ids=missing_ext_ids)
 
-        # No inter-date delay: ESPN's API isn't rate-limited (API_DELAY_SECONDS
-        # pacing is reserved for the remaining nba_api advanced-stats calls).
+        # No inter-date delay: ESPN's API isn't rate-limited.
         current += timedelta(days=1)
 
     print(f"[Step 0.5] Backfill complete. {total_games} new game(s) inserted.")
+
+
+def derive_conditions(up_to: date, lookback_days: int = 14) -> None:
+    """Derive player_game_conditions (minutes, rest, home/away, opponent) for
+    recent games from nba_player_stats + games. DB-only; idempotent."""
+    from analytics.data.enrich_games import derive_player_conditions
+
+    since = _date_str(up_to - timedelta(days=lookback_days))
+    print(f"[Step 0.6] Deriving player_game_conditions since {since} ...")
+    derive_player_conditions(since=since)
 
 
 # ── Step 1: Get Slate ────────────────────────────────────────────────────────
@@ -447,11 +459,10 @@ def get_slate(target_date: date) -> list[dict]:
     """
     Return list of game dicts (id, home_team_id, away_team_id, game_date)
     for target_date. Local DB first; otherwise the ESPN scoreboard (Phase 8
-    hybrid — replaces the old ScoreboardV3/V2/live/LeagueGameFinder ladder).
+    ESPN-only).
 
-    ESPN-discovered games are inserted with a PROVISIONAL ext_id (the ESPN
-    event id, also stored durably in games.espn_id); the advanced-stats path
-    heals ext_id to the NBA-native id (enrich_games.resolve_nba_ext_ids).
+    ESPN-discovered games are inserted with an ESPN-derived ext_id (game-type
+    prefix + event id; raw event id also stored in games.espn_id).
     """
     from analytics.data.nba_espn.ingest import (
         build_game_rows_from_events, get_events, load_team_maps,
@@ -510,7 +521,7 @@ def get_slate(target_date: date) -> list[dict]:
 def compute_daily_conditions(games: list[dict], target_date: date) -> None:
     """
     For every player on a team playing target_date, compute rolling averages,
-    usage, rest, home/away, and opponent defense rank, then upsert to
+    minutes, rest, home/away, and opponent defense rank, then upsert to
     daily_conditions.
     """
     if not games:
@@ -570,15 +581,14 @@ def compute_daily_conditions(games: list[dict], target_date: date) -> None:
         print("  No players to process. Skipping.")
         return
 
-    # ── Picks v2: precompute season averages + team usage rankings ────────
-    # Single batch query gives us season_avg_usg for top-3 ranking. We also
-    # pull season_avg_minutes from nba_player_stats so positional-sub logic
-    # can pick the next-highest-minutes player at the out starter's position.
+    # ── Season average minutes per rostered player (current season) ───────
+    # Used to rank each team's rotation (key-teammate-out signal) and to pick
+    # the positional sub for an out starter. Basic box-score data only.
     candidate_player_ids = [p["id"] for p in players]
     candidate_team_ids = list({abbr_to_id[p["team"]] for p in players if p.get("team") in abbr_to_id})
 
-    # Pull all NBA active players on today's teams in a single batched select.
-    # Used to identify top-usage teammates regardless of whether they're in `players`.
+    # Pull all NBA active players on today's teams in a single batched select
+    # (regardless of whether they're in `players`).
     team_roster_rows = (
         supabase.table("players")
         .select("id,name,position,team")
@@ -590,30 +600,6 @@ def compute_daily_conditions(games: list[dict], target_date: date) -> None:
     team_roster = team_roster_rows.data or []
     all_roster_ids = list({r["id"] for r in team_roster})
 
-    # season_avg_usg per player (batched). The existing per-player season query
-    # below remains for backward-compat fields but we use this map for ranking.
-    season_usg_map: dict[int, float] = {}
-    if all_roster_ids:
-        # Chunk to keep PostgREST query string size manageable
-        chunk = 200
-        for i in range(0, len(all_roster_ids), chunk):
-            ids_chunk = all_roster_ids[i:i + chunk]
-            res = (
-                supabase.table("player_game_conditions")
-                .select("player_id,usg_pct")
-                .in_("player_id", ids_chunk)
-                .not_.is_("usg_pct", "null")
-                .execute()
-            )
-            buckets: dict[int, list[float]] = {}
-            for r in (res.data or []):
-                buckets.setdefault(r["player_id"], []).append(r["usg_pct"])
-            for pid, vals in buckets.items():
-                avg = _safe_avg(vals)
-                if avg is not None:
-                    season_usg_map[pid] = avg
-
-    # season_avg_minutes per player (current season only — derive from stats)
     season_min_map: dict[int, float] = {}
     if all_roster_ids:
         season_start_str = _season_start_iso(date_str)
@@ -636,20 +622,20 @@ def compute_daily_conditions(games: list[dict], target_date: date) -> None:
                 if avg is not None:
                     season_min_map[pid] = avg
 
-    # Build top-N-usage roster per team
+    # Build top-N-minutes rotation per team
     top_usage_per_team: dict[int, list[int]] = {}
     by_team: dict[int, list[tuple[int, float]]] = {}
     for r in team_roster:
         team_db_id = abbr_to_id.get(r.get("team") or "")
         if not team_db_id:
             continue
-        usg = season_usg_map.get(r["id"])
-        if usg is None:
+        mins = season_min_map.get(r["id"])
+        if mins is None:
             continue
-        by_team.setdefault(team_db_id, []).append((r["id"], usg))
+        by_team.setdefault(team_db_id, []).append((r["id"], mins))
     for tid, plist in by_team.items():
         plist.sort(key=lambda x: x[1], reverse=True)
-        top_usage_per_team[tid] = [pid for pid, _ in plist[:TOP_USAGE_TEAMMATE_COUNT]]
+        top_usage_per_team[tid] = [pid for pid, _ in plist[:TOP_MINUTES_TEAMMATE_COUNT]]
 
     # Player → position_group lookup (for positional-sub logic)
     player_pos_group: dict[int, Optional[str]] = {}
@@ -763,35 +749,6 @@ def compute_daily_conditions(games: list[dict], target_date: date) -> None:
                 except ValueError:
                     pass
 
-        # ── Rolling conditions: last 5 player_game_conditions ──────────
-        # Picks v2: also pull touches. TOP/front_court/paint_touches are
-        # always-NULL (V3 doesn't expose them) — see fetch_player_track docstring.
-        cond_res = (
-            supabase.table("player_game_conditions")
-            .select("game_date,usg_pct,pace,touches")
-            .eq("player_id", player_id)
-            .lt("game_date", date_str)
-            .gt("pace", 0)  # exclude DNP rows where pace wasn't computed
-            .order("game_date", desc=True)
-            .limit(5)
-            .execute()
-        )
-        recent_cond = cond_res.data or []
-        rolling_usg = _safe_avg([r.get("usg_pct") for r in recent_cond])
-        rolling_pace = _safe_avg([r.get("pace") for r in recent_cond])
-        rolling_touches = _safe_avg([r.get("touches") for r in recent_cond])
-
-        # ── Season averages (usg legacy + touches v2) ─────────────────
-        season_cond_res = (
-            supabase.table("player_game_conditions")
-            .select("usg_pct,touches")
-            .eq("player_id", player_id)
-            .execute()
-        )
-        season_cond_rows = season_cond_res.data or []
-        season_avg_usg = _safe_avg([r.get("usg_pct") for r in season_cond_rows])
-        season_avg_touches = _safe_avg([r.get("touches") for r in season_cond_rows])
-
         # ── Opponent defense ranks (stat-specific) ───────────────────────
         opd_data: dict = {}
         if pos_group:
@@ -804,7 +761,7 @@ def compute_daily_conditions(games: list[dict], target_date: date) -> None:
             if pid != player_id and player_team_id.get(pid) == team_db_id
         }
 
-        # Scenario (b): top-3-usage teammates who are out
+        # Scenario (b): top-3-minutes teammates who are out
         team_top3 = top_usage_per_team.get(team_db_id, [])
         top_usage_out = [pid for pid in team_top3 if pid in out_teammate_ids]
 
@@ -850,13 +807,8 @@ def compute_daily_conditions(games: list[dict], target_date: date) -> None:
             "rolling_ast_5g": rolling_ast,
             "rolling_fg3m_5g": rolling_fg3m,
             "rolling_min_5g": rolling_min,
-            "rolling_usg_5g": rolling_usg,
-            "rolling_pace_5g": rolling_pace,
-            "season_avg_usg": season_avg_usg,
-            # Picks v2: touches as the sole opportunity signal
-            # (TOP / paint_touches deliberately NULL — see fetch_player_track docstring).
-            "rolling_touches_5g": rolling_touches,
-            "season_avg_touches": season_avg_touches,
+            # rolling_usg_5g / rolling_pace_5g / *_touches columns are no longer
+            # written (advanced stats retired); legacy rows keep old values.
             "key_teammates_out": key_teammates_out,
             "positional_sub_for": positional_sub_for,
             "opp_def_rank_position":  opd_data.get("pts_rank"),
@@ -926,6 +878,13 @@ def run_nightly(
             backfill_completed_games(up_to=target_date)
         except (Exception, KeyboardInterrupt) as exc:
             print(f"  ERROR in backfill_completed_games: {exc}")
+
+    # Step 0.6 — derive player_game_conditions for the recent window (DB-only)
+    if not slate_only:
+        try:
+            derive_conditions(up_to=target_date)
+        except (Exception, KeyboardInterrupt) as exc:
+            print(f"  ERROR in derive_conditions: {exc}")
 
     # Step 1
     try:

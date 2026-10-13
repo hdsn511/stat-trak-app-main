@@ -3,7 +3,7 @@ analytics/batch/map_espn_ids.py
 
 One-shot (re-runnable) mapper that populates the espn_id columns on the NBA
 rows of `teams` and `players` (Phase 8 ESPN hybrid). Existing ext_id values
-stay nba_api-native; espn_id is the parallel ESPN identity used by
+stay legacy nba_api-native ids (never rewritten); espn_id is the parallel ESPN identity used by
 analytics/data/nba_espn/ingest.py.
 
 Rules — deterministic, never guessed:

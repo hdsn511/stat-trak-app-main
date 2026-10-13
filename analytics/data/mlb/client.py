@@ -3,10 +3,8 @@ analytics/data/mlb/client.py
 
 Thin client for the official MLB Stats API (https://statsapi.mlb.com).
 
-Free, keyless, and — unlike stats.nba.com — NOT IP-blocked, so this works from
-GitHub-hosted runners with no proxy. We therefore skip the heavy adaptive-cooldown
-retry ladder the NBA path needs (see analytics/data/enrich_games.py) and use a
-simple bounded retry.
+Free, keyless, and NOT IP-blocked, so this works from GitHub-hosted runners
+with no proxy. A simple bounded retry is enough.
 
 Endpoints wrapped:
   - schedule(date)            -> games for a date (+ probable pitchers, venue)

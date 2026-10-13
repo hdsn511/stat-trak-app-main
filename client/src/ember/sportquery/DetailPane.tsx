@@ -1,19 +1,17 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import PlayerView from '@/ember/player/PlayerView'
 import { ErrorState, LoadingState } from '@/ember/components/EntityState'
 import { useEntityData } from '@/ember/useEntityData'
 import { createLeagueApi } from '@/services/api'
 import type { PlayerLogResponse } from '@/ember/player/types'
+import { LEAGUES, type LeagueSlug } from '@/config/leagues'
 import { allStatsFor, getPlayerStatConfig } from '@/config/playerStats'
 import { playerPath } from '@/lib/paths'
 import { parseQueryFilters } from './queryFilters'
 import type { Selection } from './selection'
 
-// SportQuery's schema documents the NBA tables only, so every result row is an
-// NBA player. When the prompt grows to other sports the selection will need to
-// carry a league and this constant goes away.
-const LEAGUE = 'nba' as const
+const isLeague = (s: string | undefined): s is LeagueSlug => LEAGUES.some((l) => l.slug === s)
 
 interface DetailPaneProps {
   selection: Selection
@@ -23,13 +21,28 @@ interface DetailPaneProps {
 export default function DetailPane({ selection, onClose }: DetailPaneProps) {
   const { playerId, query } = selection
 
+  // SportQuery rows span all four sports and many don't select a league column,
+  // so start from the row's hint (NBA if none) and let the response correct it:
+  // the player lookup is not league-scoped, so a wrong guess still returns the
+  // player — with the true league — and we refetch from that league's log.
+  const [league, setLeague] = useState<LeagueSlug>(selection.league ?? 'nba')
+  useEffect(() => {
+    setLeague(selection.league ?? 'nba')
+  }, [playerId, selection.league])
+
   const load = useCallback(
-    () => createLeagueApi(LEAGUE).getPlayerLog(playerId, 'all'),
-    [playerId]
+    () => createLeagueApi(league).getPlayerLog(playerId, 'all'),
+    [league, playerId]
   )
   const { data, loading, error, reload } = useEntityData<PlayerLogResponse>(load)
 
-  const statKeys = allStatsFor(getPlayerStatConfig(LEAGUE), 'player').map((s) => s.key)
+  const trueLeague = data?.player.league
+  const mismatch = isLeague(trueLeague) && trueLeague !== league ? trueLeague : null
+  useEffect(() => {
+    if (mismatch) setLeague(mismatch)
+  }, [mismatch])
+
+  const statKeys = allStatsFor(getPlayerStatConfig(league), 'player').map((s) => s.key)
 
   return (
     <div className="flex-1 min-w-0 bg-[#171310] text-[#EFEBE9] overflow-y-auto animate-rise">
@@ -39,7 +52,7 @@ export default function DetailPane({ selection, onClose }: DetailPaneProps) {
           {query ? `FROM: “${query}”` : selection.name}
         </span>
         <Link
-          to={playerPath(LEAGUE, playerId)}
+          to={playerPath(league, playerId)}
           className="font-martian text-[9px] text-[#9A918F] hover:text-[#EFEBE9] border border-[#2C2624] hover:border-[#665F5D] rounded-md px-[10px] py-[5px] shrink-0 whitespace-nowrap"
         >
           FULL PAGE →
@@ -53,8 +66,8 @@ export default function DetailPane({ selection, onClose }: DetailPaneProps) {
         </button>
       </div>
 
-      {loading && <LoadingState label="LOADING PLAYER…" compact />}
-      {!loading && (error || !data) && (
+      {(loading || mismatch) && <LoadingState label="LOADING PLAYER…" compact />}
+      {!loading && !mismatch && (error || !data) && (
         <ErrorState
           label="COULD NOT LOAD PLAYER"
           detail={error ?? 'no data'}
@@ -62,15 +75,15 @@ export default function DetailPane({ selection, onClose }: DetailPaneProps) {
           compact
         />
       )}
-      {!loading && data && (
+      {!loading && !mismatch && data && (
         <PlayerView
           // Selecting a different player reuses this same DetailPane instance
           // rather than remounting it, so without a key tied to the player,
           // PlayerView's internal filter state (seeded once via useState's
           // lazy initializer) would carry over instead of applying the newly
           // parsed initialFilters below.
-          key={playerId}
-          slug={LEAGUE}
+          key={`${league}-${playerId}`}
+          slug={league}
           data={data}
           mode="panel"
           // Seed the filters from the question that surfaced this row, so the

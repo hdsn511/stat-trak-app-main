@@ -219,3 +219,22 @@ export function formatCell(v: unknown): string {
 export function humanizeKey(k: string): string {
   return k.replace(/_/g, ' ').toUpperCase()
 }
+
+const LEAGUE_BY_ID: Record<number, 'nba' | 'mlb' | 'nfl' | 'nhl'> = {
+  1: 'nba',
+  2: 'mlb',
+  3: 'nfl',
+  4: 'nhl',
+}
+
+/**
+ * League a result row belongs to, when the model selected a league column.
+ * Rows from `players` carry `league` ('nba'…); rows from games/stat tables
+ * often carry `league_id`. Returns null when the row says nothing.
+ */
+export function leagueOfRow(row: ResultRow): 'nba' | 'mlb' | 'nfl' | 'nhl' | null {
+  const tag = asString(row.league)?.toLowerCase()
+  if (tag === 'nba' || tag === 'mlb' || tag === 'nfl' || tag === 'nhl') return tag
+  const id = asNumber(row.league_id)
+  return id != null ? (LEAGUE_BY_ID[id] ?? null) : null
+}

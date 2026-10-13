@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { ResultRow, ResultShape } from '@/services/sportqueryApi'
-import { formatCell, genericColumns, humanizeKey, inferMetricKey, parseRow } from './resultRows'
+import { formatCell, genericColumns, humanizeKey, inferMetricKey, leagueOfRow, parseRow } from './resultRows'
 import type { Selection } from './selection'
 
 interface ResultCardsProps {
@@ -95,7 +95,7 @@ export default function ResultCards({
 
   return (
     <div className="flex flex-col gap-2">
-      {parsed.map(({ meta }, i) => {
+      {parsed.map(({ row, meta }, i) => {
         const selected =
           selection?.turnId === turnId &&
           selection.kind === 'player' &&
@@ -146,7 +146,14 @@ export default function ResultCards({
             key={`${turnId}-${meta.playerId}-${i}`}
             type="button"
             onClick={() =>
-              onSelect({ kind: 'player', playerId: meta.playerId!, name: label, query, turnId })
+              onSelect({
+                kind: 'player',
+                playerId: meta.playerId!,
+                league: leagueOfRow(row) ?? undefined,
+                name: label,
+                query,
+                turnId,
+              })
             }
             className={className}
           >

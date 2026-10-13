@@ -321,6 +321,26 @@ const MLB_PITCHER_SELECT =
   'game_id, team_id, strikeouts_pitched, outs_pitched, earned_runs, hits_allowed, ' +
   'walks_allowed, home_runs_allowed, batters_faced, game_date, games!inner(game_type)';
 
+/**
+ * Season start for player game logs. seasonStartFor() rolls to the new season
+ * on the calendar month the league opens, which for NBA/NHL is weeks before a
+ * single game has been played. Until a game exists in the new season the log
+ * would be empty for every player, so fall back to the previous season's start.
+ */
+async function playableSeasonStart(lg: LeagueConfig): Promise<string> {
+  const start = seasonStartFor(lg);
+  const { data, error } = await supabaseAdmin
+    .from('games')
+    .select('id')
+    .eq('league_id', lg.leagueId)
+    .gte('game_date', start)
+    .lte('game_date', new Date().toISOString().slice(0, 10))
+    .limit(1);
+  if (error || (data && data.length > 0)) return start;
+  const prior = Number(start.slice(0, 4)) - 1;
+  return `${prior}${start.slice(4)}`;
+}
+
 export async function getPlayerGames(req: Request<{ id: string }>, res: Response) {
   try {
     const lg = resolveLeague(res);
@@ -329,7 +349,7 @@ export async function getPlayerGames(req: Request<{ id: string }>, res: Response
 
     // Season window and game-type vocabulary both vary by league; they live in
     // the registry so adding a sport does not mean editing this controller.
-    const seasonStart = seasonStartFor(lg);
+    const seasonStart = await playableSeasonStart(lg);
     const gameTypes = lg.gameTypes;
 
     // Fetch the player first: for MLB we branch the stat query on whether they
@@ -337,7 +357,7 @@ export async function getPlayerGames(req: Request<{ id: string }>, res: Response
     // them entirely — we chart their pitching line (Ks, outs, ER…) instead.
     const playerResult = await supabaseAdmin
       .from('players')
-      .select('id, name, team, position')
+      .select('id, name, team, position, league')
       .eq('id', parseInt(id))
       .single();
     if (playerResult.error) throw playerResult.error;

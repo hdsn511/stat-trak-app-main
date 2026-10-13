@@ -51,20 +51,17 @@ describe('GameLogChart', () => {
     expect(screen.getByText('MIA')).toBeInTheDocument()
   })
 
-  it('drops per-bar labels when there are too many to read', () => {
-    // A full NBA season is ~82 bars; three-letter codes become illegible mush.
-    const many = Array.from({ length: 40 }, (_, i) => ({
+  it('keeps every bar and label for a full season, scrolling instead of cramming', () => {
+    // A full NBA season is ~82 bars; each keeps its minimum width and the
+    // chart overflows into a horizontal scroller.
+    const many = Array.from({ length: 82 }, (_, i) => ({
       opponent: 'BOS',
       points: 10 + (i % 5),
     }))
-    render(<GameLogChart games={many} def={def} line={12} />)
-    expect(screen.getAllByTestId('chart-bar')).toHaveLength(40)
-    expect(screen.queryByText('BOS')).not.toBeInTheDocument()
-  })
-
-  it('drops the per-bar values too when bars get dense', () => {
-    const many = Array.from({ length: 40 }, () => ({ opponent: 'BOS', points: 11 }))
-    render(<GameLogChart games={many} def={def} line={12} />)
-    expect(screen.queryAllByTestId('chart-value')).toHaveLength(0)
+    const { container } = render(<GameLogChart games={many} def={def} line={12} />)
+    expect(screen.getAllByTestId('chart-bar')).toHaveLength(82)
+    expect(screen.getAllByTestId('chart-value')).toHaveLength(82)
+    expect(screen.getAllByText('BOS')).toHaveLength(82)
+    expect(container.querySelector('.overflow-x-auto')).not.toBeNull()
   })
 })

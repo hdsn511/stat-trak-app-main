@@ -26,10 +26,12 @@ export default function GameLogTable({
   }
 
   return (
-    <div className="overflow-x-auto">
+    // Capped height so a full season scrolls inside the card instead of
+    // stretching the page; the header row stays pinned while it does.
+    <div data-testid="game-log-scroll" className="overflow-auto max-h-[420px]">
       <table className="w-full border-collapse">
         <thead>
-          <tr className="border-b border-[#27221F]">
+          <tr className="sticky top-0 z-[1] bg-[#1B1715] shadow-[0_1px_0_#27221F]">
             <th className={`${head} text-left`}>DATE</th>
             <th className={`${head} text-left`}>OPP</th>
             {volumeDef && <th className={`${head} text-right`}>{volumeDef.label}</th>}

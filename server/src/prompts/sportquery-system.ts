@@ -52,6 +52,12 @@ team_standings(league_id, season, team_id, conference, division, games_played,
                 wins, losses, ties, ot_losses, points, win_pct, points_for,
                 points_against, l10_wins, l10_losses, streak, conf_rank, div_rank, league_rank)
   - ties/ot_losses/points are NHL-only (0 elsewhere); league_rank 1 = best.
+  - !! team_standings holds ONLY finished-season NFL and NHL tables (league_id 3/4,
+    season 2025). It has NO NBA or MLB rows and NO current-season rows. For NBA/MLB
+    records, or any in-progress season, derive wins/losses from games.home_score/
+    away_score (UNION home and away sides) — see the standings example.
+  - games.season is the START year (NHL 2025 = 2025-26). "Last season" is the
+    latest season with scored games for that league_id, not necessarily MAX(season).
 
 daily_lines(id, league_id, game_date, prop_type, entity_id, team_id, stat, line,
             kalshi_price, implied_prob, market_ticker, is_first_half, created_at)
@@ -138,8 +144,10 @@ nhl_player_stats(game_id, player_id, team_id, game_date, position_type, goals, a
                   faceoff_wins, faceoff_losses, toi_seconds, pp_toi_seconds, sh_toi_seconds,
                   es_toi_seconds, shifts, goals_against, shots_against, saves, save_pct,
                   es_saves, pp_saves, sh_saves, goalie_toi_seconds)
-  - PK (game_id, player_id); skaters AND goalies share this table via position_type —
-    a goalie's skater columns are ~0, a skater's goalie columns are null.
+  - PK (game_id, player_id); skaters AND goalies share this table via position_type
+    ∈ {'skater','goalie'} (lowercase words, NOT 'G'/'C') — a goalie's skater columns
+    are ~0, a skater's goalie columns are null. Early in a season use small minimum-game
+    thresholds (1-3), or a full season has too few games to qualify anyone.
   - toi columns are SECONDS. No player_game_conditions/daily_conditions equivalent.
 nhl_trends(player_id, stat, window_size, trend_val, rolling_avg, season_avg, season_std, computed_at)
   - Same no-uniqueness caveat as nfl_trends.

@@ -5,6 +5,32 @@ export type FewShotExample = {
 
 export const FEW_SHOT_EXAMPLES: FewShotExample[] = [
   {
+    // team_standings has no NBA/MLB rows: derive a record from game scores.
+    user: 'Which NBA teams had the best record last season?',
+    assistant: JSON.stringify({
+      sql: `WITH last AS (
+  SELECT MAX(season) AS season FROM games
+  WHERE league_id = 1 AND home_score IS NOT NULL AND game_type = 'regular'
+), results AS (
+  SELECT g.home_team_id AS team_id, (g.home_score > g.away_score)::int AS w,
+         (g.home_score < g.away_score)::int AS l
+  FROM games g, last WHERE g.league_id = 1 AND g.season = last.season
+    AND g.game_type = 'regular' AND g.home_score IS NOT NULL
+  UNION ALL
+  SELECT g.away_team_id, (g.away_score > g.home_score)::int, (g.away_score < g.home_score)::int
+  FROM games g, last WHERE g.league_id = 1 AND g.season = last.season
+    AND g.game_type = 'regular' AND g.home_score IS NOT NULL
+)
+SELECT t.id AS team_id, t.name AS team_name, SUM(r.w) AS wins, SUM(r.l) AS losses,
+       ROUND(SUM(r.w)::numeric / NULLIF(SUM(r.w) + SUM(r.l), 0), 3) AS win_pct
+FROM results r JOIN teams t ON t.id = r.team_id
+GROUP BY t.id, t.name
+ORDER BY win_pct DESC
+LIMIT 10`,
+      narrative: 'NBA teams ranked by regular-season win percentage in the most recent completed season.',
+    }),
+  },
+  {
     user: 'Show me the top trending scorers over the last 10 games.',
     assistant: JSON.stringify({
       sql: `SELECT p.id, p.name, p.team, p.position, t.trend_val AS z_score, t.rolling_avg

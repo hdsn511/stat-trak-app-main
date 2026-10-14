@@ -11,6 +11,7 @@ import {
   setSessionTitle,
 } from '../services/sportquerySession'
 import { detectShape, enrich } from '../services/sportqueryEnrich'
+import { attachPlayerContext } from '../services/sportqueryContext'
 import { supabaseAdmin } from '../config/supabaseAdmin'
 import { ownsSession } from '../services/sportquerySession'
 
@@ -258,6 +259,9 @@ export async function postMessage(req: Request, res: Response) {
       }
     }
 
+    // Fill team/league for player rows the query left bare, before shaping, so
+    // trend stat ids are labeled in the right sport.
+    rows = await attachPlayerContext(rows)
     const shape = detectShape(rows)
     const enriched = enrich(shape, rows)
 

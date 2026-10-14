@@ -1,11 +1,22 @@
 export type Shape = 'player_trends' | 'player_games' | 'picks' | 'lines' | 'generic'
 
-const STAT_ID_TO_LABEL: Record<number, string> = {
-  0: 'PTS', 1: 'REB', 2: 'AST', 3: '3PM', 4: 'FOULS', 5: 'MIN',
+// Trend `stat` is a SMALLINT whose meaning differs per sport (see each league's
+// trendStatNames in config/leagues.ts), so a bare id is only labelable once the
+// row's league is known.
+const STAT_ID_TO_LABEL: Record<string, Record<number, string>> = {
+  nba: { 0: 'PTS', 1: 'REB', 2: 'AST', 3: '3PM', 4: 'FOULS', 5: 'MIN' },
+  mlb: { 0: 'H', 1: 'TB', 2: 'RBI', 3: 'R', 4: 'HR' },
+  nfl: {
+    0: 'PASS YDS', 1: 'PASS TD', 2: 'RUSH YDS', 3: 'RUSH TD',
+    4: 'REC YDS', 5: 'REC', 6: 'REC TD', 7: 'TKL',
+  },
+  nhl: { 0: 'G', 1: 'A', 2: 'PTS', 3: 'SOG', 4: 'BLK', 5: 'HITS' },
 }
 const STAT_STR_TO_LABEL: Record<string, string> = {
   pts: 'PTS', reb: 'REB', ast: 'AST', fg3m: '3PM', threes: '3PM',
   points: 'PTS', rebounds: 'REB', assists: 'AST', three_points_made: '3PM',
+  hits: 'H', hr: 'HR', home_runs: 'HR', rbi: 'RBI', ks: 'K', tb: 'TB',
+  total_bases: 'TB', runs: 'R',
 }
 
 export function detectShape(rows: unknown[]): Shape {
@@ -24,8 +35,11 @@ export function detectShape(rows: unknown[]): Shape {
   return 'generic'
 }
 
-function statLabel(stat: unknown): string {
-  if (typeof stat === 'number') return STAT_ID_TO_LABEL[stat] ?? String(stat)
+function statLabel(stat: unknown, league?: unknown): string {
+  if (typeof stat === 'number') {
+    const key = typeof league === 'string' ? league.toLowerCase() : 'nba'
+    return (STAT_ID_TO_LABEL[key] ?? STAT_ID_TO_LABEL.nba)[stat] ?? String(stat)
+  }
   if (typeof stat === 'string') return STAT_STR_TO_LABEL[stat.toLowerCase()] ?? stat.toUpperCase()
   return ''
 }
@@ -51,7 +65,7 @@ export function enrich(shape: Shape, rows: any[]): any[] {
       case 'player_trends':
         return {
           ...row,
-          statLabel: statLabel(row.stat),
+          statLabel: statLabel(row.stat, row.league),
           zScoreBucket: zScoreBucket(Number(row.trend_val ?? 0)),
           seasonAvg: row.season_avg ?? null,
         }
@@ -62,7 +76,7 @@ export function enrich(shape: Shape, rows: any[]): any[] {
       case 'picks':
         return {
           ...row,
-          statLabel: statLabel(row.stat),
+          statLabel: statLabel(row.stat, row.league),
           confidenceBucket: confidenceBucket(Number(row.confidence_score ?? 0)),
           edgePct: row.edge != null ? Math.round(Number(row.edge) * 100) : null,
           directionLabel: row.recommended_line != null ? 'OVER' : null,

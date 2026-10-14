@@ -1,16 +1,13 @@
 import { useEffect, useRef } from 'react'
 import AskBar from '@/ember/components/AskBar'
 import QueryChips from '@/ember/components/QueryChips'
+import InfoPopover from './InfoPopover'
 import ResultCards from './ResultCards'
+import { STARTER_QUESTIONS } from './capabilities'
 import type { Selection } from './selection'
 import type { AssistantTurn, Turn } from './useSportQuery'
 
-const STARTER_CHIPS = [
-  "Who's hot from three over the last 10 games?",
-  'Top scorers against top-10 defenses',
-  'Best assist-to-turnover ratios this season',
-  'Which players are on the longest rebounding runs?',
-]
+const STARTER_CHIPS = STARTER_QUESTIONS
 
 interface ChatPaneProps {
   turns: Turn[]
@@ -148,14 +145,18 @@ export default function ChatPane({ turns, busy, selection, onAsk, onSelect }: Ch
               SPORT<span className="text-[#FF6B3D]">QUERY</span>
             </div>
             <div className="font-martian text-[10px] text-[#665F5D] tracking-[0.5px] mt-[5px]">
-              NATURAL-LANGUAGE STATS · NBA BOX SCORES, TRENDS, LINES AND PICKS
+              NATURAL-LANGUAGE STATS · NBA · MLB · NFL · NHL
+            </div>
+            <div className="mt-[12px]">
+              <InfoPopover onAsk={onAsk} />
             </div>
           </div>
 
           {turns.length === 0 && (
             <div className="font-schibsted text-[13px] text-[#9A918F] leading-[1.6] max-w-[560px]">
-              Ask a question in plain English. SportQuery writes the SQL, runs it read-only
-              against the stats database, and shows you the rows it found.
+              Ask a question in plain English about player and team stats in the NBA, MLB, NFL
+              and NHL. SportQuery looks it up read-only and shows the rows it found — see{' '}
+              <span className="text-[#EFEBE9]">What can I ask?</span> for every stat it covers.
             </div>
           )}
 

@@ -1,16 +1,18 @@
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import LiveTicker from '@/ember/components/LiveTicker'
 import AskBar from '@/ember/components/AskBar'
 import QueryChips from '@/ember/components/QueryChips'
 import TrendingPlayers from '@/ember/components/TrendingPlayers'
 import StreakWatch from '@/ember/components/StreakWatch'
-import StatSignals from '@/ember/home/StatSignals'
+import LeagueSignals from '@/ember/home/LeagueSignals'
 import { useSportData } from '@/ember/data/useSportData'
-import { buildStatSignals } from '@/ember/home/signals'
+import { buildLeagueSignals, inSeasonLeagues } from '@/ember/home/signals'
 import { formatGameDate } from '@/ember/game/format'
 import type { LeagueSlug } from '@/config/leagues'
 
 const ALL_LEAGUES: LeagueSlug[] = ['nba', 'mlb', 'nfl', 'nhl']
+const TREND_ROWS = 10
 
 const HERO_CHIPS = [
   "Who's hot from three over the last 10 games?",
@@ -21,10 +23,50 @@ const HERO_CHIPS = [
 
 export default function Home() {
   const navigate = useNavigate()
+  // Wide limits: the signal lanes and the filtered list slice per league, so
+  // the global ranking must not have already cut a league out.
   const { trending, streaks, ticker, loading, errors, tickerScope } = useSportData(ALL_LEAGUES, {
-    trendingLimit: 6,
-    streakLimit: 5,
+    trendingLimit: 60,
+    streakLimit: 60,
   })
+  const [leagueFilter, setLeagueFilter] = useState<LeagueSlug | 'all'>('all')
+
+  const today = new Date().toISOString().slice(0, 10)
+  const inSeason = useMemo(
+    () => inSeasonLeagues(ticker, today, ALL_LEAGUES),
+    [ticker, today]
+  )
+  const lanes = useMemo(
+    () => inSeason.map((l) => buildLeagueSignals(l, trending, streaks, ticker, today)),
+    [inSeason, trending, streaks, ticker, today]
+  )
+  const offSeason = loading ? [] : ALL_LEAGUES.filter((l) => !inSeason.includes(l)).map((l) => l.toUpperCase())
+
+  // Trending and streaks follow the same scope: in-season leagues only, and
+  // optionally narrowed to one.
+  const scoped = <T extends { league: string }>(rows: T[]) =>
+    rows.filter(
+      (r) =>
+        inSeason.includes(r.league as LeagueSlug) &&
+        (leagueFilter === 'all' || r.league === leagueFilter)
+    )
+  // On ALL, one league's z-scores must not crowd out the rest (NHL runs hot in
+  // October): cap each league's share, then rank what's left by strength.
+  const perLeagueCap =
+    leagueFilter === 'all' ? Math.max(2, Math.ceil(TREND_ROWS / Math.max(inSeason.length, 1))) : TREND_ROWS
+  const seen = new Map<string, number>()
+  const trendingRows = scoped(trending)
+    .filter((r) => {
+      const n = (seen.get(r.league) ?? 0) + 1
+      seen.set(r.league, n)
+      return n <= perLeagueCap
+    })
+    .sort((a, b) => b.zScore - a.zScore)
+    .slice(0, TREND_ROWS)
+    .map((r, i) => ({ ...r, rank: i + 1 }))
+  const streakRows = scoped(streaks).slice(0, 8)
+  // The ticker would otherwise keep showing an off-season league's last slate.
+  const liveTicker = ticker.filter((g) => !g.slug || inSeason.includes(g.slug as LeagueSlug))
 
   const openQuery = (query: string) => {
     navigate('/sportquery', { state: { query } })
@@ -48,7 +90,7 @@ export default function Home() {
     <>
       <LiveTicker
         label={tickerLabel}
-        games={ticker}
+        games={liveTicker.length > 0 || loading ? liveTicker : ticker}
         emptyLabel={loading ? 'LOADING SLATE…' : 'NO GAMES SCHEDULED'}
       />
 
@@ -79,7 +121,7 @@ export default function Home() {
       </section>
 
       <main className="flex-1 w-full max-w-[1280px] mx-auto flex flex-col gap-[26px] px-8 pt-7 pb-11">
-        <StatSignals signals={buildStatSignals(trending, streaks, ticker)} />
+        <LeagueSignals lanes={lanes} offSeason={offSeason} loading={loading} />
 
         {errors.length > 0 && (
           <div className="font-martian text-[9px] text-[#FF6B5C] tracking-[1px]">
@@ -89,16 +131,35 @@ export default function Home() {
           </div>
         )}
 
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-martian text-[8px] text-[#665F5D] tracking-[1.5px] mr-1">SHOW</span>
+          {(['all', ...inSeason] as const).map((l) => (
+            <button
+              key={l}
+              type="button"
+              onClick={() => setLeagueFilter(l)}
+              aria-pressed={leagueFilter === l}
+              className={`font-martian font-bold text-[9px] tracking-[1px] rounded px-[10px] py-[5px] border cursor-pointer ${
+                leagueFilter === l
+                  ? 'text-[#14100F] bg-[#FF6B3D] border-[#FF6B3D]'
+                  : 'text-[#9A918F] border-[#2C2624] hover:border-[#665F5D]'
+              }`}
+            >
+              {l === 'all' ? 'ALL' : l.toUpperCase()}
+            </button>
+          ))}
+        </div>
+
         <div className="grid gap-[14px] lg:grid-cols-[1fr_380px] items-start">
           <TrendingPlayers
-            rows={trending}
-            meta="ALL SPORTS · L10 VS SEASON"
+            rows={trendingRows}
+            meta={`${leagueFilter === 'all' ? 'IN-SEASON SPORTS' : leagueFilter.toUpperCase()} · L10 VS SEASON`}
             showLeague
             emptyLabel={loading ? 'LOADING TRENDS…' : 'NO TRENDS AVAILABLE RIGHT NOW'}
           />
           <StreakWatch
-            rows={streaks}
-            meta="ALL SPORTS · LAST 10"
+            rows={streakRows}
+            meta={`${leagueFilter === 'all' ? 'IN-SEASON SPORTS' : leagueFilter.toUpperCase()} · LAST 10`}
             showLeague
             emptyLabel={loading ? 'LOADING STREAKS…' : 'NO ACTIVE STREAKS RIGHT NOW'}
             footerLink={{ label: 'ALL STREAKS →', to: '/sportquery' }}

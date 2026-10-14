@@ -64,4 +64,21 @@ describe('GameLogChart', () => {
     expect(screen.getAllByText('BOS')).toHaveLength(82)
     expect(container.querySelector('.overflow-x-auto')).not.toBeNull()
   })
+
+  it('draws the threshold on the same scale as the bars', () => {
+    // 37 is the tallest bar (full 120px); a 27 line must sit at 27/37 of that,
+    // i.e. BELOW the top of the 37 bar, not above it.
+    const g: GameRow[] = [
+      { date: '2026-04-10', opponent: 'BOS', points: 37 },
+      { date: '2026-04-08', opponent: 'LAL', points: 20 },
+    ]
+    render(<GameLogChart games={g} def={def} line={27} />)
+    const bars = screen.getAllByTestId('chart-bar')
+    const tall = bars.find((b) => b.getAttribute('data-value') === '37')!
+    const barPx = parseFloat((tall as HTMLElement).style.height)
+    const linePx = parseFloat((screen.getByTestId('chart-line') as HTMLElement).style.bottom)
+    expect(barPx).toBeCloseTo(120, 5)
+    expect(linePx).toBeCloseTo((27 / 37) * 120, 5)
+    expect(linePx).toBeLessThan(barPx)
+  })
 })

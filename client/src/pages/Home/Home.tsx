@@ -64,7 +64,15 @@ export default function Home() {
     .sort((a, b) => b.zScore - a.zScore)
     .slice(0, TREND_ROWS)
     .map((r, i) => ({ ...r, rank: i + 1 }))
-  const streakRows = scoped(streaks).slice(0, 8)
+  const streakAll = scoped(streaks).slice(0, TREND_ROWS)
+  // Side by side the two lists read as a pair, so they show the same number of
+  // rows. When one side is empty the other keeps its full length.
+  const pairLen =
+    trendingRows.length > 0 && streakAll.length > 0
+      ? Math.min(trendingRows.length, streakAll.length)
+      : TREND_ROWS
+  const trendingShown = trendingRows.slice(0, pairLen)
+  const streakRows = streakAll.slice(0, pairLen)
   // The ticker would otherwise keep showing an off-season league's last slate.
   const liveTicker = ticker.filter((g) => !g.slug || inSeason.includes(g.slug as LeagueSlug))
 
@@ -150,9 +158,9 @@ export default function Home() {
           ))}
         </div>
 
-        <div className="grid gap-[14px] lg:grid-cols-[1fr_380px] items-start">
+        <div className="grid gap-[14px] lg:grid-cols-[1fr_380px] items-stretch">
           <TrendingPlayers
-            rows={trendingRows}
+            rows={trendingShown}
             meta={`${leagueFilter === 'all' ? 'IN-SEASON SPORTS' : leagueFilter.toUpperCase()} · L10 VS SEASON`}
             showLeague
             emptyLabel={loading ? 'LOADING TRENDS…' : 'NO TRENDS AVAILABLE RIGHT NOW'}

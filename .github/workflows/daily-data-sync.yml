@@ -153,6 +153,20 @@ jobs:
           python -m analytics.batch.map_espn_ids --players
           python -m analytics.batch.seed_nba_players
 
+      # Trades / signings / waivers: re-point players.team at each league's
+      # current rosters (NBA had no other step that ever updated team). Runs
+      # after NBA seeding and before the nightly batch, whose context buckets
+      # read players.team. Fails only when a roster fetch looks broken.
+      - name: Sync rosters (trades) — all leagues
+        id: rosters
+        if: ${{ !cancelled() }}
+        run: |
+          if [ "$LEAGUE" = "all" ]; then
+            python -m analytics.batch.sync_rosters
+          else
+            python -m analytics.batch.sync_rosters --league "$LEAGUE"
+          fi
+
       - name: NBA nightly batch (incl. reconcile)
         id: nba_nightly
         if: ${{ !cancelled() && (env.LEAGUE == 'all' || env.LEAGUE == 'nba') }}

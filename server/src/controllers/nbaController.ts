@@ -335,6 +335,8 @@ async function playableSeasonStart(lg: LeagueConfig): Promise<string> {
     .eq('league_id', lg.leagueId)
     .gte('game_date', start)
     .lte('game_date', new Date().toISOString().slice(0, 10))
+    .in('game_type', lg.gameTypes)
+    .eq('status', 2)
     .limit(1);
   if (error || (data && data.length > 0)) return start;
   const prior = Number(start.slice(0, 4)) - 1;

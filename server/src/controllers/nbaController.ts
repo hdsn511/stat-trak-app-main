@@ -734,6 +734,58 @@ const ESPN_TO_DB_ABBR: Record<string, string> = {
   WSH:  'WAS',
 };
 
+
+export type TeamForm = { record: string; ppg: number | null; oppg: number | null; last5: string; gp: number };
+
+/**
+ * Season form for the teams on a slate: record, points for/against per game and
+ * the last five results, all from final regular-season games this season. This
+ * is the "why" behind a matchup that would otherwise be a bare "A @ B".
+ */
+async function teamFormMap(lg: LeagueConfig, teamIds: number[]): Promise<Map<number, TeamForm>> {
+  const out = new Map<number, TeamForm>();
+  if (teamIds.length === 0) return out;
+  const list = teamIds.join(',');
+  const { data } = await supabaseAdmin
+    .from('games')
+    .select('game_date, home_team_id, away_team_id, home_score, away_score')
+    .eq('league_id', lg.leagueId)
+    .gte('game_date', seasonStartFor(lg))
+    .in('game_type', lg.gameTypes)
+    .not('home_score', 'is', null)
+    .not('away_score', 'is', null)
+    .or(`home_team_id.in.(${list}),away_team_id.in.(${list})`)
+    .order('game_date', { ascending: true })
+    .limit(5000);
+  const acc = new Map<number, { w: number; l: number; t: number; pf: number; pa: number; res: string[] }>();
+  for (const g of (data || []) as any[]) {
+    for (const [tid, pf, pa] of [
+      [g.home_team_id, g.home_score, g.away_score],
+      [g.away_team_id, g.away_score, g.home_score],
+    ] as [number, number, number][]) {
+      if (!teamIds.includes(tid)) continue;
+      const a = acc.get(tid) ?? { w: 0, l: 0, t: 0, pf: 0, pa: 0, res: [] };
+      a.pf += pf; a.pa += pa;
+      const r = pf > pa ? 'W' : pf < pa ? 'L' : 'T';
+      if (r === 'W') a.w++; else if (r === 'L') a.l++; else a.t++;
+      a.res.push(r);
+      acc.set(tid, a);
+    }
+  }
+  for (const id of teamIds) {
+    const a = acc.get(id);
+    const gp = a ? a.w + a.l + a.t : 0;
+    out.set(id, {
+      record: a ? `${a.w}–${a.l}${a.t ? `–${a.t}` : ''}` : '0–0',
+      ppg: gp ? Math.round((a!.pf / gp) * 10) / 10 : null,
+      oppg: gp ? Math.round((a!.pa / gp) * 10) / 10 : null,
+      last5: a ? a.res.slice(-5).reverse().join('') : '',
+      gp,
+    });
+  }
+  return out;
+}
+
 // Today's slate served from the DB games table (populated by the nightly slate
 // sync). Used by every league except NBA, which has a live ESPN feed. Mirrors
 // the ESPN-backed shape: { gameId, dbId, date, time, status, home/away }.
@@ -805,6 +857,7 @@ async function getTodaysGamesFromDb(res: Response) {
     return g.game_date < today ? 'No score' : 'Scheduled';
   };
 
+  const formById = await teamFormMap(lg, [...teamIds]);
   const games = (dbGames || []).map((g: any) => ({
     gameId: g.ext_id,
     dbId: g.id,
@@ -812,8 +865,8 @@ async function getTodaysGamesFromDb(res: Response) {
     time: g.game_time ?? null,
     status: statusLabel(g),
     live: g.status === 1,
-    home: { team: abbrById[g.home_team_id] ?? '', score: g.home_score ?? '' },
-    away: { team: abbrById[g.away_team_id] ?? '', score: g.away_score ?? '' },
+    home: { team: abbrById[g.home_team_id] ?? '', score: g.home_score ?? '', form: formById.get(g.home_team_id) ?? null },
+    away: { team: abbrById[g.away_team_id] ?? '', score: g.away_score ?? '', form: formById.get(g.away_team_id) ?? null },
   }));
   res.json({ success: true, data: games });
 }
@@ -857,6 +910,10 @@ export async function getTodaysGames(_req: Request, res: Response) {
       dbGameByPair[`${g.home_team_id}-${g.away_team_id}`] = g.id;
     });
 
+    const formById = await teamFormMap(
+      resolveLeague(res),
+      [...new Set(Object.values(teamIdByAbbr))]
+    );
     const games = (json.events || []).flatMap((event: any) => {
       const comp = event.competitions?.[0];
       const home = comp?.competitors?.find((c: any) => c.homeAway === 'home');
@@ -877,8 +934,10 @@ export async function getTodaysGames(_req: Request, res: Response) {
         time: comp?.date,
         status: event.status?.type?.shortDetail || 'Scheduled',
         live: event.status?.type?.state === 'in',
-        home: { team: homeAbbr, score: home?.score || '' },
-        away: { team: awayAbbr, score: away?.score || '' },
+        // ESPN reports "0" for a game that has not started; a 0–0 "final" is
+        // wrong, so scores stay blank until the game is live or over.
+        home: { team: homeAbbr, score: event.status?.type?.state === 'pre' ? '' : (home?.score || ''), form: formById.get(homeId!) ?? null },
+        away: { team: awayAbbr, score: event.status?.type?.state === 'pre' ? '' : (away?.score || ''), form: formById.get(awayId!) ?? null },
       }];
     });
 

@@ -42,9 +42,9 @@ describe('InfoPopover', () => {
 })
 
 describe('capabilities', () => {
-  it('covers all four sports and only promises markets where they exist', () => {
+  it('covers all four sports and promises no markets (picks are not offered)', () => {
     expect(SPORTS.map((s) => s.slug)).toEqual(['nba', 'mlb', 'nfl', 'nhl'])
-    expect(SPORTS.filter((s) => s.markets).map((s) => s.slug)).toEqual(['nba', 'mlb'])
+    expect(SPORTS.filter((s) => s.markets).map((s) => s.slug)).toEqual([])
   })
 
   it('starter questions are drawn from the documented examples', () => {

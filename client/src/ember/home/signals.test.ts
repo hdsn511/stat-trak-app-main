@@ -116,4 +116,21 @@ describe('buildLeagueSignals', () => {
   it('returns no signals rather than placeholders when there is no data', () => {
     expect(buildLeagueSignals('nba', [], [], [], TODAY).signals).toEqual([])
   })
+
+  it('never shows a bare VS or a 0-0 for a game that has not started', () => {
+    const upcoming = game('nba', 7, {
+      status: '10/28 - 7:00 PM EDT',
+      time: '2026-10-28T23:00Z',
+      awayForm: { record: '2–2', ppg: 109.2, oppg: 111.0, last5: 'LWLW', gp: 4 },
+      homeForm: { record: '3–1', ppg: 118.5, oppg: 105.3, last5: 'WWLW', gp: 4 },
+    })
+    const out = buildLeagueSignals('nba', [], [], [upcoming], TODAY)
+    const sig = out.signals.find((x) => x.kind === 'next')!
+    expect(sig.stat).not.toBe('VS')
+    expect(sig.stat).not.toMatch(/–/)
+    expect(sig.statLabel).toBe('TIPOFF')
+    expect(sig.context).toContain('AWY 2–2')
+    expect(sig.context).toContain('HOM 3–1')
+    expect(sig.context).toContain('118.5')
+  })
 })

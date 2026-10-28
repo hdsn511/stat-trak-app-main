@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { gamePath } from '@/lib/paths'
+import type { TeamFormSummary } from '@/services/api'
 import LeaguePill from './LeaguePill'
 import TeamLogo from './TeamLogo'
 
@@ -19,6 +20,10 @@ export type TickerGame = {
   homeScore?: number
   status: string
   live?: boolean
+  /** Scheduled start (ISO). */
+  time?: string | null
+  awayForm?: TeamFormSummary | null
+  homeForm?: TeamFormSummary | null
 }
 
 interface LiveTickerProps {

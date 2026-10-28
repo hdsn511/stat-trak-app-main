@@ -16,6 +16,7 @@ const UNSUPPORTED_RE = new RegExp(
     'route', 'red.?zone', 'power.?play unit', 'pace (matchup|offense)', 'fastest pace',
     'tracking', 'play.?by.?play', '\\blive\\b', 'salary', 'contract', 'injur(y|ies) history',
     'weather', 'predict', '\\bWAR\\b', 'spin rate', 'time of possession',
+    '\\bpicks?\\b', '\\blines?\\b', 'odds', 'props?\\b', 'kalshi', 'spread', 'cover(ing)?\\b', '\\bbet', 'parlay',
   ].join('|'),
   'i'
 )

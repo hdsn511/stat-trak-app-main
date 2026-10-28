@@ -3,6 +3,7 @@ import type { StreakRow } from '@/ember/components/StreakWatch'
 import type { TrendingRow } from '@/ember/components/TrendingPlayers'
 import type { LeagueSlug } from '@/config/leagues'
 import { gamePath, playerPath } from '@/lib/paths'
+import { formatGameTime } from '@/ember/game/format'
 
 export type SignalKind = 'hot' | 'rising' | 'streak' | 'live' | 'final' | 'next'
 
@@ -89,17 +90,47 @@ function streakSignal(row: StreakRow): StatSignal | null {
   }
 }
 
+const START_LABEL: Record<string, string> = {
+  nba: 'TIPOFF',
+  nfl: 'KICKOFF',
+  nhl: 'PUCK DROP',
+  mlb: 'FIRST PITCH',
+}
+const SCORE_UNIT: Record<string, string> = { nba: 'pts', nfl: 'pts', nhl: 'goals', mlb: 'runs' }
+
+/**
+ * Why a matchup matters, in numbers: both records with recent form, and the
+ * home offense against the visitor's defense. Empty when neither team has a
+ * played game yet, so a signal is never just "A @ B".
+ */
+function matchupContext(g: TickerGame): string {
+  const a = g.awayForm
+  const h = g.homeForm
+  const parts: string[] = []
+  if (a && a.gp > 0) parts.push(`${g.away} ${a.record}${a.last5 ? ` (${a.last5})` : ''}`)
+  if (h && h.gp > 0) parts.push(`${g.home} ${h.record}${h.last5 ? ` (${h.last5})` : ''}`)
+  if (g.slug && h?.ppg != null && a?.oppg != null && h.gp > 1 && a.gp > 1) {
+    parts.push(`${g.home} scores ${h.ppg} ${SCORE_UNIT[g.slug] ?? 'pts'}/g vs ${g.away} allowing ${a.oppg}`)
+  }
+  return parts.join(' · ')
+}
+
 function gameSignal(g: TickerGame): StatSignal | null {
   if (!g.dbId || !g.slug) return null
   const scored = g.awayScore !== undefined && g.homeScore !== undefined
   const kind: SignalKind = g.live ? 'live' : scored ? 'final' : 'next'
+  const matchup = matchupContext(g)
+  const start = formatGameTime(g.time ?? null)
   return {
     id: `game-${g.id}`,
     kind,
-    stat: scored ? `${g.awayScore}–${g.homeScore}` : 'VS',
-    statLabel: kind === 'live' ? 'LIVE' : kind === 'final' ? 'FINAL' : 'UP NEXT',
+    // Never a bare "VS": the headline is the score once there is one, else the
+    // start time, else the visitor's and home team's records.
+    stat: scored ? `${g.awayScore}–${g.homeScore}` : (start ?? 'TBD'),
+    statLabel:
+      kind === 'live' ? 'LIVE' : kind === 'final' ? 'FINAL' : (START_LABEL[g.slug] ?? 'START'),
     name: `${g.away} @ ${g.home}`,
-    context: g.status,
+    context: matchup || g.status,
     to: gamePath(g.slug, g.dbId),
   }
 }

@@ -134,6 +134,9 @@ export function toTickerGames(league: LeagueSlug, games: TodaysGame[]): TickerGa
     homeScore: g.home.score === '' ? undefined : Number(g.home.score),
     status: g.status,
     live: g.live ?? false,
+    time: g.time,
+    awayForm: g.away.form ?? null,
+    homeForm: g.home.form ?? null,
   }))
 }
 

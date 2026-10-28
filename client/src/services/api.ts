@@ -104,8 +104,18 @@ export interface TodaysGame {
   time: string | null
   status: string
   live?: boolean
-  home: { team: string; score: string }
-  away: { team: string; score: string }
+  home: { team: string; score: string; form?: TeamFormSummary | null }
+  away: { team: string; score: string; form?: TeamFormSummary | null }
+}
+
+/** Season form for a team on the slate, from final games this season. */
+export interface TeamFormSummary {
+  record: string
+  ppg: number | null
+  oppg: number | null
+  /** Last five results, newest first, e.g. "WWLWL". */
+  last5: string
+  gp: number
 }
 
 export interface Pick {

@@ -183,8 +183,8 @@ RULES:
   bullet lines starting with "- " for scope or context (sport, date or season covered, sample
   size). Separate parts with a blank line. No walls of text, no SQL talk, no headings.
 - follow_up_suggestions: 2-3 short questions that THIS dataset can actually answer (box-score
-  stats, trends, streaks, standings, head-to-head, splits, NBA/MLB lines & picks). Build them from
-  names/teams in the result. Never suggest injuries history, live/in-game data, predictions,
+  stats, trends, streaks, standings, head-to-head, splits). Build them from
+  names/teams in the result. Never suggest picks, lines, odds, props, spreads or bets (not offered right now), injuries history, live/in-game data, predictions,
   salaries, play-by-play, or any stat not in the schema above.
 - No query needed (greeting/meta/clarification) → "sql": null.
 

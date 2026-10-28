@@ -7,7 +7,7 @@ export const HERO_CHIPS = [
   'Which NBA players have the most threes over their last 10 games?',
   'Top 5 NBA rebounders per game this season',
   'Which NHL players have the most points over their last 10 games?',
-  "Today's top NBA picks",
+  'Who scored the most points in the NBA last night?',
 ]
 
 /**
@@ -40,6 +40,16 @@ export const UNSUPPORTED_TERMS = [
   '\\bWAR\\b',
   'spin rate',
   'time of possession',
+  // Betting: picks, lines and props are not offered right now.
+  '\\bpicks?\\b',
+  '\\blines?\\b',
+  'odds',
+  'props?\\b',
+  'kalshi',
+  'spread',
+  'cover(ing)?\\b',
+  '\\bbet',
+  'parlay',
 ]
 
 export const UNSUPPORTED_RE = new RegExp(UNSUPPORTED_TERMS.join('|'), 'i')

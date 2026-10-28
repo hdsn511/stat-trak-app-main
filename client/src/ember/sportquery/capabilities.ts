@@ -38,7 +38,7 @@ export const SPORTS: SportCapability[] = [
       },
     ],
     trends: ['Points', 'Rebounds', 'Assists', '3PM', 'Fouls', 'Minutes'],
-    markets: true,
+    markets: false,
     notAvailable:
       'Shooting percentages, steals, blocks, turnovers, plus-minus. Usage, pace and tracking stats stop after 2025-26.',
     examples: [
@@ -68,8 +68,8 @@ export const SPORTS: SportCapability[] = [
       },
     ],
     trends: ['Hits', 'Total bases', 'RBI', 'Runs', 'Home runs'],
-    markets: true,
-    notAvailable: 'AVG / OBP / SLG are not stored, but are calculated from the counting stats when you ask.',
+    markets: false,
+    notAvailable: 'Betting lines and picks are not offered right now. AVG / OBP / SLG are not stored, but are calculated from the counting stats when you ask.',
     examples: [
       'Who has the most home runs this season in MLB?',
       'Top 5 MLB starting pitchers by strikeouts this season',
@@ -91,7 +91,7 @@ export const SPORTS: SportCapability[] = [
     ],
     trends: ['Passing yds', 'Passing TD', 'Rushing yds', 'Rushing TD', 'Receiving yds', 'Receptions', 'Receiving TD', 'Tackles'],
     markets: false,
-    notAvailable: 'Betting lines and picks (NFL has no markets pipeline).',
+    notAvailable: 'Betting lines and picks (not offered).',
     examples: [
       'Top 5 NFL quarterbacks by passing yards this season',
       'Who leads the NFL in receiving yards this season?',
@@ -116,7 +116,7 @@ export const SPORTS: SportCapability[] = [
     ],
     trends: ['Goals', 'Assists', 'Points', 'Shots on goal', 'Blocks', 'Hits'],
     markets: false,
-    notAvailable: 'Betting lines and picks (NHL has no markets pipeline).',
+    notAvailable: 'Betting lines and picks (not offered).',
     examples: [
       'Top 5 NHL goal scorers this season',
       'Which NHL goalies have the best save percentage this season?',
@@ -135,7 +135,6 @@ export const WHAT_YOU_CAN_DO = [
   { title: 'Rank', body: 'Leaders in any stat above — “top 10 …”, “who has the most …”.' },
   { title: 'Narrow', body: 'Last N games, home or away, vs a team, with days of rest, or without a teammate.' },
   { title: 'Spot trends', body: 'Who is running above their season baseline over the last 3, 5 or 10 games.' },
-  { title: 'Check the market', body: "Today's Kalshi lines and model picks — NBA and MLB only." },
   { title: 'Follow up', body: 'Say “now only …” to refine the last answer. Click any result to open that player.' },
 ]
 

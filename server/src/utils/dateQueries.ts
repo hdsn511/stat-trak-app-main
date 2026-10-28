@@ -32,3 +32,15 @@ export const findNearestLinesDate = (today: string, leagueId?: number) =>
 // have no league_id column — caller passes the table name.
 export const findNearestConditionsDate = (today: string, table = 'daily_conditions') =>
   findNearest(table, today)
+
+/**
+ * The current "sports day" as YYYY-MM-DD in US Eastern. games.game_date is the
+ * ET calendar date, and late games finish after midnight, so the slate only
+ * rolls to the next day at 4am ET. Using the UTC date instead flips the slate
+ * to tomorrow at 8pm ET, mid-evening.
+ */
+export function sportsDay(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(
+    new Date(now.getTime() - 4 * 3_600_000)
+  );
+}

@@ -25,6 +25,10 @@ name: Daily Data Sync
 on:
   schedule:
     - cron: '0 11 * * *'
+    # GitHub delays/skips scheduled runs under load (yesterday's 11:00 ran at
+    # 16:09 UTC). Two idempotent catch-ups keep last night's scores fresh.
+    - cron: '0 9 * * *'
+    - cron: '0 15 * * *'
   workflow_dispatch:
     inputs:
       league:

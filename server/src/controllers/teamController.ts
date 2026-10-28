@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabaseAdmin';
-import { league, seasonStartFor } from '../config/leagues';
+import { league, seasonStartFor, LeagueConfig } from '../config/leagues';
 
 interface GameRow {
   is_home: boolean;
@@ -17,6 +17,54 @@ function tally(games: GameRow[]) {
     else if (g.result === 'T') t++;
   }
   return { w, l, t };
+}
+
+// Per-league player columns shown on the team page: [db column, label].
+// Averages are per game played; `gp` counts games with a played-gate row.
+const TEAM_PLAYER_COLUMNS: Record<string, [string, string][]> = {
+  nba: [['minutes_played', 'MIN'], ['points', 'PTS'], ['rebounds', 'REB'], ['assists', 'AST'], ['three_points_made', '3PM']],
+  mlb: [['hits', 'H'], ['home_runs', 'HR'], ['rbi', 'RBI'], ['runs', 'R'], ['total_bases', 'TB']],
+  nhl: [['goals', 'G'], ['assists', 'A'], ['points', 'PTS'], ['shots_on_goal', 'SOG'], ['hits', 'HIT']],
+  nfl: [['passing_yards', 'PASS'], ['rushing_yards', 'RUSH'], ['receiving_yards', 'REC'], ['receptions', 'RECS'], ['tackles_total', 'TKL']],
+};
+
+async function playerAverages(lg: LeagueConfig, teamId: number, seasonStart: string) {
+  const cols = TEAM_PLAYER_COLUMNS[lg.slug] ?? [];
+  if (cols.length === 0) return { columns: [], players: [] };
+  const sel = `player_id, ${cols.map(([c]) => c).join(', ')}, games!inner(game_type)`;
+  const rows: any[] = [];
+  for (let page = 0; page < 10; page++) {
+    let q: any = supabaseAdmin
+      .from(lg.statsTable)
+      .select(sel)
+      .eq('team_id', teamId)
+      .gte('game_date', seasonStart)
+      .in('games.game_type', lg.gameTypes);
+    if (lg.playedGate) q = q.gt(lg.playedGate.col, lg.playedGate.min);
+    const { data } = await q.range(page * 1000, page * 1000 + 999);
+    rows.push(...(data ?? []));
+    if ((data ?? []).length < 1000) break;
+  }
+  const agg = new Map<number, { gp: number; sums: Record<string, number> }>();
+  for (const r of rows) {
+    const a = agg.get(r.player_id) ?? { gp: 0, sums: {} };
+    a.gp += 1;
+    for (const [c] of cols) a.sums[c] = (a.sums[c] ?? 0) + (Number(r[c]) || 0);
+    agg.set(r.player_id, a);
+  }
+  const ids = [...agg.keys()];
+  const names = new Map<number, { name: string; position: string | null }>();
+  if (ids.length > 0) {
+    const { data } = await supabaseAdmin.from('players').select('id, name, position').in('id', ids);
+    for (const p of (data ?? []) as any[]) names.set(p.id, { name: p.name, position: p.position });
+  }
+  const players = ids.map((id) => {
+    const a = agg.get(id)!;
+    const avgs: Record<string, number> = {};
+    for (const [c] of cols) avgs[c] = Math.round((a.sums[c]! / a.gp) * 10) / 10;
+    return { id, name: names.get(id)?.name ?? `#${id}`, position: names.get(id)?.position ?? null, gp: a.gp, avgs };
+  });
+  return { columns: cols.map(([key, label]) => ({ key, label })), players };
 }
 
 export async function getTeamById(req: Request<{ id: string }>, res: Response) {
@@ -47,7 +95,7 @@ export async function getTeamById(req: Request<{ id: string }>, res: Response) {
 
     // Season schedule, newest first. Upcoming games have null scores and sort
     // to the top, which is what the game log wants.
-    const [{ data: games }, { data: roster }] = await Promise.all([
+    const [{ data: games }, { data: roster }, playerStats] = await Promise.all([
       supabaseAdmin
         .from('games')
         .select(`
@@ -71,6 +119,8 @@ export async function getTeamById(req: Request<{ id: string }>, res: Response) {
         .eq('league', lg.playerLeagueTag)
         .eq('is_active', true)
         .order('name'),
+
+      playerAverages(lg, teamId, seasonStart),
     ]);
 
     const gamesWithResult = (games ?? []).map((g: any) => {
@@ -111,6 +161,7 @@ export async function getTeamById(req: Request<{ id: string }>, res: Response) {
         },
         games: gamesWithResult,
         roster: roster ?? [],
+        player_stats: playerStats,
         record: {
           overall: tally(completed),
           home: tally(completed.filter((g) => g.is_home)),

@@ -161,6 +161,11 @@ RULES:
 - Use ILIKE for case-insensitive name matching.
 - Select p.id AS player_id alongside p.name so results can link to the player's page.
 - Don't filter CURRENT_DATE unless asked about today; for "latest"/"recent" use ORDER BY game_date DESC + LIMIT.
+- HISTORY: every sport's game and stat tables hold the last THREE seasons (the current one plus two
+  prior). Don't restrict to the current season unless the user says "this season"/"so far"; for
+  "career", "all time", "history", "vs <team>" or "last 3 seasons" query across all of it. When a
+  question spans seasons, group or label by games.season (join games on game_id) and say so. Preseason
+  rows are in the stats tables: exclude them with games.game_type for real-game questions.
 - "Last night"/"yesterday"/"most recent games": the pipeline can lag a day, so don't hardcode a date.
   Use game_date = (SELECT MAX(game_date) FROM <sport>_player_stats WHERE game_date < CURRENT_DATE)
   and say which date it resolved to in the narrative.

@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabaseAdmin';
-import { findNearestConditionsDate, findNearestPickDate } from '../utils/dateQueries';
+import { findNearestConditionsDate, findNearestPickDate, sportsDay } from '../utils/dateQueries';
 import { league as resolveLeague, seasonStartFor, LeagueConfig } from '../config/leagues';
 
 /**
@@ -50,6 +50,8 @@ export function buildUpcoming(
   };
 }
 
+export type DriverDetail = { label: string; summary: string; lines: string[] };
+
 // Build trend driver chips for a player given their conditions row + injury flag.
 function buildTrendDrivers(
   cond: {
@@ -77,6 +79,70 @@ function buildTrendDrivers(
   }
   if (hasInjuryBoost) drivers.push('INJURY BOOST');
   return drivers;
+}
+
+const f1 = (v: number) => (Math.round(v * 10) / 10).toString();
+const sign = (v: number) => (v > 0 ? '+' : '') + f1(v);
+
+// Quantified drill-down behind each NBA chip. `outs` are the injured
+// teammates with their season PPG so the boost is a number, not a vibe.
+function buildDriverDetails(
+  cond: any,
+  outs: { name: string; ppg: number | null }[],
+): DriverDetail[] {
+  const d: DriverDetail[] = [];
+  if (cond) {
+    const rUsg = cond.rolling_usg_5g, sUsg = cond.season_avg_usg;
+    if (rUsg != null && sUsg != null && sUsg > 0 && (rUsg - sUsg) / sUsg > 0.10) {
+      const pct = ((rUsg - sUsg) / sUsg) * 100;
+      d.push({ label: 'USG ↑', summary: `Usage up ${f1(pct)}% vs season`, lines: [
+        `Last 5 games: ${f1(rUsg)}% of team possessions used`,
+        `Season average: ${f1(sUsg)}%`,
+        'More possessions used means more shot and assist chances.',
+      ]});
+    }
+    if (cond.rolling_min_5g != null && cond.rolling_min_5g > 30) {
+      d.push({ label: 'MIN ↑', summary: `${f1(cond.rolling_min_5g)} minutes per game lately`, lines: [
+        `Last 5 games: ${f1(cond.rolling_min_5g)} min per game`,
+        'Over 30 minutes is a heavy-rotation workload; counting stats scale with it.',
+      ]});
+    }
+    if (cond.rolling_pace_5g != null && cond.rolling_pace_5g > 102) {
+      d.push({ label: 'FAST PACE', summary: `Team pace ${f1(cond.rolling_pace_5g)}`, lines: [
+        `Last 5 games: ${f1(cond.rolling_pace_5g)} possessions per 48`,
+        `That is ${sign(cond.rolling_pace_5g - 100)} vs a ~100 league baseline: more possessions, more chances.`,
+      ]});
+    }
+  }
+  if (outs.length > 0) {
+    const vacated = outs.reduce((a, o) => a + (o.ppg ?? 0), 0);
+    d.push({ label: 'INJURY BOOST', summary: `${outs.length} teammate${outs.length > 1 ? 's' : ''} out, ${f1(vacated)} PPG vacated`, lines: [
+      ...outs.map((o) => `${o.name} OUT${o.ppg != null ? ` (${f1(o.ppg)} PPG)` : ''}`),
+      'Their shots and minutes get redistributed among the players still active.',
+    ]});
+  }
+  return d;
+}
+
+function buildMLBDriverDetails(cond: any, park: any, starter: any): DriverDetail[] {
+  const d: DriverDetail[] = [];
+  if (cond?.opp_starter_hand === 'L' || cond?.opp_starter_hand === 'R') {
+    const hand = cond.opp_starter_hand === 'L' ? 'left' : 'right';
+    d.push({ label: cond.opp_starter_hand === 'L' ? 'vs LHP' : 'vs RHP', summary: `Faces a ${hand}-handed starter`, lines: [
+      ...(starter ? [`${starter.name}: arm quality rank ${starter.rank} of ${starter.total} (1 = best)`] : []),
+      `Platoon matchup: hitters split by pitcher handedness, so the same bat can swing very differently.`,
+    ]});
+  }
+  const pf = cond?.park_factor;
+  if (pf != null && (pf > 1.05 || pf < 0.95)) {
+    const pct = (pf - 1) * 100;
+    d.push({ label: pf > 1.05 ? 'HITTER PARK' : 'PITCHER PARK', summary: `Park run factor ${pf.toFixed(2)} (${sign(pct)}% runs)`, lines: [
+      `Runs: ${(pf).toFixed(2)}x league average (${sign(pct)}%)`,
+      ...(park?.factor_hr != null ? [`Home runs: ${Number(park.factor_hr).toFixed(2)}x league average (${sign((park.factor_hr - 1) * 100)}%)`] : []),
+      '1.00 is a neutral park; above 1 favors hitters, below 1 favors pitchers.',
+    ]});
+  }
+  return d;
 }
 
 // MLB trend drivers: baseball-relevant context chips from mlb_daily_conditions.
@@ -201,7 +267,7 @@ async function buildTrendingPayload(opts: {
   // Step 3: fetch conditions rows for those players for the chosen date.
   // Column set is league-specific (NBA usage/pace vs MLB handedness/park).
   const condSelect = lg.slug === 'mlb'
-    ? 'player_id, game_id, opp_starter_hand, park_factor, rolling_pa_5g'
+    ? 'player_id, game_id, opp_starter_hand, opp_starter_id, park_factor, rolling_pa_5g'
     : 'player_id, game_id, rolling_usg_5g, season_avg_usg, rolling_min_5g, rolling_pace_5g';
   const condByPlayerId = new Map<number, any>();
   if (playerIds.length > 0 && lg.dailyConditionsTable) {
@@ -213,6 +279,42 @@ async function buildTrendingPayload(opts: {
     for (const r of ((condRows || []) as any[])) {
       // Latest wins if multiple — there should only be one per (player, date)
       condByPlayerId.set(r.player_id, r);
+    }
+  }
+
+  // Step 3b: supporting numbers for the drill-down (names + season PPG of
+  // injured teammates; arm quality of the opposing MLB starter).
+  const outIdSet = new Set<number>();
+  for (const set of outByGameId.values()) for (const id of set) outIdSet.add(id);
+  const outInfo = new Map<number, { name: string; ppg: number | null }>();
+  const starterInfo = new Map<number, { name: string; rank: number; total: number }>();
+  if (lg.slug !== 'mlb' && outIdSet.size > 0) {
+    const ids = [...outIdSet];
+    const [{ data: pl }, { data: tr }] = await Promise.all([
+      supabaseAdmin.from('players').select('id, name').in('id', ids),
+      lg.trendsTable
+        ? supabaseAdmin.from(lg.trendsTable).select('player_id, season_avg').in('player_id', ids).eq('stat', 0).eq('window_size', 10)
+        : Promise.resolve({ data: [] as any[] }),
+    ]);
+    const ppg = new Map<number, number>();
+    for (const t of (tr || []) as any[]) if (t.season_avg != null) ppg.set(t.player_id, Number(t.season_avg));
+    for (const p of (pl || []) as any[]) outInfo.set(p.id, { name: p.name, ppg: ppg.get(p.id) ?? null });
+  }
+  if (lg.slug === 'mlb') {
+    const starterIds = [...new Set([...condByPlayerId.values()].map((c) => c.opp_starter_id).filter((x) => x != null))];
+    if (starterIds.length > 0) {
+      const [{ data: pq }, { data: allQ }, { data: names }] = await Promise.all([
+        supabaseAdmin.from('mlb_pitcher_quality').select('player_id, quality_rank, snapshot_date').in('player_id', starterIds).order('snapshot_date', { ascending: false }),
+        supabaseAdmin.from('mlb_pitcher_quality').select('player_id').order('snapshot_date', { ascending: false }).limit(1000),
+        supabaseAdmin.from('players').select('id, name').in('id', starterIds),
+      ]);
+      const total = new Set((allQ || []).map((r: any) => r.player_id)).size;
+      const nm = new Map((names || []).map((n: any) => [n.id, n.name]));
+      for (const r of (pq || []) as any[]) {
+        if (!starterInfo.has(r.player_id) && r.quality_rank != null) {
+          starterInfo.set(r.player_id, { name: nm.get(r.player_id) ?? 'Starter', rank: r.quality_rank, total });
+        }
+      }
     }
   }
 
@@ -233,6 +335,16 @@ async function buildTrendingPayload(opts: {
     const drivers = lg.slug === 'mlb'
       ? buildMLBTrendDrivers(cond)
       : buildTrendDrivers(cond, injuryBoost);
+    const outsForPlayer = cond?.game_id
+      ? [...(outByGameId.get(cond.game_id) ?? [])]
+          .filter((id) => id !== row.player_id)
+          .map((id) => outInfo.get(id))
+          .filter((o): o is { name: string; ppg: number | null } => !!o)
+          .sort((a, b) => (b.ppg ?? 0) - (a.ppg ?? 0))
+      : [];
+    const trendDriverDetails = lg.slug === 'mlb'
+      ? buildMLBDriverDetails(cond, null, cond?.opp_starter_id != null ? starterInfo.get(cond.opp_starter_id) : null)
+      : buildDriverDetails(cond, injuryBoost ? outsForPlayer : []);
 
     return {
       playerId: row.player_id,
@@ -246,6 +358,7 @@ async function buildTrendingPayload(opts: {
       seasonAvg: row.season_avg != null ? Number(row.season_avg) : null,
       windowSize: row.window_size,
       trendDrivers: drivers,
+      trendDriverDetails,
     };
   });
 
@@ -623,7 +736,7 @@ const ESPN_TO_DB_ABBR: Record<string, string> = {
 // presenting next week's games as tonight's.
 async function getTodaysGamesFromDb(res: Response) {
   const lg = resolveLeague(res);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = sportsDay();
 
   const selectCols =
     'id, ext_id, game_date, game_time, status, home_team_id, away_team_id, home_score, away_score';
@@ -705,13 +818,15 @@ export async function getTodaysGames(_req: Request, res: Response) {
     if (resolveLeague(res).slug !== 'nba') {
       return await getTodaysGamesFromDb(res);
     }
+    // Ask ESPN for the sports day explicitly; its default "today" and our DB's
+    // ET game_date can disagree around midnight.
+    const today = sportsDay();
     const response = await fetch(
-      'https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard'
+      `https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates=${today.replace(/-/g, '')}`
     );
     if (!response.ok) throw new Error(`ESPN API error: ${response.status}`);
     const json = await response.json() as any;
 
-    const today = new Date().toISOString().slice(0, 10);
     // Map abbreviation -> team_id
     const { data: teamRows } = await supabaseAdmin
       .from('teams')

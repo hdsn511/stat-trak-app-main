@@ -29,11 +29,11 @@ interface LiveTickerProps {
 }
 
 const WRAPPER =
-  'flex items-center gap-[10px] px-[28px] py-[9px] border-b border-[#221E1B] overflow-x-auto no-scrollbar shrink-0'
+  'group/ticker flex items-center gap-[14px] pl-[28px] border-t-2 border-b border-t-[#FF6B3D] border-b-[#3A2A22] overflow-hidden shrink-0'
 const STRIPES =
   'repeating-linear-gradient(90deg, transparent 0, transparent 7px, rgba(255,107,61,0.03) 7px, rgba(255,107,61,0.03) 8px)'
 const CHIP =
-  'flex items-center gap-2 bg-[#1B1715] border border-[#2C2624] hover:border-[#FF6B3D] rounded px-[10px] py-[5px] cursor-pointer whitespace-nowrap shrink-0'
+  'flex items-center gap-2 bg-[#1B1715] border border-[#2C2624] hover:border-[#FF6B3D] rounded px-[10px] py-[6px] cursor-pointer whitespace-nowrap shrink-0'
 
 const TODAY = () => new Date().toISOString().slice(0, 10)
 
@@ -74,31 +74,66 @@ function ChipBody({ g }: { g: TickerGame }) {
   )
 }
 
+/** Games grouped by league, in first-seen order, so each league reads as one lane. */
+function groupByLeague(games: TickerGame[]): [string, TickerGame[]][] {
+  const lanes = new Map<string, TickerGame[]>()
+  for (const g of games) {
+    const key = g.league ?? ''
+    lanes.set(key, [...(lanes.get(key) ?? []), g])
+  }
+  return [...lanes.entries()]
+}
+
 export default function LiveTicker({ label, games, emptyLabel, onGameClick }: LiveTickerProps) {
+  const lanes = groupByLeague(games)
+  // Scroll only when there is enough to overflow; a short slate stays put.
+  const moving = games.length > 4
+  const renderLanes = (copy: number) =>
+    lanes.map(([league, items]) => (
+      <div
+        key={`${copy}-${league}`}
+        className="flex items-center gap-[10px] pl-[12px] pr-[6px] my-[7px] border-l-2 border-l-[#FF6B3D] shrink-0"
+        style={{ boxShadow: 'inset 12px 0 14px -14px rgba(255,107,61,0.55)' }}
+      >
+        {items.map((g) =>
+          // A game without a database id can't be opened, and an explicit
+          // handler takes precedence over navigation.
+          !onGameClick && g.dbId && g.slug ? (
+            <Link key={g.id} to={gamePath(g.slug, g.dbId)} className={CHIP}>
+              <ChipBody g={g} />
+            </Link>
+          ) : (
+            <button key={g.id} type="button" onClick={() => onGameClick?.(g)} className={CHIP}>
+              <ChipBody g={g} />
+            </button>
+          )
+        )}
+      </div>
+    ))
+
   return (
     <div className={WRAPPER} style={{ backgroundImage: STRIPES }}>
-      <span className="font-martian font-medium text-[11px] text-[#A8A09C] tracking-[1.5px] shrink-0">
+      <span className="font-martian font-medium text-[11px] text-[#FF6B3D] tracking-[1.5px] shrink-0">
         {label}
       </span>
 
       {games.length === 0 && emptyLabel && (
-        <span className="font-martian text-[11px] text-[#8A827E] tracking-[1.5px] shrink-0">
+        <span className="font-martian text-[11px] text-[#8A827E] tracking-[1.5px] shrink-0 py-[14px]">
           {emptyLabel}
         </span>
       )}
 
-      {games.map((g) =>
-        // A game without a database id can't be opened, and an explicit
-        // handler takes precedence over navigation.
-        !onGameClick && g.dbId && g.slug ? (
-          <Link key={g.id} to={gamePath(g.slug, g.dbId)} className={CHIP}>
-            <ChipBody g={g} />
-          </Link>
-        ) : (
-          <button key={g.id} type="button" onClick={() => onGameClick?.(g)} className={CHIP}>
-            <ChipBody g={g} />
-          </button>
-        )
+      {games.length > 0 && (
+        <div className="flex-1 min-w-0 overflow-hidden">
+          <div
+            className={`flex w-max items-center gap-[18px] ${moving ? 'animate-ticker group-hover/ticker:[animation-play-state:paused]' : ''}`}
+            style={moving ? { animationDuration: `${Math.max(30, games.length * 5)}s` } : undefined}
+          >
+            {renderLanes(0)}
+            {/* Duplicate so the -50% loop is seamless. */}
+            {moving && <div aria-hidden className="contents">{renderLanes(1)}</div>}
+          </div>
+        </div>
       )}
     </div>
   )

@@ -317,6 +317,51 @@ def ingest_date_range(spec: LeagueSpec, start: date, end: date,
 
 # ── CLI runner shared by nfl_init / nhl_init ───────────────────────────────────
 
+SCHEDULE_DAYS_AHEAD = 7
+
+
+def ingest_schedule(spec: LeagueSpec, start: date, days: int = SCHEDULE_DAYS_AHEAD) -> int:
+    """Upsert not-yet-final games for [start, start+days] so the slate, ticker
+    and streak/matchup lookups have upcoming games. Final games are left to
+    _ingest_date: a scheduled row is never written over a final one because
+    only non-final events are upserted here (and finals overwrite on ingest).
+    Returns rows written."""
+    team_map = _team_map(spec)
+    written = 0
+    for offset in range(days + 1):
+        day = start + timedelta(days=offset)
+        rows: list[dict] = []
+        for ev in espn.get_scoreboard(spec.sport, spec.league, day.strftime("%Y%m%d")):
+            comp = (ev.get("competitions") or [{}])[0]
+            status = comp.get("status", {}).get("type", {})
+            if (ev.get("season") or {}).get("type") not in INGEST_SEASON_TYPES:
+                continue
+            if status.get("name") == "STATUS_FINAL":
+                continue
+            sides = {c.get("homeAway"): c for c in comp.get("competitors", [])}
+            home_db = team_map.get(str(sides.get("home", {}).get("team", {}).get("id")))
+            away_db = team_map.get(str(sides.get("away", {}).get("team", {}).get("id")))
+            if not home_db or not away_db:
+                continue
+            espn_year = (ev.get("season") or {}).get("year")
+            rows.append({
+                "league_id": spec.league_id,
+                "ext_id": str(ev["id"]),
+                "game_date": _date_str(day),
+                "home_team_id": home_db,
+                "away_team_id": away_db,
+                "season": spec.season_from_espn_year(espn_year) if espn_year else day.year,
+                "status": 1 if status.get("name") == "STATUS_IN_PROGRESS" else 0,
+                "game_time": ev.get("date"),
+            })
+        for chunk in _chunked(rows, BATCH_SIZE):
+            supabase.table("games").upsert(chunk, on_conflict="league_id,ext_id").execute()
+        written += len(rows)
+    print(f"  Scheduled {written} upcoming {spec.code.upper()} game(s) "
+          f"through {_date_str(start + timedelta(days=days))}.")
+    return written
+
+
 def run_cli(spec: LeagueSpec, args, default_season: int) -> int:
     """Execute the standard init CLI (--teams / --rosters / date-range ingest).
 
@@ -353,6 +398,9 @@ def run_cli(spec: LeagueSpec, args, default_season: int) -> int:
             datetime.strptime(end_s, "%Y-%m-%d").date(),
             resume=args.resume,
         )
+        # Nightly runs end at today; also pull the coming week's schedule.
+        if datetime.strptime(end_s, "%Y-%m-%d").date() >= date.today():
+            ingest_schedule(spec, date.today())
 
     print("=" * 60)
     print("Done.")

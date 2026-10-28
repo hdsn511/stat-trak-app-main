@@ -482,6 +482,17 @@ export async function getPlayerGames(req: Request<{ id: string }>, res: Response
     // for much of the year, so this is frequently null and the client falls back
     // to a user-selected opponent.
     let upcoming: ReturnType<typeof buildUpcoming> = null;
+    // The team the player is on NOW: their last logged game may be from a
+    // prior team (trade/offseason move), which would point "next game" at the
+    // wrong club. Falls back to the last logged team when the abbreviation
+    // doesn't resolve.
+    const currentAbbr = (playerResult.data as any)?.team;
+    if (currentAbbr) {
+      const { data: curTeam } = await supabaseAdmin
+        .from('teams').select('id')
+        .eq('league_id', lg.leagueId).eq('abbreviation', currentAbbr).maybeSingle();
+      if (curTeam) playerTeamId = (curTeam as any).id;
+    }
     if (playerTeamId != null) {
       const today = new Date().toISOString().slice(0, 10);
       const { data: nextGames } = await supabaseAdmin

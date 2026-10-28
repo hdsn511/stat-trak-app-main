@@ -9,3 +9,8 @@ router.get('/picks/potd', getPotd);
 router.get('/streaks/perfect', getPerfectStreaks);
 
 export default router;
+
+// NHL/NFL have no picks pipeline, but streaks are computed straight from game
+// logs, so they get just this one route.
+export const streaksOnlyRouter = Router();
+streaksOnlyRouter.get('/streaks/perfect', getPerfectStreaks);

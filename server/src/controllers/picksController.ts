@@ -277,7 +277,20 @@ export async function getPerfectStreaks(req: Request<{}, {}, {}, { type?: string
     // came from the nearest pick date, so after the UTC rollover — or on any
     // off day — the whole endpoint returned an empty list even though a slate
     // existed hours later.
-    const slateDate = (await findNearestPickDate(today, lg.leagueId)) ?? today;
+    let slateDate = (await findNearestPickDate(today, lg.leagueId)) ?? today;
+    // Leagues with no picks pipeline (NHL/NFL) have no pick dates to anchor on,
+    // and many days have no games at all (NFL plays ~1 day in 3). Use the next
+    // date that actually has scheduled games.
+    if (!lg.hasMarkets) {
+      const { data: nextDay } = await supabaseAdmin
+        .from('games')
+        .select('game_date')
+        .eq('league_id', lg.leagueId)
+        .gte('game_date', today)
+        .order('game_date', { ascending: true })
+        .limit(1);
+      if (nextDay?.[0]?.game_date) slateDate = nextDay[0].game_date;
+    }
 
     const { data: slateGames } = await supabaseAdmin
       .from('games')

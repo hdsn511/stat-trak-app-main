@@ -4,7 +4,7 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import sportqueryRoutes from './routes/sportquery';
 import nbaRoutes from './routes/nba';
-import picksRoutes from './routes/picks';
+import picksRoutes, { streaksOnlyRouter } from './routes/picks';
 import performanceRoutes from './routes/performance';
 import searchRoutes from './routes/search';
 import { leagueMiddleware } from './config/leagues';
@@ -75,7 +75,9 @@ app.use('/api/mlb', leagueMiddleware('mlb'), picksRoutes);
 // NHL/NFL have per-game stats but no trends or picks pipeline, so only the
 // core routes are mounted for them.
 app.use('/api/nhl', leagueMiddleware('nhl'), nbaRoutes);
+app.use('/api/nhl', leagueMiddleware('nhl'), streaksOnlyRouter);
 app.use('/api/nfl', leagueMiddleware('nfl'), nbaRoutes);
+app.use('/api/nfl', leagueMiddleware('nfl'), streaksOnlyRouter);
 
 app.use('/api/sportquery', sportqueryRoutes);
 

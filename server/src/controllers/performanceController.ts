@@ -1,11 +1,13 @@
 import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabaseAdmin';
 import { league as resolveLeague, LeagueConfig } from '../config/leagues';
+import { priorSeasonWindow } from '../utils/streakWindow';
 
 // Build the stats SELECT for streak computation from the league's streak stats.
 function streakStatsSelect(lg: LeagueConfig): string {
   const cols = lg.streakStats.map((s) => lg.statConfig[s].col);
-  return `player_id, game_date, ${cols.join(', ')}, ${lg.playedGate.col}`;
+  // games!inner(game_type) lets callers drop preseason/exhibition rows.
+  return `player_id, game_date, ${cols.join(', ')}, ${lg.playedGate.col}, games!inner(game_type)`;
 }
 
 function toKalshiLine(value: number): number {
@@ -412,6 +414,7 @@ export async function getStreakOutcomes(req: Request<{}, {}, {}, { days?: string
           .in('player_id', chunkIds)
           .gte('game_date', extCutoff)
           .lte('game_date', today)
+          .in('games.game_type', lg.gameTypes)
           .gt(lg.playedGate.col, lg.playedGate.min)
           .order('game_date', { ascending: true })
           .order('game_id', { ascending: true })
@@ -446,10 +449,10 @@ export async function getStreakOutcomes(req: Request<{}, {}, {}, { days?: string
             const key = `${playerId}|${stat}|${today}`;
             if (seen.has(key) || !games) continue;
 
-            const priorGames = games.filter(g => g.game_date < today);
-            if (priorGames.length < 10) continue;
+            const win = priorSeasonWindow(games, games.length, today, lg);
+            if (!win) continue;
 
-            const prior10 = priorGames.slice(-10).map(g => g.value).sort((a, b) => a - b);
+            const prior10 = win.map(g => g.value).sort((a, b) => a - b);
             if (prior10[lg.streakGateTierIndex] <= 0) continue;
 
             seen.add(key);
@@ -477,9 +480,12 @@ export async function getStreakOutcomes(req: Request<{}, {}, {}, { days?: string
           // Settled: find this player's game entry on `date`
           if (!games) continue;
           const gameIdx = games.findIndex(g => g.game_date === date);
-          if (gameIdx < 10) continue; // need at least 10 prior games
+          if (gameIdx < 0) continue;
+          // 10 prior games from the SAME season; never borrow the previous one.
+          const win = priorSeasonWindow(games, gameIdx, date, lg);
+          if (!win) continue;
 
-          const prior10 = games.slice(gameIdx - 10, gameIdx).map(g => g.value).sort((a, b) => a - b);
+          const prior10 = win.map(g => g.value).sort((a, b) => a - b);
           if (prior10[lg.streakGateTierIndex] <= 0) continue;
 
           const key = `${playerId}|${stat}|${date}`;
@@ -660,6 +666,7 @@ export async function getStreakPerformance(req: Request<{}, {}, {}, { days?: str
         .in('player_id', chunkIds)
         .gte('game_date', extCutoff)
         .lte('game_date', today)
+        .in('games.game_type', lg.gameTypes)
         .gt(lg.playedGate.col, lg.playedGate.min)
         .order('game_date', { ascending: true })
         .order('game_id', { ascending: true })
@@ -699,9 +706,9 @@ export async function getStreakPerformance(req: Request<{}, {}, {}, { days?: str
         if (isToday && !hasStatsToday.has(playerId)) {
           const key = `${playerId}|${stat}|${today}`;
           if (seen.has(key) || !games) continue;
-          const priorGames = games.filter(g => g.game_date < today);
-          if (priorGames.length < 10) continue;
-          const prior10 = priorGames.slice(-10).map(g => g.value).sort((a, b) => a - b);
+          const win = priorSeasonWindow(games, games.length, today, lg);
+          if (!win) continue;
+          const prior10 = win.map(g => g.value).sort((a, b) => a - b);
           if (prior10[lg.streakGateTierIndex] <= 0) continue;
           seen.add(key);
           const lines = [lineFor(prior10[0]), lineFor(prior10[1]), lineFor(prior10[2]), lineFor(prior10[3])];
@@ -711,8 +718,10 @@ export async function getStreakPerformance(req: Request<{}, {}, {}, { days?: str
 
         if (!games) continue;
         const gameIdx = games.findIndex(g => g.game_date === date);
-        if (gameIdx < 10) continue;
-        const prior10 = games.slice(gameIdx - 10, gameIdx).map(g => g.value).sort((a, b) => a - b);
+        if (gameIdx < 0) continue;
+        const win = priorSeasonWindow(games, gameIdx, date, lg);
+        if (!win) continue;
+        const prior10 = win.map(g => g.value).sort((a, b) => a - b);
         if (prior10[lg.streakGateTierIndex] <= 0) continue;
         const key = `${playerId}|${stat}|${date}`;
         if (seen.has(key)) continue;

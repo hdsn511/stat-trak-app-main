@@ -13,7 +13,7 @@ export function playerPhotoUrl(
     case 'nba':
       return `https://cdn.nba.com/headshots/nba/latest/1040x760/${id}.png`
     case 'mlb':
-      return `https://img.mlbstatic.com/mlb-photos/image/upload/d_people:generic:headshot:67:current.png/w_240,q_auto:best/v1/people/${id}/headshot/67/current`
+      return `https://img.mlbstatic.com/mlb-photos/image/upload/d_people:generic:headshot:67:current.png/w_240,h_240,c_thumb,g_face,q_auto:best/v1/people/${id}/headshot/67/current`
     case 'nfl':
       return `https://a.espncdn.com/i/headshots/nfl/players/full/${id}.png`
     case 'nhl':

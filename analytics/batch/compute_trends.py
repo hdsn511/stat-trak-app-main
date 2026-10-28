@@ -73,9 +73,10 @@ NFL = TrendSpec(
     league_id=NFL_LEAGUE_ID,
     stats_table="nfl_player_stats",
     trends_table="nfl_trends",
-    # A 17-game season: 8 appearances is half of it and still leaves a
-    # meaningful season baseline to compare a 3- or 5-game window against.
-    min_season_games=8,
+    # A 17-game season gives few samples, so the gate is deliberately low:
+    # 3 appearances qualifies a player (only the 3-game window applies until
+    # they reach 5 and 10).
+    min_season_games=3,
     stats=(
         StatSpec("payds",  0, "passing_yards",   25.0, 150.0),
         StatSpec("patd",   1, "passing_tds",      0.5,   0.75),
@@ -93,7 +94,7 @@ NHL = TrendSpec(
     league_id=NHL_LEAGUE_ID,
     stats_table="nhl_player_stats",
     trends_table="nhl_trends",
-    min_season_games=20,
+    min_season_games=5,
     stats=(
         StatSpec("g",    0, "goals",          0.4, 0.3),
         StatSpec("a",    1, "assists",        0.5, 0.4),
@@ -119,6 +120,14 @@ def _season_bounds(league_id: int, season: int) -> tuple[str, str] | None:
     if not lo or not hi:
         return None
     return lo[0]["game_date"], hi[0]["game_date"]
+
+
+def _latest_season(league_id: int) -> int | None:
+    """Newest season that has at least one final game."""
+    rows = (supabase.table("games").select("season")
+            .eq("league_id", league_id).not_.is_("home_score", "null")
+            .order("season", desc=True).limit(1).execute()).data or []
+    return rows[0]["season"] if rows else None
 
 
 def _load_stats(spec: TrendSpec, start: str, end: str) -> list[dict]:
@@ -211,14 +220,17 @@ def compute(code: str, season: int, dry_run: bool = False) -> int:
     print(f"  {qualified} player(s) cleared {spec.min_season_games}+ games; "
           f"{len(trend_rows)} trend row(s)")
     print(f"  per stat: {per_stat}")
-    if not trend_rows:
-        print(f"  WARNING [{code}] no trend rows produced — check the gates.")
-        return 0
     if dry_run:
         return 0
+    if not trend_rows:
+        print(f"  WARNING [{code}] no trend rows produced — clearing the table "
+              f"so a prior season's rows are not served as current.")
 
-    # Full replace: a stale row for a player who cooled off is worse than none.
+    # Full replace — including when nothing qualifies yet: a stale row for a
+    # player who cooled off, or from last season, is worse than none.
     supabase.table(spec.trends_table).delete().neq("player_id", 0).execute()
+    if not trend_rows:
+        return 0
     for i in range(0, len(trend_rows), 500):
         (supabase.table(spec.trends_table)
          .upsert(trend_rows[i:i + 500],
@@ -231,14 +243,20 @@ def main() -> int:
         description="Compute NFL/NHL trend z-scores")
     parser.add_argument("--league", choices=sorted(SPECS), action="append",
                         help="Limit to one league (repeatable). Default: all.")
-    parser.add_argument("--season", type=int, default=2025)
+    parser.add_argument("--season", type=int, default=None,
+                        help="Season start year. Default: each league's latest "
+                             "season with final games.")
     parser.add_argument("--dry-run", action="store_true",
                         help="Compute and report without writing")
     args = parser.parse_args()
 
     total = 0
     for code in (args.league or sorted(SPECS)):
-        total += compute(code, args.season, dry_run=args.dry_run)
+        season = args.season if args.season is not None else _latest_season(SPECS[code].league_id)
+        if season is None:
+            print(f"  ERROR [{code}] no final games found; skipping.")
+            continue
+        total += compute(code, season, dry_run=args.dry_run)
     print(f"\nDone — {total} trend row(s) written"
           f"{' (dry-run: none written)' if args.dry_run else ''}.")
     return 0

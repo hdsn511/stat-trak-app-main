@@ -9,7 +9,7 @@ function currentSeasonStart(): string {
 }
 
 //globals
-const MIN_GAMES = 6;
+const MIN_GAMES = 5;
 type PlayerGameStat = {
   game_id: number;
   player_id: number;

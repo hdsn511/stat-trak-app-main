@@ -200,7 +200,8 @@ export async function getPotd(_req: Request, res: Response) {
       if (playerInfo?.team) {
         const { data: allTeams } = await supabaseAdmin
           .from('teams')
-          .select('id,abbreviation,name');
+          .select('id,abbreviation,name')
+          .eq('league_id', (p as any).league_id ?? 1);
 
         const abbrToId = new Map<string, number>(
           (allTeams ?? []).map((t: any) => [t.abbreviation.toUpperCase(), t.id as number])

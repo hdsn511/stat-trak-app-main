@@ -81,6 +81,16 @@ def get_scoreboard(sport: str, league: str, date_yyyymmdd: str) -> list[dict]:
     return data.get("events", [])
 
 
+def get_team_schedule(sport: str, league: str, team_id: str, season_year: int) -> list[dict]:
+    """A team's whole season schedule in ONE request. ESPN's scoreboard rejects
+    date ranges, so the schedule is built from the 30-odd team schedules
+    instead. Events carry id, date (UTC ISO), season{year,type},
+    competitions[0].competitors (homeAway, team.id) and status."""
+    data = _get(f"{SITE_BASE}/{sport}/{league}/teams/{team_id}/schedule",
+                {"season": season_year}) or {}
+    return data.get("events", [])
+
+
 def get_summary(sport: str, league: str, event_id: str) -> Optional[dict]:
     """Full game summary: boxscore (per-player stat groups), header, injuries,
     leaders, odds, standings. Returns None if the fetch exhausted retries."""

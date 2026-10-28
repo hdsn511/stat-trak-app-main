@@ -838,7 +838,11 @@ export async function getTodaysGames(_req: Request, res: Response) {
     // Map abbreviation -> team_id
     const { data: teamRows } = await supabaseAdmin
       .from('teams')
-      .select('id, abbreviation');
+      .select('id, abbreviation')
+      // Scoped: abbreviations repeat across sports (ATL, CLE, DET, TOR...), and
+      // an unscoped map let other leagues' ids overwrite the NBA's, so only
+      // games between uniquely-NBA abbreviations matched (2 of 12 on 10-28).
+      .eq('league_id', 1);
     const teamIdByAbbr: Record<string, number> = {};
     (teamRows || []).forEach((t: any) => { teamIdByAbbr[t.abbreviation] = t.id; });
 

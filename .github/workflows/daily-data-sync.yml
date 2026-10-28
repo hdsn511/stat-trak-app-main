@@ -120,6 +120,11 @@ jobs:
           END="${END:-$(date -u +%F)}"
           python -m analytics.batch.nhl_init --rosters --start-date "$START" --end-date "$END"
 
+      - name: Compute NFL / NHL trends
+        id: espn_trends
+        if: ${{ !cancelled() && (env.LEAGUE == 'all' || env.LEAGUE == 'nfl' || env.LEAGUE == 'nhl') }}
+        run: python -m analytics.batch.compute_trends
+
       # ── MLB ──
       # Refresh teams + active rosters (idempotent upserts; picks up call-ups).
       - name: Refresh MLB rosters
@@ -178,17 +183,11 @@ jobs:
         if: ${{ !cancelled() && (env.LEAGUE == 'all' || env.LEAGUE == 'nba') }}
         run: python -m analytics.batch.nightly --date "$(date -u +%Y-%m-%d)"
 
-      # Insert game rows for the next 7 days so Kalshi tickers can match.
-      # --slate-only skips reconcile + backfill (done above).
-      - name: NBA slate sync (next 7 days)
-        id: nba_slate
-        if: ${{ !cancelled() && (env.LEAGUE == 'all' || env.LEAGUE == 'nba') }}
-        run: |
-          for i in 1 2 3 4 5 6 7; do
-            d=$(date -u -d "+${i} days" +%Y-%m-%d)
-            echo "--- Syncing slate for $d ---"
-            python -m analytics.batch.nightly --slate-only --date "$d" || echo "WARN: slate sync failed for $d"
-          done
+      # The season schedule is NOT synced nightly: it is published up front and
+      # does not change game by game. Load it once per season, by hand:
+      #   python -m analytics.batch.nba_schedule
+      #   python -m analytics.batch.nhl_init --schedule
+      #   python -m analytics.batch.nfl_init --schedule
 
       - name: Compute NBA trends
         id: nba_trends
@@ -214,7 +213,7 @@ jobs:
         if: ${{ !cancelled() }}
         env:
           MLB_OUT: ${{ steps.mlb_init.outcome }}|${{ steps.mlb_nightly.outcome }}|${{ steps.mlb_enrich.outcome }}|${{ steps.mlb_trends.outcome }}
-          NBA_OUT: ${{ steps.nba_nightly.outcome }}|${{ steps.nba_slate.outcome }}|${{ steps.nba_trends.outcome }}
+          NBA_OUT: ${{ steps.nba_nightly.outcome }}|${{ steps.nba_trends.outcome }}
         run: |
           ok() { case "$1" in *failure*|*cancelled*) echo false;; *) echo true;; esac; }
           echo "mlb_ok=$(ok "$MLB_OUT")" >> "$GITHUB_OUTPUT"

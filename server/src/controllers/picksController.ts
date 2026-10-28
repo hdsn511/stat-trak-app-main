@@ -503,7 +503,7 @@ export async function getPerfectStreaks(req: Request<{}, {}, {}, { type?: string
     }
 
     // ── E. Enrich with opponent + position-based defense rank
-    const { data: teamRows } = await supabaseAdmin.from('teams').select('id,abbreviation');
+    const { data: teamRows } = await supabaseAdmin.from('teams').select('id,abbreviation').eq('league_id', lg.leagueId);
     const abbrToId = new Map<string, number>();
     const idToAbbr = new Map<number, string>();
     for (const t of (teamRows ?? [])) {

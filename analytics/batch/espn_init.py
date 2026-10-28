@@ -317,24 +317,29 @@ def ingest_date_range(spec: LeagueSpec, start: date, end: date,
 
 # ── CLI runner shared by nfl_init / nhl_init ───────────────────────────────────
 
-SCHEDULE_DAYS_AHEAD = 7
+def ingest_schedule(spec: LeagueSpec, season: int) -> int:
+    """One-time load of every not-yet-final regular-season/playoff game.
 
+    The schedule is published up front and does not change game by game, so it
+    is loaded once per season from each team's full-season schedule (one
+    request per team) rather than a rolling nightly window. Final games are
+    skipped: _ingest_date owns them (scores + box scores) and upserts over
+    these rows by ext_id, which is how a scheduled game becomes final.
+    Run once per season with --schedule. Returns rows written."""
+    from zoneinfo import ZoneInfo
 
-def ingest_schedule(spec: LeagueSpec, start: date, days: int = SCHEDULE_DAYS_AHEAD) -> int:
-    """Upsert not-yet-final games for [start, start+days] so the slate, ticker
-    and streak/matchup lookups have upcoming games. Final games are left to
-    _ingest_date: a scheduled row is never written over a final one because
-    only non-final events are upserted here (and finals overwrite on ingest).
-    Returns rows written."""
+    # ESPN labels a season by its end year for NHL (2026-27 -> 2027); find the
+    # ESPN year that maps back to our season int.
+    espn_year = next((y for y in (season, season + 1)
+                      if spec.season_from_espn_year(y) == season), season)
+    et = ZoneInfo("America/New_York")
     team_map = _team_map(spec)
-    written = 0
-    for offset in range(days + 1):
-        day = start + timedelta(days=offset)
-        rows: list[dict] = []
-        for ev in espn.get_scoreboard(spec.sport, spec.league, day.strftime("%Y%m%d")):
+    rows_by_ext: dict[str, dict] = {}
+    for team_ext_id in team_map:
+        for ev in espn.get_team_schedule(spec.sport, spec.league, team_ext_id, espn_year):
             comp = (ev.get("competitions") or [{}])[0]
             status = comp.get("status", {}).get("type", {})
-            if (ev.get("season") or {}).get("type") not in INGEST_SEASON_TYPES:
+            if (ev.get("seasonType") or ev.get("season") or {}).get("type") not in INGEST_SEASON_TYPES:
                 continue
             if status.get("name") == "STATUS_FINAL":
                 continue
@@ -343,23 +348,23 @@ def ingest_schedule(spec: LeagueSpec, start: date, days: int = SCHEDULE_DAYS_AHE
             away_db = team_map.get(str(sides.get("away", {}).get("team", {}).get("id")))
             if not home_db or not away_db:
                 continue
-            espn_year = (ev.get("season") or {}).get("year")
-            rows.append({
+            utc = datetime.strptime(ev["date"], "%Y-%m-%dT%H:%MZ").replace(tzinfo=ZoneInfo("UTC"))
+            rows_by_ext[str(ev["id"])] = {
                 "league_id": spec.league_id,
                 "ext_id": str(ev["id"]),
-                "game_date": _date_str(day),
+                "game_date": _date_str(utc.astimezone(et).date()),
                 "home_team_id": home_db,
                 "away_team_id": away_db,
-                "season": spec.season_from_espn_year(espn_year) if espn_year else day.year,
+                "season": season,
                 "status": 1 if status.get("name") == "STATUS_IN_PROGRESS" else 0,
                 "game_time": ev.get("date"),
-            })
-        for chunk in _chunked(rows, BATCH_SIZE):
-            supabase.table("games").upsert(chunk, on_conflict="league_id,ext_id").execute()
-        written += len(rows)
-    print(f"  Scheduled {written} upcoming {spec.code.upper()} game(s) "
-          f"through {_date_str(start + timedelta(days=days))}.")
-    return written
+            }
+    rows = list(rows_by_ext.values())
+    for chunk in _chunked(rows, BATCH_SIZE):
+        supabase.table("games").upsert(chunk, on_conflict="league_id,ext_id").execute()
+    print(f"  Scheduled {len(rows)} upcoming game(s) for season {season} "
+          f"({len(team_map)} team schedules read).")
+    return len(rows)
 
 
 def run_cli(spec: LeagueSpec, args, default_season: int) -> int:
@@ -372,6 +377,12 @@ def run_cli(spec: LeagueSpec, args, default_season: int) -> int:
     print("=" * 60)
     print(f"{spec.code.upper()} Init (ESPN)  |  season {season}")
     print("=" * 60)
+
+    if getattr(args, "schedule", False):
+        # One-time full-season schedule load; no scores/box scores.
+        ingest_schedule(spec, season)
+        print("Done.")
+        return 0
 
     if args.teams:
         seed_teams(spec)
@@ -398,9 +409,6 @@ def run_cli(spec: LeagueSpec, args, default_season: int) -> int:
             datetime.strptime(end_s, "%Y-%m-%d").date(),
             resume=args.resume,
         )
-        # Nightly runs end at today; also pull the coming week's schedule.
-        if datetime.strptime(end_s, "%Y-%m-%d").date() >= date.today():
-            ingest_schedule(spec, date.today())
 
     print("=" * 60)
     print("Done.")
@@ -420,4 +428,7 @@ def build_arg_parser(description: str, default_season: int):
     parser.add_argument("--end-date", type=str, default=None, dest="end_date")
     parser.add_argument("--resume", action="store_true",
                         help="restart from the latest ingested stats date")
+    parser.add_argument("--schedule", action="store_true",
+                        help="one-time: load the whole remaining season schedule "
+                             "(scheduled games only, no scores)")
     return parser

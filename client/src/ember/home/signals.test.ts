@@ -90,7 +90,8 @@ describe('buildLeagueSignals', () => {
       [game('nhl', 5)],
       TODAY
     )
-    expect(out.signals.map((s) => s.kind)).toEqual(['hot', 'rising', 'next'])
+    // A game with nothing to quantify produces no signal, not a placeholder.
+    expect(out.signals.map((s) => s.kind)).toEqual(['hot', 'rising'])
     expect(out.signals[0]!.name).not.toBe(out.signals[1]!.name)
   })
 
@@ -117,7 +118,7 @@ describe('buildLeagueSignals', () => {
     expect(buildLeagueSignals('nba', [], [], [], TODAY).signals).toEqual([])
   })
 
-  it('never shows a bare VS or a 0-0 for a game that has not started', () => {
+  it('quantifies an upcoming game as a scoring edge, never a time or a bare VS', () => {
     const upcoming = game('nba', 7, {
       status: '10/28 - 7:00 PM EDT',
       time: '2026-10-28T23:00Z',
@@ -126,11 +127,28 @@ describe('buildLeagueSignals', () => {
     })
     const out = buildLeagueSignals('nba', [], [], [upcoming], TODAY)
     const sig = out.signals.find((x) => x.kind === 'next')!
-    expect(sig.stat).not.toBe('VS')
-    expect(sig.stat).not.toMatch(/–/)
-    expect(sig.statLabel).toBe('TIPOFF')
-    expect(sig.context).toContain('AWY 2–2')
-    expect(sig.context).toContain('HOM 3–1')
-    expect(sig.context).toContain('118.5')
+    expect(sig.stat).toBe('+15.0')
+    expect(sig.stat).not.toMatch(/PM|AM|:/)
+    expect(sig.statLabel).toBe('HOM NET EDGE')
+    expect(sig.viz).toEqual({
+      kind: 'form',
+      rows: [
+        { team: 'AWY', results: 'LWLW' },
+        { team: 'HOM', results: 'WWLW' },
+      ],
+    })
+  })
+
+  it('drops an upcoming game that has no season numbers behind it', () => {
+    const bare = game('nba', 8, { status: '10/28 - 7:00 PM EDT', time: '2026-10-28T23:00Z' })
+    expect(buildLeagueSignals('nba', [], [], [bare], TODAY).signals).toEqual([])
+  })
+
+  it('shows a final game as its margin', () => {
+    const done = game('nba', 9, { awayScore: 98, homeScore: 112 })
+    const sig = buildLeagueSignals('nba', [], [], [done], TODAY).signals[0]!
+    expect(sig.kind).toBe('final')
+    expect(sig.stat).toBe('+14')
+    expect(sig.context).toBe('HOM won 112–98')
   })
 })

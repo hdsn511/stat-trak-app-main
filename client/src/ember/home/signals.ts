@@ -3,20 +3,27 @@ import type { StreakRow } from '@/ember/components/StreakWatch'
 import type { TrendingRow } from '@/ember/components/TrendingPlayers'
 import type { LeagueSlug } from '@/config/leagues'
 import { gamePath, playerPath } from '@/lib/paths'
-import { formatGameTime } from '@/ember/game/format'
 
 export type SignalKind = 'hot' | 'rising' | 'streak' | 'live' | 'final' | 'next'
+
+/** A small picture of the number's evidence, drawn beside the headline. */
+export type SignalViz =
+  | { kind: 'trend'; season: number; recent: number; unit: string }
+  | { kind: 'pips'; filled: number; total: number }
+  | { kind: 'form'; rows: { team: string; results: string }[] }
 
 export interface StatSignal {
   id: string
   kind: SignalKind
-  /** The headline number, rendered large. */
+  league: LeagueSlug
+  /** The headline number; always a stat (average, margin, edge, score), never a time. */
   stat: string
   /** What the headline number measures, e.g. "PTS · L10". */
   statLabel: string
   name: string
   context: string
   to: string
+  viz?: SignalViz
 }
 
 export interface LeagueSignals {
@@ -57,18 +64,25 @@ export function inSeasonLeagues(
   }
   return order
     .filter((l) => counts.has(l))
-    .sort((a, b) => (counts.get(b) ?? 0) - (counts.get(a) ?? 0) || order.indexOf(a) - order.indexOf(b))
+    .sort(
+      (a, b) => (counts.get(b) ?? 0) - (counts.get(a) ?? 0) || order.indexOf(a) - order.indexOf(b)
+    )
 }
 
+const SIGN = (v: number) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v).toFixed(1)}`
+
 function hotSignal(row: TrendingRow, kind: 'hot' | 'rising'): StatSignal {
+  const diff = row.l10Val - row.seasonVal
   return {
     id: `${kind}-${row.league}-${row.playerId}-${row.stat}`,
     kind,
-    stat: `${row.l10Val}`,
-    statLabel: `${row.stat} · L10`,
+    league: row.league as LeagueSlug,
+    stat: SIGN(diff),
+    statLabel: `${row.stat} VS SZN`,
     name: row.name,
-    context: `${row.team} · ${row.delta} vs ${row.seasonVal} season avg`,
+    context: `${row.team} · ${row.l10Val} recent vs ${row.seasonVal} season`,
     to: playerPath(row.league, row.playerId),
+    viz: { kind: 'trend', season: row.seasonVal, recent: row.l10Val, unit: row.stat },
   }
 }
 
@@ -77,75 +91,119 @@ function streakSignal(row: StreakRow): StatSignal | null {
   const run = detail.kind === 'run'
   const line = run ? detail.line : detail.tiers[0]?.line
   if (line == null || (!run && line <= 0)) return null
+  const top = !run ? detail.tiers[0] : undefined
+  const games = run ? detail.games : (top?.of ?? 0)
   return {
     id: `streak-${row.league}-${row.playerId}-${row.label}`,
     kind: 'streak',
+    league: row.league as LeagueSlug,
     stat: `${line}+`,
     statLabel: row.label,
     name: row.name,
     context: run
       ? `${row.team} · ${detail.games} straight games`
-      : `${row.team} · cleared in all 10 of last 10`,
+      : `${row.team} · cleared in ${top?.cleared ?? games} of last ${games}`,
     to: playerPath(row.league, row.playerId),
+    viz: {
+      kind: 'pips',
+      filled: Math.min(run ? detail.games : (top?.cleared ?? games), 12),
+      total: Math.min(Math.max(games, run ? detail.games : 0), 12),
+    },
   }
 }
 
-const START_LABEL: Record<string, string> = {
-  nba: 'TIPOFF',
-  nfl: 'KICKOFF',
-  nhl: 'PUCK DROP',
-  mlb: 'FIRST PITCH',
+const UNIT: Record<string, string> = { nba: 'pts', nfl: 'pts', nhl: 'goals', mlb: 'runs' }
+
+interface GameSignalResult {
+  signal: StatSignal
+  /** Higher = more worth showing. */
+  weight: number
 }
-const SCORE_UNIT: Record<string, string> = { nba: 'pts', nfl: 'pts', nhl: 'goals', mlb: 'runs' }
 
 /**
- * Why a matchup matters, in numbers: both records with recent form, and the
- * home offense against the visitor's defense. Empty when neither team has a
- * played game yet, so a signal is never just "A @ B".
+ * A game earns a signal only when there is a number behind it: the live score,
+ * a final margin, or a pre-game scoring edge computed from both teams' season
+ * numbers. A start time is information, not a stat, so a game with nothing to
+ * quantify produces no signal at all.
  */
-function matchupContext(g: TickerGame): string {
+function gameSignal(g: TickerGame): GameSignalResult | null {
+  if (!g.dbId || !g.slug) return null
+  const to = gamePath(g.slug, g.dbId)
+  const name = `${g.away} @ ${g.home}`
+  const base = { id: `game-${g.id}`, league: g.slug as LeagueSlug, name, to }
+  const scored = g.awayScore !== undefined && g.homeScore !== undefined
   const a = g.awayForm
   const h = g.homeForm
-  const parts: string[] = []
-  if (a && a.gp > 0) parts.push(`${g.away} ${a.record}${a.last5 ? ` (${a.last5})` : ''}`)
-  if (h && h.gp > 0) parts.push(`${g.home} ${h.record}${h.last5 ? ` (${h.last5})` : ''}`)
-  if (g.slug && h?.ppg != null && a?.oppg != null && h.gp > 1 && a.gp > 1) {
-    parts.push(`${g.home} scores ${h.ppg} ${SCORE_UNIT[g.slug] ?? 'pts'}/g vs ${g.away} allowing ${a.oppg}`)
-  }
-  return parts.join(' · ')
-}
+  const form =
+    a && h && (a.last5 || h.last5)
+      ? {
+          kind: 'form' as const,
+          rows: [
+            { team: g.away, results: a.last5 },
+            { team: g.home, results: h.last5 },
+          ],
+        }
+      : undefined
 
-function gameSignal(g: TickerGame): StatSignal | null {
-  if (!g.dbId || !g.slug) return null
-  const scored = g.awayScore !== undefined && g.homeScore !== undefined
-  const kind: SignalKind = g.live ? 'live' : scored ? 'final' : 'next'
-  const matchup = matchupContext(g)
-  const start = formatGameTime(g.time ?? null)
-  return {
-    id: `game-${g.id}`,
-    kind,
-    // Never a bare "VS": the headline is the score once there is one, else the
-    // start time, else the visitor's and home team's records.
-    stat: scored ? `${g.awayScore}–${g.homeScore}` : (start ?? 'TBD'),
-    statLabel:
-      kind === 'live' ? 'LIVE' : kind === 'final' ? 'FINAL' : (START_LABEL[g.slug] ?? 'START'),
-    name: `${g.away} @ ${g.home}`,
-    context: matchup || g.status,
-    to: gamePath(g.slug, g.dbId),
+  if (g.live && scored) {
+    return {
+      weight: 1000,
+      signal: {
+        ...base,
+        kind: 'live',
+        stat: `${g.awayScore}–${g.homeScore}`,
+        statLabel: 'LIVE SCORE',
+        context: g.status,
+        viz: form,
+      },
+    }
   }
-}
 
-/** Live first, then the closest finished game, then the next one scheduled. */
-function pickGame(games: TickerGame[]): TickerGame | undefined {
-  const usable = games.filter((g) => g.dbId && g.slug)
-  const live = usable.find((g) => g.live)
-  if (live) return live
-  const margin = (g: TickerGame) =>
-    g.awayScore !== undefined && g.homeScore !== undefined
-      ? Math.abs(g.awayScore - g.homeScore)
-      : Infinity
-  const finished = usable.filter((g) => margin(g) !== Infinity).sort((a, b) => margin(a) - margin(b))
-  return finished[0] ?? usable[0]
+  if (scored) {
+    const diff = Math.abs(g.awayScore! - g.homeScore!)
+    const winner = g.homeScore! > g.awayScore! ? g.home : g.away
+    return {
+      weight: 100 - diff,
+      signal: {
+        ...base,
+        kind: 'final',
+        stat: `+${diff}`,
+        statLabel: 'FINAL MARGIN',
+        context: `${winner} won ${Math.max(g.awayScore!, g.homeScore!)}–${Math.min(g.awayScore!, g.homeScore!)}`,
+        viz: form,
+      },
+    }
+  }
+
+  // Pre-game: scoring edge = home net rating minus visitor net rating.
+  if (
+    a &&
+    h &&
+    a.gp > 1 &&
+    h.gp > 1 &&
+    a.ppg != null &&
+    a.oppg != null &&
+    h.ppg != null &&
+    h.oppg != null
+  ) {
+    const homeNet = h.ppg - h.oppg
+    const awayNet = a.ppg - a.oppg
+    const edge = homeNet - awayNet
+    const fav = edge >= 0 ? g.home : g.away
+    const unit = UNIT[g.slug] ?? 'pts'
+    return {
+      weight: 500 + Math.abs(edge),
+      signal: {
+        ...base,
+        kind: 'next',
+        stat: SIGN(Math.abs(edge)),
+        statLabel: `${fav} NET EDGE`,
+        context: `${g.home} ${SIGN(homeNet)} ${unit}/g · ${g.away} ${SIGN(awayNet)} ${unit}/g`,
+        viz: form,
+      },
+    }
+  }
+  return null
 }
 
 /**
@@ -178,9 +236,11 @@ export function buildLeagueSignals(
     if (next) signals.push(hotSignal(next, 'rising'))
   }
 
-  const game = pickGame(games)
-  const gs = game ? gameSignal(game) : null
-  if (gs) signals.push(gs)
+  const best = games
+    .map(gameSignal)
+    .filter((r): r is GameSignalResult => r !== null)
+    .sort((x, y) => y.weight - x.weight)[0]
+  if (best) signals.push(best.signal)
 
   return {
     league,

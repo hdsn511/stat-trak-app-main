@@ -28,6 +28,13 @@ interface LeagueSignalsProps {
   loading?: boolean
 }
 
+/** Shrink long headline values so they stay inside their cell. */
+function statSize(stat: string): string {
+  if (stat.length <= 4) return 'text-[26px]'
+  if (stat.length <= 6) return 'text-[22px]'
+  return 'text-[18px]'
+}
+
 function LeagueLane({ lane }: { lane: LeagueSignalsData }) {
   const meta = [
     `${lane.gamesCount} GAME${lane.gamesCount === 1 ? '' : 'S'}`,
@@ -60,13 +67,18 @@ function LeagueLane({ lane }: { lane: LeagueSignalsData }) {
         <Link
           key={s.id}
           to={s.to}
-          className="grid grid-cols-[84px_1fr_auto] items-center gap-4 px-[18px] py-[14px] border-b border-[#221D1A] last:border-b-0 hover:bg-[#211C1A]"
+          className="grid grid-cols-[112px_1fr_auto] items-center gap-5 px-[18px] py-[14px] border-b border-[#221D1A] last:border-b-0 hover:bg-[#211C1A]"
         >
-          <div className="min-w-0">
-            <div className="font-chakra italic font-bold text-[26px] leading-none text-[#EFEBE9] whitespace-nowrap">
+          {/* Fixed-width headline cell with its own divider, so a wide value
+              ("7:00 PM", "104–99") shrinks to fit instead of running into the
+              name column. */}
+          <div className="min-w-0 pr-5 border-r border-[#2C2624]">
+            <div
+              className={`font-chakra italic font-bold leading-none text-[#EFEBE9] whitespace-nowrap ${statSize(s.stat)}`}
+            >
               {s.stat}
             </div>
-            <div className="font-martian text-[10px] text-[#A8A09C] tracking-[0.5px] mt-[6px] whitespace-nowrap overflow-hidden text-ellipsis">
+            <div className="font-martian text-[10px] text-[#A8A09C] tracking-[0.5px] mt-[7px] whitespace-nowrap overflow-hidden text-ellipsis">
               {s.statLabel}
             </div>
           </div>

@@ -111,14 +111,3 @@
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
-
-@keyframes ticker-scroll {
-  from { transform: translateX(0); }
-  to { transform: translateX(-50%); }
-}
-.animate-ticker {
-  animation: ticker-scroll 60s linear infinite;
-}
-@media (prefers-reduced-motion: reduce) {
-  .animate-ticker { animation: none; }
-}

@@ -158,7 +158,7 @@ export default function Home() {
           ))}
         </div>
 
-        <div className="grid gap-[14px] lg:grid-cols-[1fr_380px] items-stretch">
+        <div className="grid gap-[14px] lg:grid-cols-[1fr_380px] items-start">
           <TrendingPlayers
             rows={trendingShown}
             meta={`${leagueFilter === 'all' ? 'IN-SEASON SPORTS' : leagueFilter.toUpperCase()} · L10 VS SEASON`}

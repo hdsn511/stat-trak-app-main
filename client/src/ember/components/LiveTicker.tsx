@@ -1,6 +1,8 @@
+import { useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { gamePath } from '@/lib/paths'
 import LeaguePill from './LeaguePill'
+import TeamLogo from './TeamLogo'
 
 export type TickerGame = {
   id: string
@@ -29,7 +31,7 @@ interface LiveTickerProps {
 }
 
 const WRAPPER =
-  'group/ticker flex items-center gap-[14px] pl-[28px] border-t-2 border-b border-t-[#FF6B3D] border-b-[#3A2A22] overflow-hidden shrink-0'
+  'flex items-center gap-[14px] pl-[28px] border-b border-b-[#3A2A22] overflow-hidden shrink-0'
 const STRIPES =
   'repeating-linear-gradient(90deg, transparent 0, transparent 7px, rgba(255,107,61,0.03) 7px, rgba(255,107,61,0.03) 8px)'
 const CHIP =
@@ -56,11 +58,13 @@ function ChipBody({ g }: { g: TickerGame }) {
         </span>
       )}
       {g.live && <span className="w-[6px] h-[6px] rounded-full bg-[#FF6B3D] shrink-0" />}
+      {g.slug && <TeamLogo league={g.slug} abbr={g.away} size={18} />}
       <span className="font-martian font-bold text-[13px] text-[#EFEBE9]">{g.away}</span>
       {g.awayScore !== undefined && (
         <span className="font-martian font-bold text-[13px] text-[#EFEBE9]">{g.awayScore}</span>
       )}
       <span className="font-martian text-[11px] text-[#A8A09C]">@</span>
+      {g.slug && <TeamLogo league={g.slug} abbr={g.home} size={18} />}
       <span className="font-martian font-bold text-[13px] text-[#EFEBE9]">{g.home}</span>
       {g.homeScore !== undefined && (
         <span className="font-martian font-bold text-[13px] text-[#EFEBE9]">{g.homeScore}</span>
@@ -84,10 +88,75 @@ function groupByLeague(games: TickerGame[]): [string, TickerGame[]][] {
   return [...lanes.entries()]
 }
 
+const DRIFT_PX_PER_SEC = 22
+const RESUME_AFTER_MS = 2500
+
+/**
+ * Slowly drifts a scroll container sideways. Pauses while the pointer is over
+ * it or the user is scrolling/touching, resumes after a short idle, and wraps
+ * at the halfway point (the content is rendered twice). Does nothing under
+ * prefers-reduced-motion.
+ */
+function useAutoScroll(ref: React.RefObject<HTMLDivElement>, enabled: boolean) {
+  useEffect(() => {
+    const el = ref.current
+    if (!el || !enabled) return
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return
+
+    let raf = 0
+    let last = performance.now()
+    let hovering = false
+    let pausedUntil = 0
+    let pos = el.scrollLeft
+
+    const pause = () => {
+      pausedUntil = performance.now() + RESUME_AFTER_MS
+    }
+    const onEnter = () => (hovering = true)
+    const onLeave = () => {
+      hovering = false
+      pause()
+    }
+    const onUser = () => {
+      pause()
+      pos = el.scrollLeft
+    }
+
+    const tick = (now: number) => {
+      const dt = (now - last) / 1000
+      last = now
+      if (!hovering && now > pausedUntil) {
+        pos += DRIFT_PX_PER_SEC * dt
+        const half = el.scrollWidth / 2
+        if (half > 0 && pos >= half) pos -= half
+        el.scrollLeft = pos
+      }
+      raf = requestAnimationFrame(tick)
+    }
+
+    el.addEventListener('mouseenter', onEnter)
+    el.addEventListener('mouseleave', onLeave)
+    el.addEventListener('wheel', onUser, { passive: true })
+    el.addEventListener('touchstart', onUser, { passive: true })
+    el.addEventListener('pointerdown', onUser)
+    raf = requestAnimationFrame(tick)
+    return () => {
+      cancelAnimationFrame(raf)
+      el.removeEventListener('mouseenter', onEnter)
+      el.removeEventListener('mouseleave', onLeave)
+      el.removeEventListener('wheel', onUser)
+      el.removeEventListener('touchstart', onUser)
+      el.removeEventListener('pointerdown', onUser)
+    }
+  }, [ref, enabled])
+}
+
 export default function LiveTicker({ label, games, emptyLabel, onGameClick }: LiveTickerProps) {
   const lanes = groupByLeague(games)
+  const scroller = useRef<HTMLDivElement>(null)
   // Scroll only when there is enough to overflow; a short slate stays put.
   const moving = games.length > 4
+  useAutoScroll(scroller, moving)
   const renderLanes = (copy: number) =>
     lanes.map(([league, items]) => (
       <div
@@ -124,13 +193,12 @@ export default function LiveTicker({ label, games, emptyLabel, onGameClick }: Li
       )}
 
       {games.length > 0 && (
-        <div className="flex-1 min-w-0 overflow-hidden">
-          <div
-            className={`flex w-max items-center gap-[18px] ${moving ? 'animate-ticker group-hover/ticker:[animation-play-state:paused]' : ''}`}
-            style={moving ? { animationDuration: `${Math.max(30, games.length * 5)}s` } : undefined}
-          >
+        // A real scroll container: the drift is a slow scrollLeft nudge, so the
+        // user can wheel, drag-scroll or swipe it themselves at any time.
+        <div ref={scroller} className="flex-1 min-w-0 overflow-x-auto no-scrollbar">
+          <div className="flex w-max items-center gap-[18px]">
             {renderLanes(0)}
-            {/* Duplicate so the -50% loop is seamless. */}
+            {/* Duplicate so the drift can wrap without a visible jump. */}
             {moving && <div aria-hidden className="contents">{renderLanes(1)}</div>}
           </div>
         </div>

@@ -61,6 +61,7 @@ export function toTrendingRows(
       team: p.team,
       stat: statLabel(p.stat),
       chips: p.trendDrivers ?? [],
+      chipDetails: p.trendDriverDetails ?? [],
       seasonVal: season,
       l10Val: recent,
       delta: `${diff > 0 ? '+' : ''}${diff.toFixed(1)}`,

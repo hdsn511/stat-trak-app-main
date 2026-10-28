@@ -22,6 +22,8 @@ export interface TrendingPlayer {
    * (teammate out → injury boost). Empty array when no drivers fire.
    */
   trendDrivers?: string[]
+  /** Quantified drill-down behind each driver chip. */
+  trendDriverDetails?: { label: string; summary: string; lines: string[] }[]
 }
 
 export interface PlayerSearchResult {
@@ -393,6 +395,17 @@ export interface TeamDetail {
   team: { id: number; abbreviation: string; name: string; city: string | null }
   games: TeamGameEntry[]
   roster: Array<{ id: number; name: string; position: string }>
+  /** Season per-game averages for everyone who played for the team. */
+  player_stats: {
+    columns: { key: string; label: string }[]
+    players: {
+      id: number
+      name: string
+      position: string | null
+      gp: number
+      avgs: Record<string, number>
+    }[]
+  }
   record: {
     overall: TeamRecord
     home: TeamRecord

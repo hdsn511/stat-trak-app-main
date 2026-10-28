@@ -4,6 +4,7 @@ import ModuleCard from '@/ember/components/ModuleCard'
 import { EmptyState } from '@/ember/components/EntityState'
 import type { Standing } from '@/services/api'
 import { teamPath } from '@/lib/paths'
+import TeamLogo from '@/ember/components/TeamLogo'
 
 interface StandingsCardProps {
   league: string
@@ -25,7 +26,8 @@ function Row({ league, rank, row }: { league: string; rank: number; row: Standin
       className="grid grid-cols-[26px_1fr_58px_44px_64px_34px] gap-[10px] items-center px-[18px] py-2 border-t border-[#221D1A] hover:bg-[#211C1A]"
     >
       <span className="font-martian text-[12px] text-[#A8A09C]">{rank}</span>
-      <div className="min-w-0 whitespace-nowrap overflow-hidden text-ellipsis">
+      <div className="min-w-0 flex items-center gap-2 whitespace-nowrap overflow-hidden text-ellipsis">
+        <TeamLogo league={league} abbr={row.abbreviation} size={22} />
         <span className="font-schibsted font-bold text-[14px] text-[#EFEBE9]">
           {row.abbreviation}
         </span>{' '}

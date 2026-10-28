@@ -85,7 +85,7 @@ async function fetchSeasonGames(leagueId: number, gameType: string, seasonStart:
  * Standings straight from the analytics table. Returns null when the pipeline
  * has not processed this league, so the caller falls back to deriving them.
  */
-async function fromStandingsTable(leagueId: number): Promise<Standing[] | null> {
+async function fromStandingsTable(leagueId: number, minSeason: number): Promise<Standing[] | null> {
   const { data, error } = await supabaseAdmin
     .from('team_standings')
     .select(
@@ -101,6 +101,9 @@ async function fromStandingsTable(leagueId: number): Promise<Standing[] | null> 
 
   // The table can hold more than one season; keep only the newest.
   const latestSeason = Math.max(...data.map((r: any) => r.season));
+  // The table is only computed for finished seasons. Once a new season starts
+  // it holds last year's final standings, so derive the live table instead.
+  if (latestSeason < minSeason) return null;
 
   return data
     .filter((r: any) => r.season === latestSeason)
@@ -125,7 +128,7 @@ export async function getStandings(_req: Request, res: Response) {
     const lg = league(res);
     const seasonStart = seasonStartFor(lg);
 
-    const precomputed = await fromStandingsTable(lg.leagueId);
+    const precomputed = await fromStandingsTable(lg.leagueId, Number(seasonStart.slice(0, 4)));
     if (precomputed) {
       res.json({
         success: true,

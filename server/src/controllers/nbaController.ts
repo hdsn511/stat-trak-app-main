@@ -223,14 +223,15 @@ async function buildTrendingPayload(opts: {
     }
   }
 
-  // Step 2: query trends — locked to window_size=10
+  // Step 2: query trends. Prefer the 10-game window; early in a season fall
+  // back to 5 then 3 per player/stat (deduped below) so the list isn't empty.
   let trendsQuery = supabaseAdmin
     .from(lg.trendsTable)
     .select('player_id, stat, window_size, trend_val, rolling_avg, season_avg, players!inner(name, team, position)')
     .order('trend_val', { ascending: false })
-    .eq('window_size', 10)
+    .in('window_size', [3, 5, 10])
     .in('stat', lg.validStatIds)
-    .limit(300);
+    .limit(900);
 
   if (opts.statFilter !== undefined) {
     trendsQuery = trendsQuery.eq('stat', opts.statFilter);
@@ -245,7 +246,14 @@ async function buildTrendingPayload(opts: {
   const trendsResult = await trendsQuery;
   if (trendsResult.error) throw trendsResult.error;
 
-  const rows = (trendsResult.data || []) as any[];
+  // Keep only the largest available window for each player + stat.
+  const best = new Map<string, any>();
+  for (const r of (trendsResult.data || []) as any[]) {
+    const k = `${r.player_id}:${r.stat}`;
+    const cur = best.get(k);
+    if (!cur || r.window_size > cur.window_size) best.set(k, r);
+  }
+  const rows = [...best.values()].sort((a, b) => b.trend_val - a.trend_val);
   let filtered = rows.filter(row => !outIds.has(row.player_id));
 
   // Optional dedupe: keep one entry per player (their highest trend_val)
@@ -459,7 +467,7 @@ export async function getPlayerGames(req: Request<{ id: string }>, res: Response
     // them entirely — we chart their pitching line (Ks, outs, ER…) instead.
     const playerResult = await supabaseAdmin
       .from('players')
-      .select('id, name, team, position, league')
+      .select('id, name, team, position, league, ext_id')
       .eq('id', parseInt(id))
       .single();
     if (playerResult.error) throw playerResult.error;

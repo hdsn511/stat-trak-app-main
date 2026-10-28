@@ -9,6 +9,7 @@ function currentSeasonStart(): string {
 }
 
 //globals
+const MIN_GAMES = 6;
 type PlayerGameStat = {
   game_id: number;
   player_id: number;
@@ -194,15 +195,15 @@ export async function computeTrends() {
   //for each player, compute trends for each stat with min thresholds
   for (const playerId of playerIds) {
     const playerGames = statsByPlayer.get(playerId) || [];
-    //skip players with less than 10 games
-    if (!playerGames || playerGames.length < 10) continue;
+    //skip players with too few current-season games (windows 3/5 qualify early; 10 once enough exist)
+    if (!playerGames || playerGames.length < MIN_GAMES) continue;
 
     const avgMinLast5 = mean(
       playerGames.slice(0, 5).map((g) => g.minutes_played)
     );
 
     const WINDOWS = [3, 5, 10];
-    const BASE_OPTS = { minSeasonGames: 10, zCap: 4 };
+    const BASE_OPTS = { minSeasonGames: MIN_GAMES, zCap: 4 };
 
     for (const config of STAT_CONFIGS) {
       if (avgMinLast5 < config.minAvgMinutes) continue;
@@ -230,8 +231,10 @@ export async function computeTrends() {
 
   //replace table — truncate first so stale rows (players who dropped below
   //quality thresholds) don't survive into the next cycle
-  if (trendRows.length === 0) return;
-
+  // Always clear first, even with zero new rows: at a season's start nobody has
+  // enough games yet, and returning early used to leave LAST season's trends
+  // on the site for weeks.
   await supabaseAdmin.from("nba_trends").delete().neq("player_id", 0);
+  if (trendRows.length === 0) return;
   await supabaseAdmin.from("nba_trends").insert(trendRows);
 }

@@ -69,7 +69,8 @@ export type HistoryEntry ={ role: 'user' | 'assistant'; content: string }
 
 export async function callLLM(
   history: HistoryEntry[],
-  userMessage: string
+  userMessage: string,
+  hints = ''
 ): Promise<Envelope> {
   const messages: { role: 'system' | 'user' | 'assistant'; content: string }[] =
     [{ role: 'system', content: `${SPORTQUERY_SYSTEM_PROMPT}\n\nTODAY (US Eastern): ${todayET()}. Resolve "today"/"yesterday"/"last night" against this date.` }]
@@ -83,6 +84,7 @@ export async function callLLM(
     messages.push({ role: h.role, content: h.content })
   }
 
+  if (hints) messages.push({ role: 'system', content: hints })
   messages.push({ role: 'user', content: userMessage })
 
   const completion = await llm.chat.completions.create({

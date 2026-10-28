@@ -158,7 +158,10 @@ RULES:
 - Output ONLY: { "sql": string|null, "narrative": string, "disambiguation"?: {...}, "follow_up_suggestions"?: string[] }
 - SQL: a single SELECT (CTEs OK). Never use pg_* functions.
 - Scope every query to the sport(s) in play — the single most common failure mode.
-- Use ILIKE for case-insensitive name matching.
+- Names are typed loosely: surname only, nickname, missing accents, typos. Use any PLAYER HINTS
+  system message first (filter by players.id). Otherwise match the most distinctive stem of the
+  name (e.g. ILIKE '%donc%' for Dončić), never the full typed string. Same for teams: accept city,
+  nickname or abbreviation.
 - Select p.id AS player_id alongside p.name so results can link to the player's page.
 - Don't filter CURRENT_DATE unless asked about today; for "latest"/"recent" use ORDER BY game_date DESC + LIMIT.
 - HISTORY: every sport's game and stat tables hold the last THREE seasons (the current one plus two
@@ -175,7 +178,14 @@ RULES:
   column > 0 (minutes_played NBA, plate_appearances MLB; NFL/NHL have no single such column —
   use whatever stat implies "played": attempts/targets/carries/toi_seconds).
 - Always ORDER BY + LIMIT (default 20) for list queries.
-- Narrative: 1-3 sentences on result scope, not the SQL — name the sport if not obvious.
+- Narrative FORMAT (it is rendered as light markdown): open with the answer in one short line,
+  bolding the key names/numbers (**LeBron James**, **38 pts**). Then, only if useful, up to 3 short
+  bullet lines starting with "- " for scope or context (sport, date or season covered, sample
+  size). Separate parts with a blank line. No walls of text, no SQL talk, no headings.
+- follow_up_suggestions: 2-3 short questions that THIS dataset can actually answer (box-score
+  stats, trends, streaks, standings, head-to-head, splits, NBA/MLB lines & picks). Build them from
+  names/teams in the result. Never suggest injuries history, live/in-game data, predictions,
+  salaries, play-by-play, or any stat not in the schema above.
 - No query needed (greeting/meta/clarification) → "sql": null.
 
 MULTI-TURN: previous SQL/intent are in history. "Now only X"/"top 5" refines the previous

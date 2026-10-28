@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express'
 import { callLLM } from '../services/sportqueryLLM'
+import { formatHints, resolvePlayerHints } from '../services/sportqueryHints'
 import { validateSql } from '../services/sqlValidator'
 import { runReadOnly } from '../services/sportqueryDB'
 import {
@@ -195,7 +196,10 @@ export async function postMessage(req: Request, res: Response) {
       content: m.content,
     }))
 
-    const envelope = await callLLM(forLLM, message)
+    // Resolve loosely-typed player names up front; a failure here must never
+    // block the question itself.
+    const hints = formatHints(await resolvePlayerHints(message).catch(() => []))
+    const envelope = await callLLM(forLLM, message, hints)
 
     send('narrative', { token: envelope.narrative })
 
@@ -211,7 +215,8 @@ export async function postMessage(req: Request, res: Response) {
     const retryOnce = async (why: string): Promise<{ sql: string; rows: any[] } | null> => {
       const retryEnvelope = await callLLM(
         forLLM,
-        `${message}\n\n[SYSTEM NOTE] ${why} Produce a corrected query.`
+        `${message}\n\n[SYSTEM NOTE] ${why} Produce a corrected query.`,
+        hints
       )
       if (!retryEnvelope.sql) return null
       const v2 = await validateSql(retryEnvelope.sql)

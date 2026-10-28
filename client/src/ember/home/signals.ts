@@ -198,7 +198,7 @@ function gameSignal(g: TickerGame): GameSignalResult | null {
         kind: 'next',
         stat: SIGN(Math.abs(edge)),
         statLabel: `${fav} NET EDGE`,
-        context: `${g.home} ${SIGN(homeNet)} ${unit}/g · ${g.away} ${SIGN(awayNet)} ${unit}/g`,
+        context: `${g.away} ${SIGN(awayNet)} · ${g.home} ${SIGN(homeNet)} ${unit}/g net`,
         viz: form,
       },
     }

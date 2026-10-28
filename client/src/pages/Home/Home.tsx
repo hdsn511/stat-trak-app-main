@@ -10,16 +10,11 @@ import { useSportData } from '@/ember/data/useSportData'
 import { buildLeagueSignals, inSeasonLeagues } from '@/ember/home/signals'
 import { formatGameDate } from '@/ember/game/format'
 import type { LeagueSlug } from '@/config/leagues'
+import { HERO_CHIPS } from '@/ember/sportquery/suggestions'
 
 const ALL_LEAGUES: LeagueSlug[] = ['nba', 'mlb', 'nfl', 'nhl']
 const TREND_ROWS = 10
 
-const HERO_CHIPS = [
-  "Who's hot from three over the last 10 games?",
-  'Best rebounders against top-10 defenses',
-  'Most consistent scorers this month',
-  'Which favorites are covering?',
-]
 
 export default function Home() {
   const navigate = useNavigate()

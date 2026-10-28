@@ -20,9 +20,9 @@ export const nbaConfig: LeagueConfig = {
   metaLine: '82-GAME SEASON',
   askPlaceholder: 'ask about the NBA — players, teams, matchups…',
   chips: [
-    'best rebounders vs OKC this season',
-    'who scores most in clutch minutes?',
-    'fastest pace matchup tonight',
+    'Top NBA rebounders against OKC this season',
+    'Who scored the most points in the NBA last night?',
+    'NBA players averaging the most assists over their last 5 games',
   ],
 }
 
@@ -34,9 +34,9 @@ export const mlbConfig: LeagueConfig = {
   metaLine: '162-GAME SEASON',
   askPlaceholder: 'ask about MLB — players, teams, matchups…',
   chips: [
-    'hardest hit balls this week',
-    'best strikeout pitchers at home?',
-    'who owns the bases this month?',
+    'MLB pitchers with the most strikeouts at home this season',
+    'Who led MLB in stolen bases this season?',
+    'MLB hitters with the most hits over their last 10 games',
   ],
 }
 
@@ -48,9 +48,9 @@ export const nflConfig: LeagueConfig = {
   metaLine: '18-WEEK SEASON',
   askPlaceholder: 'ask about the NFL — players, teams, matchups…',
   chips: [
-    'most targets per route this season',
-    'best red-zone rushers?',
-    'fastest pace offenses this year',
+    'NFL receivers with the most targets this season',
+    'NFL running backs with the most rushing yards this season',
+    'NFL quarterbacks by passing yards over their last 3 games',
   ],
 }
 
@@ -62,8 +62,8 @@ export const nhlConfig: LeagueConfig = {
   metaLine: '82-GAME SEASON',
   askPlaceholder: 'ask about the NHL — players, teams, matchups…',
   chips: [
-    'hottest goal scorers right now',
-    'best save percentage this month?',
-    'top power-play units tonight',
+    'NHL players with the most goals over their last 5 games',
+    'NHL goalies with the best save percentage this season',
+    'NHL skaters with the most shots on goal over their last 5 games',
   ],
 }

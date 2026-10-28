@@ -7,6 +7,19 @@ import {
 import { SPORTQUERY_SYSTEM_PROMPT } from '../prompts/sportquery-system'
 import { FEW_SHOT_EXAMPLES } from '../prompts/sportquery-examples'
 
+// Mirrors client/src/ember/sportquery/suggestions.ts UNSUPPORTED_TERMS: things
+// the data does not contain. A follow-up chip mentioning one is dropped rather
+// than offered as a question we cannot answer.
+const UNSUPPORTED_RE = new RegExp(
+  [
+    'hard(est)?.? ?hit', 'exit velocity', 'launch angle', 'statcast', 'barrel', 'xwoba', 'clutch',
+    'route', 'red.?zone', 'power.?play unit', 'pace (matchup|offense)', 'fastest pace',
+    'tracking', 'play.?by.?play', '\\blive\\b', 'salary', 'contract', 'injur(y|ies) history',
+    'weather', 'predict', '\\bWAR\\b', 'spin rate', 'time of possession',
+  ].join('|'),
+  'i'
+)
+
 export type Envelope = {
   sql: string | null
   narrative: string
@@ -55,7 +68,9 @@ export function parseEnvelope(raw: string): EnvelopeParseResult {
     }
   }
   if (Array.isArray(obj.follow_up_suggestions)) {
-    env.follow_up_suggestions = obj.follow_up_suggestions.map(String)
+    env.follow_up_suggestions = obj.follow_up_suggestions
+      .map(String)
+      .filter((q: string) => !UNSUPPORTED_RE.test(q))
   }
 
   return { ok: true, envelope: env }

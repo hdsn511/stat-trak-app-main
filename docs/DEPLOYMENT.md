@@ -25,7 +25,7 @@ Cloudflare Pages  (stattraksports.pages.dev)
                                                                         │
                                         ┌───────────────────────────────┼──────────────┐
                                         ▼                               ▼              ▼
-                                  Upstash Redis                    Supabase       Groq
+                                  Upstash Redis                    Supabase       Cerebras
                                 (ratelimit + cache)          PostgREST + pooler
 ```
 
@@ -158,7 +158,7 @@ GitHub → Settings → Secrets and variables → Actions:
 | `SUPABASE_URL` | existing `server/.env` |
 | `SUPABASE_SERVICE_ROLE_KEY` | existing `server/.env` |
 | `SPORTQUERY_DB_URL` | 3.3 — pooler, port 6543 |
-| `GROQ_API_KEY` | existing `server/.env` |
+| `CEREBRAS_API_KEY` | existing `server/.env` |
 | `UPSTASH_REDIS_REST_URL` | 3.2 |
 | `UPSTASH_REDIS_REST_TOKEN` | 3.2 |
 | `API_SHARED_SECRET` | 3.4 |

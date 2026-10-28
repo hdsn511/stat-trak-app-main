@@ -57,8 +57,25 @@ export const LEAGUES: LeagueDef[] = [
       { key: 'rbi', label: 'RBI' },
     ],
   },
-  { slug: 'nhl', label: 'NHL', available: false },
-  { slug: 'nfl', label: 'NFL', available: false },
+  {
+    slug: 'nhl',
+    label: 'NHL',
+    available: false,
+    streakStats: [
+      { key: 'p', label: 'PTS' },
+      { key: 'sog', label: 'SOG' },
+    ],
+  },
+  {
+    slug: 'nfl',
+    label: 'NFL',
+    available: false,
+    streakStats: [
+      { key: 'recyds', label: 'REC YDS' },
+      { key: 'rec', label: 'REC' },
+      { key: 'ruyds', label: 'RUSH YDS' },
+    ],
+  },
 ]
 
 export function getLeague(slug: LeagueSlug): LeagueDef {

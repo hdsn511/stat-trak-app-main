@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabaseAdmin';
 import { findNearestPickDate, findNearestLinesDate } from '../utils/dateQueries';
-import { league as resolveLeague } from '../config/leagues';
+import { league as resolveLeague, seasonStartFor } from '../config/leagues';
 
 export async function getTopPicks(req: Request<{}, {}, {}, { limit?: string }>, res: Response) {
   try {
@@ -242,6 +242,8 @@ function toKalshiLine(value: number): number {
   return half;
 }
 
+const STREAK_MIN_GAMES = 3;
+
 export async function getPerfectStreaks(req: Request<{}, {}, {}, { type?: string; stat?: string; window?: string }>, res: Response) {
   try {
     const lg = resolveLeague(res);
@@ -375,20 +377,28 @@ export async function getPerfectStreaks(req: Request<{}, {}, {}, { type?: string
     const isMlb = lg.slug === 'mlb';
     const STREAK_FETCH = isMlb ? 60 : STREAKS_WINDOW;
     const windowDays = isMlb ? 150 : 60;
-    const windowFloor = new Date(Date.parse(today + 'T00:00:00Z') - windowDays * 86400000)
+    const rollingFloor = new Date(Date.parse(today + 'T00:00:00Z') - windowDays * 86400000)
       .toISOString().slice(0, 10);
+    // Non-MLB streaks are scoped to the current season so a window never reaches
+    // back into the prior one (early season: a 3-game sample is all there is).
+    const sStart = seasonStartFor(lg);
+    const windowFloor = isMlb || rollingFloor > sStart ? rollingFloor : sStart;
     const valuesByPlayer = new Map<number, number[]>();  // most-recent-first
     const candidateIds = candidates.map((p: any) => p.id);
     for (let i = 0; i < candidateIds.length; i += 200) {
       const chunk = candidateIds.slice(i, i + 200);
       for (let page = 0; page < 20; page++) {
-        const { data: batch } = await supabaseAdmin
+        // Join games so preseason/exhibition rows (not in lg.gameTypes) don't
+        // count; NFL has no played-gate column so the gate is optional.
+        let q: any = supabaseAdmin
           .from(lg.statsTable)
-          .select(`player_id,game_date,${statCfg.col}`)
+          .select(`player_id,game_date,${statCfg.col},games!inner(game_type)`)
           .in('player_id', chunk)
-          .gt(lg.playedGate.col, lg.playedGate.min)
+          .in('games.game_type', lg.gameTypes)
           .lt('game_date', today)
-          .gte('game_date', windowFloor)
+          .gte('game_date', windowFloor);
+        if (lg.playedGate) q = q.gt(lg.playedGate.col, lg.playedGate.min);
+        const { data: batch } = await q
           .order('game_date', { ascending: false })
           .order('game_id', { ascending: false })
           .order('player_id', { ascending: true })
@@ -445,25 +455,29 @@ export async function getPerfectStreaks(req: Request<{}, {}, {}, { type?: string
         continue;
       }
 
-      // NBA: tiered-line model over a fixed 10-game window.
-      if (values.length < STREAKS_WINDOW) continue;
-      const sortedAsc = [...values].sort((a, b) => a - b);
-      // League-tuned inclusion gate (NBA: 10/10 floor > 0).
-      if (sortedAsc[lg.streakGateTierIndex] <= 0) continue;
+      // Tiered-line model over up to 10 games, but as few as STREAK_MIN_GAMES:
+      // early-season NBA and small-sample NFL still surface streaks. With n < 10
+      // games the tier index is clamped, so tiers collapse toward the floor.
+      if (values.length < STREAK_MIN_GAMES) continue;
+      const n = Math.min(values.length, STREAKS_WINDOW);
+      const sortedAsc = values.slice(0, n).sort((a, b) => a - b);
+      const at = (i: number) => sortedAsc[Math.min(i, n - 1)]!;
+      // League-tuned inclusion gate (NBA: floor of the window > 0).
+      if (at(lg.streakGateTierIndex) <= 0) continue;
       tieredRows.push({
         player_id: playerId,
         player_name: p?.name,
         team: p?.team,
         position: p?.position,
-        line_100: clamp(toKalshiLine(sortedAsc[0])),
-        line_90:  clamp(toKalshiLine(sortedAsc[1])),
-        line_80:  clamp(toKalshiLine(sortedAsc[2])),
-        line_70:  clamp(toKalshiLine(sortedAsc[3])),
+        line_100: clamp(toKalshiLine(at(0))),
+        line_90:  clamp(toKalshiLine(at(1))),
+        line_80:  clamp(toKalshiLine(at(2))),
+        line_70:  clamp(toKalshiLine(at(3))),
         streak_count: streak,
         streak_line: streakMin,
         matchup: null,
         rolling_avg: rollingAvg,
-        games_used: STREAKS_WINDOW,
+        games_used: n,
         opponent: null,
         recent_opp_form: null,
         key_teammates_out: [],

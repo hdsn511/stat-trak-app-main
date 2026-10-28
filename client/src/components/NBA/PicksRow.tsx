@@ -21,7 +21,7 @@ function PickCard({ label, type, playerPick, gamePick }: PickCardProps) {
   if (isEmpty) {
     return (
       <div className="flex-1 bg-[#0D0D0D] border border-[#161616] rounded-2xl flex items-center justify-center h-32">
-        <span className="text-[10px] text-gray-700 font-condensed uppercase tracking-widest">No {label} pick</span>
+        <span className="text-[12px] text-gray-500 font-condensed uppercase tracking-widest">No {label} pick</span>
       </div>
     )
   }
@@ -60,11 +60,11 @@ function PickCard({ label, type, playerPick, gamePick }: PickCardProps) {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
           <Flame size={9} className="text-mint flex-shrink-0" />
-          <span className="text-[9px] font-bold text-mint uppercase tracking-widest font-condensed">{label}</span>
+          <span className="text-[11px] font-bold text-mint uppercase tracking-widest font-condensed">{label}</span>
         </div>
         <div className="flex items-center gap-1.5">
           {/* Bucket badge: which market % range this pick is in */}
-          <span className="text-[9px] font-bold font-mono text-gray-600 border border-[#222] bg-[#111] px-1.5 py-0.5 rounded">
+          <span className="text-[11px] font-bold font-mono text-gray-400 border border-[#222] bg-[#111] px-1.5 py-0.5 rounded">
             {bucket}%
           </span>
           <span className="font-mono text-[20px] font-black text-mint leading-none">{confInt}</span>
@@ -72,16 +72,16 @@ function PickCard({ label, type, playerPick, gamePick }: PickCardProps) {
       </div>
       <div>
         <div className="text-[15px] font-bold text-white font-condensed leading-tight truncate">{title}</div>
-        <div className="text-[10px] text-gray-600 font-condensed">{subtitle}</div>
+        <div className="text-[12px] text-gray-400 font-condensed">{subtitle}</div>
       </div>
       <div className="inline-flex items-center gap-1 border border-mint/25 rounded px-1.5 py-0.5 self-start">
         <TrendingUp size={8} className="text-mint" />
-        <span className="text-[10px] font-black text-mint font-condensed">{lineLabel}</span>
+        <span className="text-[12px] font-black text-mint font-condensed">{lineLabel}</span>
       </div>
       <div className="space-y-1 mt-auto">
         <div className="flex justify-between">
-          <span className="text-[9px] text-gray-700 font-condensed">MKT <span className="font-mono">{mktPct}%</span></span>
-          <span className="text-[9px] text-mint font-condensed">HIT <span className="font-mono">{hitPct}%</span> <span className="text-mint/50 font-mono">+{edgePct}%</span></span>
+          <span className="text-[11px] text-gray-500 font-condensed">MKT <span className="font-mono">{mktPct}%</span></span>
+          <span className="text-[11px] text-mint font-condensed">HIT <span className="font-mono">{hitPct}%</span> <span className="text-mint/50 font-mono">+{edgePct}%</span></span>
         </div>
         <div className="relative h-0.5 bg-[#1A1A1A] rounded-full overflow-hidden">
           <div className="absolute inset-y-0 left-0 bg-gray-700/50 rounded-full" style={{ width: `${mktPct}%` }} />

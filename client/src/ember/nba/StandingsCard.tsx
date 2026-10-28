@@ -24,19 +24,19 @@ function Row({ league, rank, row }: { league: string; rank: number; row: Standin
       to={teamPath(league, row.team_id)}
       className="grid grid-cols-[26px_1fr_58px_44px_64px_34px] gap-[10px] items-center px-[18px] py-2 border-t border-[#221D1A] hover:bg-[#211C1A]"
     >
-      <span className="font-martian text-[10px] text-[#665F5D]">{rank}</span>
+      <span className="font-martian text-[12px] text-[#A8A09C]">{rank}</span>
       <div className="min-w-0 whitespace-nowrap overflow-hidden text-ellipsis">
-        <span className="font-schibsted font-bold text-[12px] text-[#EFEBE9]">
+        <span className="font-schibsted font-bold text-[14px] text-[#EFEBE9]">
           {row.abbreviation}
         </span>{' '}
-        <span className="font-schibsted text-[11px] text-[#9A918F]">{row.name}</span>
+        <span className="font-schibsted text-[13px] text-[#C9C2BE]">{row.name}</span>
       </div>
-      <span className="font-martian font-bold text-[12px] text-[#EFEBE9] text-right tabular-nums">
+      <span className="font-martian font-bold text-[14px] text-[#EFEBE9] text-right tabular-nums">
         {/* Hockey reads W-L-OTL; the NFL's third number is ties. */}
         {row.w}–{row.l}
         {row.otl > 0 ? `–${row.otl}` : row.t > 0 ? `–${row.t}` : ''}
       </span>
-      <span className="font-martian text-[10px] text-[#9A918F] text-right tabular-nums">
+      <span className="font-martian text-[12px] text-[#C9C2BE] text-right tabular-nums">
         {formatPct(row.pct)}
       </span>
       <div className="w-full h-[4px] rounded-[2px] bg-[#2C2624] overflow-hidden">
@@ -46,8 +46,8 @@ function Row({ league, rank, row }: { league: string; rank: number; row: Standin
         />
       </div>
       <span
-        className={`font-martian font-bold text-[11px] text-right ${
-          row.streak > 0 ? 'text-[#3FBF7F]' : row.streak < 0 ? 'text-[#FF6B5C]' : 'text-[#665F5D]'
+        className={`font-martian font-bold text-[13px] text-right ${
+          row.streak > 0 ? 'text-[#3FBF7F]' : row.streak < 0 ? 'text-[#FF6B5C]' : 'text-[#A8A09C]'
         }`}
       >
         {formatStreak(row.streak)}
@@ -75,7 +75,7 @@ function Column({
         <span className="font-chakra italic font-bold text-[13px] text-[#EFEBE9] tracking-[0.5px]">
           {label}
         </span>
-        <span className="font-martian text-[8px] text-[#665F5D] tracking-[1px] whitespace-nowrap">
+        <span className="font-martian text-[10px] text-[#A8A09C] tracking-[1px] whitespace-nowrap">
           W–L · PCT · L10 · STRK
         </span>
       </div>
@@ -160,7 +160,7 @@ export default function StandingsCard({ league, standings, loading }: StandingsC
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
-          className="block w-full text-center p-3 border-t border-[#27221F] font-martian font-bold text-[10px] text-[#FF6B3D] tracking-[1.5px] hover:text-[#FFD9C9] cursor-pointer"
+          className="block w-full text-center p-3 border-t border-[#27221F] font-martian font-bold text-[12px] text-[#FF6B3D] tracking-[1.5px] hover:text-[#FFD9C9] cursor-pointer"
         >
           {expanded ? 'SHOW TOP 8 ↑' : 'SHOW FULL CONFERENCES ↓'}
         </button>
@@ -199,7 +199,7 @@ export default function StandingsCard({ league, standings, loading }: StandingsC
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
-          className="block w-full text-center p-3 border-t border-[#27221F] font-martian font-bold text-[10px] text-[#FF6B3D] tracking-[1.5px] hover:text-[#FFD9C9] cursor-pointer"
+          className="block w-full text-center p-3 border-t border-[#27221F] font-martian font-bold text-[12px] text-[#FF6B3D] tracking-[1.5px] hover:text-[#FFD9C9] cursor-pointer"
         >
           {expanded ? 'SHOW TOP 20 ↑' : `SHOW ALL ${standings.length} ↓`}
         </button>

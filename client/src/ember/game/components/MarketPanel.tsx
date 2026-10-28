@@ -17,7 +17,7 @@ const pct = (v: number | null | undefined) =>
 function Chip({ label, value }: { label: string; value: string }) {
   return (
     <div className="bg-[#221D1A] border border-[#2C2624] rounded-md px-[12px] py-[8px]">
-      <div className="font-martian text-[7px] text-[#665F5D] tracking-[1px]">{label}</div>
+      <div className="font-martian text-[10px] text-[#A8A09C] tracking-[1px]">{label}</div>
       <div className="font-martian font-bold text-[13px] text-[#EFEBE9] mt-[4px]">{value}</div>
     </div>
   )
@@ -77,32 +77,32 @@ export default function MarketPanel({ league, props, picks, home, away }: Market
       {playerProps.length > 0 && (
         <div>
           <div className="grid grid-cols-[1fr_60px_60px_66px] gap-2 px-[18px] py-2 border-b border-[#221D1A]">
-            <span className="font-martian text-[8px] text-[#665F5D] tracking-[1px]">
+            <span className="font-martian text-[10px] text-[#A8A09C] tracking-[1px]">
               PLAYER PROP
             </span>
-            <span className="font-martian text-[8px] text-[#665F5D] tracking-[1px] text-right">
+            <span className="font-martian text-[10px] text-[#A8A09C] tracking-[1px] text-right">
               STAT
             </span>
-            <span className="font-martian text-[8px] text-[#665F5D] tracking-[1px] text-right">
+            <span className="font-martian text-[10px] text-[#A8A09C] tracking-[1px] text-right">
               LINE
             </span>
-            <span className="font-martian text-[8px] text-[#665F5D] tracking-[1px] text-right">
+            <span className="font-martian text-[10px] text-[#A8A09C] tracking-[1px] text-right">
               IMPL
             </span>
           </div>
           {playerProps.map((p) => {
             const row = (
               <>
-                <span className="font-schibsted font-bold text-[12px] text-[#EFEBE9] whitespace-nowrap overflow-hidden text-ellipsis">
+                <span className="font-schibsted font-bold text-[14px] text-[#EFEBE9] whitespace-nowrap overflow-hidden text-ellipsis">
                   {p.player_name ?? p.market_ticker}
                 </span>
-                <span className="font-martian text-[10px] text-[#9A918F] text-right uppercase">
+                <span className="font-martian text-[12px] text-[#C9C2BE] text-right uppercase">
                   {p.stat ?? '—'}
                 </span>
-                <span className="font-martian font-bold text-[12px] text-[#EFEBE9] text-right tabular-nums">
+                <span className="font-martian font-bold text-[14px] text-[#EFEBE9] text-right tabular-nums">
                   {p.line}
                 </span>
-                <span className="font-martian text-[11px] text-[#FF6B3D] text-right tabular-nums">
+                <span className="font-martian text-[13px] text-[#FF6B3D] text-right tabular-nums">
                   {pct(p.implied_prob)}
                 </span>
               </>
@@ -129,7 +129,7 @@ export default function MarketPanel({ league, props, picks, home, away }: Market
       {picks.length > 0 && (
         <div className="border-t border-[#27221F]">
           <div className="px-[18px] py-[10px]">
-            <span className="font-martian text-[8px] text-[#FF6B3D] tracking-[1.5px]">
+            <span className="font-martian text-[10px] text-[#FF6B3D] tracking-[1.5px]">
               SYSTEM PICKS
             </span>
           </div>
@@ -138,22 +138,22 @@ export default function MarketPanel({ league, props, picks, home, away }: Market
               key={`${pick.entity_id}-${pick.stat}-${i}`}
               className="grid grid-cols-[1fr_54px_60px_60px_50px] gap-2 items-center px-[18px] py-[9px] border-t border-[#221D1A]"
             >
-              <span className="font-schibsted font-bold text-[12px] text-[#EFEBE9] whitespace-nowrap overflow-hidden text-ellipsis">
+              <span className="font-schibsted font-bold text-[14px] text-[#EFEBE9] whitespace-nowrap overflow-hidden text-ellipsis">
                 {pick.player_name ?? `${pick.prop_type.toUpperCase()} PICK`}
               </span>
-              <span className="font-martian text-[10px] text-[#9A918F] text-right uppercase">
+              <span className="font-martian text-[12px] text-[#C9C2BE] text-right uppercase">
                 {pick.stat}
               </span>
-              <span className="font-martian font-bold text-[12px] text-[#EFEBE9] text-right tabular-nums">
+              <span className="font-martian font-bold text-[14px] text-[#EFEBE9] text-right tabular-nums">
                 {pick.recommended_line}
               </span>
-              <span className="font-martian text-[11px] text-[#9A918F] text-right tabular-nums">
+              <span className="font-martian text-[13px] text-[#C9C2BE] text-right tabular-nums">
                 {pct(pick.hit_rate)}
               </span>
               <span
-                className={`font-martian font-bold text-[10px] text-right tracking-[1px] ${
+                className={`font-martian font-bold text-[12px] text-right tracking-[1px] ${
                   pick.did_hit == null
-                    ? 'text-[#665F5D]'
+                    ? 'text-[#A8A09C]'
                     : pick.did_hit
                       ? 'text-[#4ADE80]'
                       : 'text-[#FF6B5C]'

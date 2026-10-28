@@ -31,7 +31,7 @@ export default function PickOfTheDay() {
       <div className="relative w-full overflow-hidden rounded-2xl border border-[#1A1A1A] bg-[#0D0D0D] flex items-center justify-center h-44">
         <div className="flex items-center gap-2.5">
           <span className="w-1.5 h-1.5 rounded-full bg-mint animate-pulse-live" />
-          <span className="text-[11px] text-gray-600 font-condensed uppercase tracking-[0.2em]">
+          <span className="text-[13px] text-gray-400 font-condensed uppercase tracking-[0.2em]">
             Analyzing today's slate...
           </span>
         </div>
@@ -74,7 +74,7 @@ export default function PickOfTheDay() {
 
       {/* Pick type badge — top right */}
       <div
-        className={`absolute top-3 right-10 text-[9px] font-black font-condensed tracking-widest px-1.5 py-0.5 rounded ${
+        className={`absolute top-3 right-10 text-[11px] font-black font-condensed tracking-widest px-1.5 py-0.5 rounded ${
           pick.pickType === "safe"
             ? "bg-mint/10 text-mint border border-mint/20"
             : "bg-yellow-500/10 text-yellow-400 border border-yellow-500/20"
@@ -89,11 +89,11 @@ export default function PickOfTheDay() {
           {/* Section label + date */}
           <div className="flex items-center gap-1.5 mb-3">
             <Flame size={11} className="text-mint" />
-            <span className="text-[10px] font-black text-mint uppercase tracking-[0.18em] font-condensed">
+            <span className="text-[12px] font-black text-mint uppercase tracking-[0.18em] font-condensed">
               Pick of the Day
             </span>
             {formattedDate && (
-              <span className="text-[10px] text-gray-600 font-condensed ml-1">
+              <span className="text-[12px] text-gray-400 font-condensed ml-1">
                 {formattedDate}
               </span>
             )}
@@ -103,14 +103,14 @@ export default function PickOfTheDay() {
           <h2 className="text-[24px] font-black text-white font-condensed tracking-tight leading-none mb-0.5 group-hover:text-mint transition-colors truncate">
             {pick.playerName}
           </h2>
-          <p className="text-xs text-gray-600 mb-3">
+          <p className="text-xs text-gray-400 mb-3">
             {pick.team} · {pick.position}
           </p>
 
           {/* Recommended line badge */}
           <div className="inline-flex items-center gap-1.5 border border-mint/30 rounded px-2 py-1 mb-3.5">
             <TrendingUp size={9} className="text-mint" />
-            <span className="text-[11px] font-black text-mint font-condensed tracking-wide">
+            <span className="text-[13px] font-black text-mint font-condensed tracking-wide">
               OVER {pick.recommendedLine} {pick.statLabel}
             </span>
           </div>
@@ -118,10 +118,10 @@ export default function PickOfTheDay() {
           {/* Edge bar */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <span className="text-[9px] text-gray-600 font-condensed uppercase tracking-wider">
-                MARKET <span className="font-mono text-gray-500">{mktPct}%</span>
+              <span className="text-[11px] text-gray-400 font-condensed uppercase tracking-wider">
+                MARKET <span className="font-mono text-gray-400">{mktPct}%</span>
               </span>
-              <span className="text-[9px] font-bold text-mint font-condensed">
+              <span className="text-[11px] font-bold text-mint font-condensed">
                 HIT RATE <span className="font-mono">{hitPct}%</span>{" "}
                 <span className="text-mint/60 font-mono">+{edgePct}%</span>
               </span>
@@ -138,11 +138,11 @@ export default function PickOfTheDay() {
             </div>
             {/* Context line */}
             <div className="flex items-center justify-between pt-0.5">
-              <span className="text-[9px] text-gray-700 font-condensed">
+              <span className="text-[11px] text-gray-500 font-condensed">
                 {pick.sampleSize != null ? `${pick.sampleSize} similar games` : ""}
               </span>
               {condStr && (
-                <span className="text-[9px] text-gray-700 font-condensed">
+                <span className="text-[11px] text-gray-500 font-condensed">
                   {condStr} matched
                 </span>
               )}
@@ -155,17 +155,17 @@ export default function PickOfTheDay() {
           <div className="text-[76px] font-black text-mint font-display leading-none text-glow-mint tabular-nums">
             {confidenceInt}
           </div>
-          <div className="text-[10px] text-gray-600 mt-0.5 font-condensed tracking-wide text-right">
+          <div className="text-[12px] text-gray-400 mt-0.5 font-condensed tracking-wide text-right">
             CONF
           </div>
-          <div className="text-[8px] text-gray-700 font-condensed text-right leading-tight max-w-[72px] mt-0.5">
+          <div className="text-[10px] text-gray-500 font-condensed text-right leading-tight max-w-[72px] mt-0.5">
             hit rate · depth · context
           </div>
         </div>
 
         <ArrowRight
           size={15}
-          className="flex-shrink-0 text-gray-700 group-hover:text-mint group-hover:translate-x-0.5 transition-all self-center ml-1"
+          className="flex-shrink-0 text-gray-500 group-hover:text-mint group-hover:translate-x-0.5 transition-all self-center ml-1"
         />
       </CardContent>
     </Card>

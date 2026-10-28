@@ -88,10 +88,10 @@ function windowMs(window: Window): number {
 
 export const sportqueryMinuteLimiter = makeLimiter(30, '1 m', 'sportquery-min', 'rate_limit: slow down')
 export const sportqueryDailyLimiter = makeLimiter(
-  500,
+  20,
   '1 d',
   'sportquery-day',
-  'rate_limit: daily cap reached'
+  'rate_limit: daily limit of 20 questions reached — try again tomorrow'
 )
 
 // Session create/list/read/delete cost a single cheap row operation each —

@@ -51,22 +51,22 @@ function ChipBody({ g }: { g: TickerGame }) {
     <>
       {g.league && <LeaguePill league={g.league} />}
       {offDay && (
-        <span className="font-martian text-[8px] text-[#584F4C] tracking-[0.5px]">
+        <span className="font-martian text-[10px] text-[#968E8A] tracking-[0.5px]">
           {shortDate(g.date!)}
         </span>
       )}
       {g.live && <span className="w-[6px] h-[6px] rounded-full bg-[#FF6B3D] shrink-0" />}
-      <span className="font-martian font-bold text-[11px] text-[#EFEBE9]">{g.away}</span>
+      <span className="font-martian font-bold text-[13px] text-[#EFEBE9]">{g.away}</span>
       {g.awayScore !== undefined && (
-        <span className="font-martian font-bold text-[11px] text-[#EFEBE9]">{g.awayScore}</span>
+        <span className="font-martian font-bold text-[13px] text-[#EFEBE9]">{g.awayScore}</span>
       )}
-      <span className="font-martian text-[9px] text-[#665F5D]">@</span>
-      <span className="font-martian font-bold text-[11px] text-[#EFEBE9]">{g.home}</span>
+      <span className="font-martian text-[11px] text-[#A8A09C]">@</span>
+      <span className="font-martian font-bold text-[13px] text-[#EFEBE9]">{g.home}</span>
       {g.homeScore !== undefined && (
-        <span className="font-martian font-bold text-[11px] text-[#EFEBE9]">{g.homeScore}</span>
+        <span className="font-martian font-bold text-[13px] text-[#EFEBE9]">{g.homeScore}</span>
       )}
       <span
-        className={`font-martian font-medium text-[9px] ${g.live ? 'text-[#FF6B3D]' : 'text-[#665F5D]'}`}
+        className={`font-martian font-medium text-[11px] ${g.live ? 'text-[#FF6B3D]' : 'text-[#A8A09C]'}`}
       >
         {g.status}
       </span>
@@ -77,12 +77,12 @@ function ChipBody({ g }: { g: TickerGame }) {
 export default function LiveTicker({ label, games, emptyLabel, onGameClick }: LiveTickerProps) {
   return (
     <div className={WRAPPER} style={{ backgroundImage: STRIPES }}>
-      <span className="font-martian font-medium text-[9px] text-[#665F5D] tracking-[1.5px] shrink-0">
+      <span className="font-martian font-medium text-[11px] text-[#A8A09C] tracking-[1.5px] shrink-0">
         {label}
       </span>
 
       {games.length === 0 && emptyLabel && (
-        <span className="font-martian text-[9px] text-[#443E3B] tracking-[1.5px] shrink-0">
+        <span className="font-martian text-[11px] text-[#8A827E] tracking-[1.5px] shrink-0">
           {emptyLabel}
         </span>
       )}

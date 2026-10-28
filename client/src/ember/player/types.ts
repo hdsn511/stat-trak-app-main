@@ -24,6 +24,10 @@ export interface PlayerLogResponse {
   games: GameRow[]
   seasonAvgs: Record<string, number>
   gamesPlayed: number
+  /** Latest season the player actually appeared in (null if no games). */
+  currentSeason: number | null
+  /** Seasons present in `games`, newest first. */
+  seasons: number[]
   upcoming: UpcomingGame | null
 }
 

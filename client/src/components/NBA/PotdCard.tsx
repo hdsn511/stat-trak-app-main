@@ -24,7 +24,7 @@ function renderBullet(text: string): React.ReactNode[] {
       )
     } else if (chunk.startsWith('*')) {
       parts.push(
-        <em key={key++} className="not-italic text-gray-500">
+        <em key={key++} className="not-italic text-gray-400">
           {chunk.slice(1, -1)}
         </em>
       )
@@ -68,7 +68,7 @@ export default function PotdCard({ api = nbaApi }: { api?: LeagueApi }) {
   if (potd === null) {
     return (
       <div className="rounded-2xl border border-[#161616] bg-[#0D0D0D] p-6 flex items-center justify-center min-h-[120px]">
-        <p className="text-[11px] font-bold text-gray-700 uppercase tracking-[0.18em] font-condensed">
+        <p className="text-[13px] font-bold text-gray-500 uppercase tracking-[0.18em] font-condensed">
           Analyzing today&apos;s slate…
         </p>
       </div>
@@ -125,10 +125,10 @@ export default function PotdCard({ api = nbaApi }: { api?: LeagueApi }) {
         {/* Label row */}
         <div className="flex items-center gap-1.5 mb-2">
           <span className="w-[5px] h-[5px] rounded-full bg-mint flex-shrink-0 animate-pulse-live" />
-          <span className="text-[10px] font-bold text-mint uppercase tracking-[0.18em] font-condensed">
+          <span className="text-[12px] font-bold text-mint uppercase tracking-[0.18em] font-condensed">
             Pick of the Day
           </span>
-          <span className="text-[10px] text-[#333] font-medium">
+          <span className="text-[12px] text-[#333] font-medium">
             · {formatDate(potd.game_date)}
           </span>
         </div>
@@ -139,13 +139,13 @@ export default function PotdCard({ api = nbaApi }: { api?: LeagueApi }) {
         </p>
 
         {/* Meta */}
-        <p className="text-[11px] text-[#444] mb-3.5">
+        <p className="text-[13px] text-[#444] mb-3.5">
           {metaParts.join(' · ')}
         </p>
 
         {/* Line badge */}
         <div className="inline-flex items-center gap-1.5 border border-mint/30 rounded px-2.5 py-1 self-start mb-4">
-          <span className="text-[11px] font-black text-mint tracking-[0.06em]">
+          <span className="text-[13px] font-black text-mint tracking-[0.06em]">
             {directionLabel} {potd.line} {potd.stat_label}
           </span>
         </div>
@@ -154,8 +154,8 @@ export default function PotdCard({ api = nbaApi }: { api?: LeagueApi }) {
         <div className="flex flex-col gap-1.5">
           {potd.bullets.map((b, i) => (
             <div key={i} className="flex items-baseline gap-2">
-              <span className="text-mint font-black text-[11px] flex-shrink-0">—</span>
-              <span className="text-[11.5px] text-[#505050] leading-[1.45]">
+              <span className="text-mint font-black text-[13px] flex-shrink-0">—</span>
+              <span className="text-[13px] text-[#505050] leading-[1.45]">
                 {renderBullet(b)}
               </span>
             </div>
@@ -165,10 +165,10 @@ export default function PotdCard({ api = nbaApi }: { api?: LeagueApi }) {
         {/* Edge bar */}
         <div className="mt-4">
           <div className="flex justify-between mb-1">
-            <span className="text-[9px] text-[#444] font-semibold font-mono">
+            <span className="text-[11px] text-[#444] font-semibold font-mono">
               MKT {mktPct}%
             </span>
-            <span className="text-[9px] text-mint font-semibold font-mono">
+            <span className="text-[11px] text-mint font-semibold font-mono">
               HIT {hitPct}% &nbsp;+{edgePct}%
             </span>
           </div>
@@ -203,7 +203,7 @@ export default function PotdCard({ api = nbaApi }: { api?: LeagueApi }) {
         >
           {Math.round(potd.confidence ?? 0)}
         </span>
-        <span className="text-[9px] text-[#444] tracking-[0.2em] uppercase font-bold mt-1 mb-4 font-condensed">
+        <span className="text-[11px] text-[#444] tracking-[0.2em] uppercase font-bold mt-1 mb-4 font-condensed">
           Confidence
         </span>
 
@@ -215,7 +215,7 @@ export default function PotdCard({ api = nbaApi }: { api?: LeagueApi }) {
                 style={{ background: c.active ? '#FF5F2E' : '#282828' }}
               />
               <span
-                className="text-[9px] font-bold uppercase tracking-[0.1em]"
+                className="text-[11px] font-bold uppercase tracking-[0.1em]"
                 style={{ color: c.active ? '#FF5F2E' : '#282828' }}
               >
                 {c.label}

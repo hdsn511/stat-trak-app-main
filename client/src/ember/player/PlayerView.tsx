@@ -32,8 +32,16 @@ const TEAM_COUNT: Record<LeagueSlug, number> = { nba: 30, mlb: 30, nhl: 32, nfl:
 
 export default function PlayerView({ slug, data, mode, initialFilters }: PlayerViewProps) {
   const cfg = getPlayerStatConfig(slug)
-  const games = data.games
-  const role = cfg.roleOf(data.player, games[0])
+  const allGames = data.games
+  // Season scope: windows (L10…) and averages never reach into a prior season.
+  // Defaults to the player's latest real season; 0 = every stored season.
+  const [season, setSeason] = useState<number>(data.currentSeason ?? 0)
+  useEffect(() => setSeason(data.currentSeason ?? 0), [data])
+  const games = useMemo(
+    () => (season === 0 ? allGames : allGames.filter((g) => g.season === season)),
+    [allGames, season]
+  )
+  const role = cfg.roleOf(data.player, allGames[0])
   const statDefs = useMemo(() => allStatsFor(cfg, role), [cfg, role])
   const volumeDef = useMemo(() => cfg.volumeFor(role), [cfg, role])
 
@@ -42,10 +50,10 @@ export default function PlayerView({ slug, data, mode, initialFilters }: PlayerV
 
   const activeDef = statDefs.find((s) => s.key === filters.stat) ?? statDefs[0]
   const filtered = useMemo(() => filterGames(games, filters), [games, filters])
-  const opponents = useMemo(() => opponentsOf(games), [games])
+  const opponents = useMemo(() => opponentsOf(allGames), [allGames])
 
   const target = resolveMatchupOpponent(data.upcoming, filters.vsTeam)
-  const h2h = useMemo(() => (target ? gamesVersus(games, target.team) : []), [games, target])
+  const h2h = useMemo(() => (target ? gamesVersus(allGames, target.team) : []), [allGames, target])
 
   // Defensive split for the matchup signal. Null for leagues with no table.
   const [defense, setDefense] = useState<DefenseSplit | null>(null)
@@ -70,14 +78,14 @@ export default function PlayerView({ slug, data, mode, initialFilters }: PlayerV
     }
   }, [slug, oppTeamId, filters.stat, position])
 
-  if (games.length === 0) {
+  if (allGames.length === 0) {
     return (
       <div className="px-[28px] py-16 text-center">
         <div className="font-chakra italic font-bold text-[24px] text-[#EFEBE9]">
           {data.player.name}
         </div>
-        <div className="font-martian text-[10px] text-[#665F5D] tracking-[1px] mt-4">
-          NO GAMES LOGGED THIS SEASON
+        <div className="font-martian text-[12px] text-[#A8A09C] tracking-[1px] mt-4">
+          NO GAMES LOGGED IN THE LAST 3 SEASONS
         </div>
       </div>
     )
@@ -93,8 +101,8 @@ export default function PlayerView({ slug, data, mode, initialFilters }: PlayerV
           <div className="font-chakra italic font-bold text-[clamp(22px,3vw,34px)] tracking-[-1px] leading-none text-[#EFEBE9]">
             {data.player.name}
           </div>
-          <div className="font-martian text-[10px] text-[#9A918F] mt-[7px] tracking-[0.5px]">
-            {`${data.player.team} · ${data.player.position ?? '—'} · ${data.gamesPlayed} GP`.toUpperCase()}
+          <div className="font-martian text-[12px] text-[#C9C2BE] mt-[7px] tracking-[0.5px]">
+            {`${data.player.team} · ${data.player.position ?? '—'} · ${data.gamesPlayed} GP${data.currentSeason ? ` · ${data.currentSeason} SEASON` : ''}`.toUpperCase()}
           </div>
         </div>
       </div>
@@ -110,6 +118,9 @@ export default function PlayerView({ slug, data, mode, initialFilters }: PlayerV
           onVsTeam={setVsTeam}
           onHomeAway={setHomeAway}
           onStat={setStat}
+          seasons={data.seasons}
+          season={season}
+          onSeason={setSeason}
         />
         <LineControl
           label={activeDef?.label ?? ''}

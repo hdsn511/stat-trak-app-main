@@ -27,7 +27,6 @@ describe('league registry', () => {
       const def = getLeague(slug)
       expect(def.available).toBe(false)
       expect(def.perfApi).toBeUndefined()
-      expect(def.streakStats).toBeUndefined()
     }
   })
 

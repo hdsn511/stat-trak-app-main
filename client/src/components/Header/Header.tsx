@@ -121,7 +121,7 @@ export default function Header() {
               key={link.href}
               to={link.href}
               className={`relative px-4 py-1.5 text-[13px] font-bold font-condensed tracking-widest uppercase transition-colors ${
-                isActive ? "text-white" : "text-gray-600 hover:text-gray-400"
+                isActive ? "text-white" : "text-gray-400 hover:text-gray-400"
               }`}
             >
               {link.label}
@@ -138,7 +138,7 @@ export default function Header() {
         <Popover open={open}>
           <PopoverTrigger asChild>
             <div className="flex items-center gap-2 bg-[#0F0F0F] border border-[#1E1E1E] rounded-xl px-3 py-1.5 focus-within:border-mint/30 focus-within:bg-[#111] transition-all">
-              <Search size={13} className="text-gray-600 flex-shrink-0" />
+              <Search size={13} className="text-gray-400 flex-shrink-0" />
               <Input
                 type="text"
                 value={query}
@@ -147,7 +147,7 @@ export default function Header() {
                 onFocus={() => suggestions.length > 0 && setOpen(true)}
                 onKeyDown={handleKeyDown}
                 placeholder="Search players..."
-                className="border-0 bg-transparent shadow-none focus-visible:ring-0 p-0 h-auto text-sm text-white placeholder:text-gray-700"
+                className="border-0 bg-transparent shadow-none focus-visible:ring-0 p-0 h-auto text-sm text-white placeholder:text-gray-500"
               />
             </div>
           </PopoverTrigger>
@@ -167,7 +167,7 @@ export default function Header() {
                 )}
               >
                 <div className="flex items-center gap-3">
-                  <div className="w-7 h-7 rounded-lg bg-[#1A1A1A] flex items-center justify-center text-[10px] font-bold text-mint font-condensed flex-shrink-0">
+                  <div className="w-7 h-7 rounded-lg bg-[#1A1A1A] flex items-center justify-center text-[12px] font-bold text-mint font-condensed flex-shrink-0">
                     {player.name
                       .split(" ")
                       .map((n: string) => n[0])
@@ -177,7 +177,7 @@ export default function Header() {
                     {player.name}
                   </span>
                 </div>
-                <span className="text-gray-600 text-xs font-condensed">
+                <span className="text-gray-400 text-xs font-condensed">
                   {player.team} · {player.position}
                 </span>
               </button>

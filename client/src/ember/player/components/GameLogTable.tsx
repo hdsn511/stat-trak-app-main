@@ -8,8 +8,8 @@ interface GameLogTableProps {
   activeStat: string
 }
 
-const cell = 'font-martian text-[10px] px-2 py-[7px] whitespace-nowrap'
-const head = 'font-martian text-[8px] text-[#665F5D] tracking-[1px] px-2 py-[7px] whitespace-nowrap'
+const cell = 'font-martian text-[12px] px-2 py-[7px] whitespace-nowrap'
+const head = 'font-martian text-[10px] text-[#A8A09C] tracking-[1px] px-2 py-[7px] whitespace-nowrap'
 
 export default function GameLogTable({
   games,
@@ -19,7 +19,7 @@ export default function GameLogTable({
 }: GameLogTableProps) {
   if (games.length === 0) {
     return (
-      <div className="px-[18px] py-8 text-center font-martian text-[10px] text-[#665F5D] tracking-[1px]">
+      <div className="px-[18px] py-8 text-center font-martian text-[12px] text-[#A8A09C] tracking-[1px]">
         NO GAMES MATCH THESE FILTERS
       </div>
     )
@@ -48,12 +48,12 @@ export default function GameLogTable({
         <tbody>
           {games.map((g, i) => (
             <tr key={i} className="border-t border-[#221D1A] hover:bg-[#211C1A]">
-              <td className={`${cell} text-[#665F5D]`}>{String(g.date ?? '')}</td>
-              <td className="font-schibsted font-bold text-[11px] text-[#EFEBE9] px-2 py-[7px]">
+              <td className={`${cell} text-[#A8A09C]`}>{String(g.date ?? '')}</td>
+              <td className="font-schibsted font-bold text-[13px] text-[#EFEBE9] px-2 py-[7px]">
                 {`${g.isHome === false ? '@' : ''}${String(g.opponent ?? '—')}`}
               </td>
               {volumeDef && (
-                <td className={`${cell} text-right text-[#9A918F]`}>
+                <td className={`${cell} text-right text-[#C9C2BE]`}>
                   {formatVolume(volumeDef, volumeDef.get(g))}
                 </td>
               )}

@@ -26,7 +26,7 @@ export default function ComingSoon({ league }: Props) {
       <div className="relative z-10 animate-fade-up">
         <div className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-[#0F0F0F] border border-[#1E1E1E] rounded-full mb-6">
           <span className="w-1.5 h-1.5 rounded-full bg-yellow-500/70" />
-          <span className="text-[10px] font-bold text-gray-600 font-condensed tracking-[0.2em] uppercase">
+          <span className="text-[12px] font-bold text-gray-400 font-condensed tracking-[0.2em] uppercase">
             Coming Soon
           </span>
         </div>
@@ -38,7 +38,7 @@ export default function ComingSoon({ league }: Props) {
           {league}
         </h1>
 
-        <p className="text-sm text-gray-600 mb-8 max-w-sm mx-auto leading-relaxed">
+        <p className="text-sm text-gray-400 mb-8 max-w-sm mx-auto leading-relaxed">
           {league} trend data is on the roadmap. NBA is live right now with full player analysis.
         </p>
 
@@ -49,8 +49,8 @@ export default function ComingSoon({ league }: Props) {
               key={label}
               className="flex items-center gap-2 px-3.5 py-2 bg-[#0D0D0D] border border-[#161616] rounded-xl"
             >
-              <Icon size={12} className="text-gray-700" />
-              <span className="text-[11px] text-gray-600 font-condensed tracking-wide">{label}</span>
+              <Icon size={12} className="text-gray-500" />
+              <span className="text-[13px] text-gray-400 font-condensed tracking-wide">{label}</span>
             </div>
           ))}
         </div>

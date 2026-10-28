@@ -86,15 +86,15 @@ export default function InfoPopover({ onAsk }: InfoPopoverProps) {
         aria-expanded={open}
         aria-controls={panelId}
         onClick={() => setPinned((p) => !p)}
-        className={`flex items-center gap-[7px] font-martian font-bold text-[9px] tracking-[1px] rounded-md px-[10px] py-[6px] border cursor-pointer ${
+        className={`flex items-center gap-[7px] font-martian font-bold text-[11px] tracking-[1px] rounded-md px-[10px] py-[6px] border cursor-pointer ${
           open
             ? 'text-[#14100F] bg-[#FF6B3D] border-[#FF6B3D]'
-            : 'text-[#9A918F] border-[#2C2624] hover:border-[#665F5D] hover:text-[#EFEBE9]'
+            : 'text-[#C9C2BE] border-[#2C2624] hover:border-[#665F5D] hover:text-[#EFEBE9]'
         }`}
       >
         <span
           aria-hidden
-          className="inline-flex items-center justify-center w-[13px] h-[13px] rounded-full border border-current text-[8px] leading-none"
+          className="inline-flex items-center justify-center w-[13px] h-[13px] rounded-full border border-current text-[10px] leading-none"
         >
           i
         </span>
@@ -118,7 +118,7 @@ export default function InfoPopover({ onAsk }: InfoPopoverProps) {
                 <span className="text-[#FF6B3D]">{'// '}</span>
                 WHAT SPORTQUERY KNOWS
               </div>
-              <p className="font-schibsted text-[12.5px] text-[#9A918F] leading-[1.55] mt-[6px]">
+              <p className="font-schibsted text-[14px] text-[#C9C2BE] leading-[1.55] mt-[6px]">
                 Ask in plain English. Every answer comes from the stats below — final games only,
                 read-only.
               </p>
@@ -127,10 +127,10 @@ export default function InfoPopover({ onAsk }: InfoPopoverProps) {
             <div className="grid sm:grid-cols-2 gap-x-[22px] gap-y-[14px] px-[18px] py-[14px] border-b border-[#27221F]">
               {WHAT_YOU_CAN_DO.map((w) => (
                 <div key={w.title}>
-                  <div className="font-martian font-bold text-[8px] tracking-[1px] text-[#FF6B3D]">
+                  <div className="font-martian font-bold text-[10px] tracking-[1px] text-[#FF6B3D]">
                     {w.title.toUpperCase()}
                   </div>
-                  <div className="font-schibsted text-[12px] text-[#D8D2CE] leading-[1.5] mt-[4px]">
+                  <div className="font-schibsted text-[14px] text-[#D8D2CE] leading-[1.5] mt-[4px]">
                     {w.body}
                   </div>
                 </div>
@@ -146,10 +146,10 @@ export default function InfoPopover({ onAsk }: InfoPopoverProps) {
                     role="tab"
                     aria-selected={s.slug === tab}
                     onClick={() => setTab(s.slug)}
-                    className={`font-martian font-bold text-[9px] tracking-[1px] rounded px-[10px] py-[5px] border cursor-pointer ${
+                    className={`font-martian font-bold text-[11px] tracking-[1px] rounded px-[10px] py-[5px] border cursor-pointer ${
                       s.slug === tab
                         ? 'text-[#14100F] bg-[#EFEBE9] border-[#EFEBE9]'
-                        : 'text-[#9A918F] border-[#2C2624] hover:border-[#665F5D]'
+                        : 'text-[#C9C2BE] border-[#2C2624] hover:border-[#665F5D]'
                     }`}
                   >
                     {s.label}
@@ -161,14 +161,14 @@ export default function InfoPopover({ onAsk }: InfoPopoverProps) {
             <div className="px-[18px] py-[14px] flex flex-col gap-[14px]">
               {sport.groups.map((g) => (
                 <div key={g.label}>
-                  <div className="font-martian text-[8px] tracking-[1px] text-[#665F5D]">
+                  <div className="font-martian text-[10px] tracking-[1px] text-[#A8A09C]">
                     {g.label.toUpperCase()}
                   </div>
                   <div className="flex flex-wrap gap-[6px] mt-[7px]">
                     {g.stats.map((st) => (
                       <span
                         key={st}
-                        className="font-schibsted text-[11.5px] text-[#D8D2CE] bg-[#211C1A] border border-[#2C2624] rounded px-[8px] py-[3px]"
+                        className="font-schibsted text-[13px] text-[#D8D2CE] bg-[#211C1A] border border-[#2C2624] rounded px-[8px] py-[3px]"
                       >
                         {st}
                       </span>
@@ -178,16 +178,16 @@ export default function InfoPopover({ onAsk }: InfoPopoverProps) {
               ))}
 
               <div>
-                <div className="font-martian text-[8px] tracking-[1px] text-[#665F5D]">
+                <div className="font-martian text-[10px] tracking-[1px] text-[#A8A09C]">
                   TRENDS (3 / 5 / 10-GAME Z-SCORE)
                 </div>
-                <div className="font-schibsted text-[12px] text-[#9A918F] mt-[6px]">
+                <div className="font-schibsted text-[14px] text-[#C9C2BE] mt-[6px]">
                   {sport.trends.join(' · ')}
                 </div>
               </div>
 
-              <div className="font-schibsted text-[12px] text-[#9A918F] leading-[1.5]">
-                <span className="font-martian text-[8px] tracking-[1px] text-[#665F5D] mr-2">
+              <div className="font-schibsted text-[14px] text-[#C9C2BE] leading-[1.5]">
+                <span className="font-martian text-[10px] tracking-[1px] text-[#A8A09C] mr-2">
                   {sport.markets ? 'LINES + PICKS' : 'NOT AVAILABLE'}
                 </span>
                 {sport.markets
@@ -196,7 +196,7 @@ export default function InfoPopover({ onAsk }: InfoPopoverProps) {
               </div>
 
               <div>
-                <div className="font-martian text-[8px] tracking-[1px] text-[#665F5D]">TRY ONE</div>
+                <div className="font-martian text-[10px] tracking-[1px] text-[#A8A09C]">TRY ONE</div>
                 <div className="flex flex-col gap-[6px] mt-[7px]">
                   {sport.examples.map((ex) => (
                     <button
@@ -207,7 +207,7 @@ export default function InfoPopover({ onAsk }: InfoPopoverProps) {
                         setPinned(false)
                         setHovering(false)
                       }}
-                      className="text-left font-schibsted text-[12.5px] text-[#EFEBE9] border border-[#2C2624] hover:border-[#FF6B3D] rounded-md px-[12px] py-[8px] cursor-pointer"
+                      className="text-left font-schibsted text-[14px] text-[#EFEBE9] border border-[#2C2624] hover:border-[#FF6B3D] rounded-md px-[12px] py-[8px] cursor-pointer"
                     >
                       {ex}
                     </button>
@@ -218,20 +218,20 @@ export default function InfoPopover({ onAsk }: InfoPopoverProps) {
 
             <div className="px-[18px] py-[14px] border-t border-[#27221F] grid sm:grid-cols-2 gap-[18px]">
               <div>
-                <div className="font-martian text-[8px] tracking-[1px] text-[#665F5D]">ACROSS SPORTS</div>
+                <div className="font-martian text-[10px] tracking-[1px] text-[#A8A09C]">ACROSS SPORTS</div>
                 <ul className="mt-[7px] flex flex-col gap-[5px]">
                   {ACROSS_SPORTS.map((a) => (
-                    <li key={a} className="font-schibsted text-[12px] text-[#9A918F] leading-[1.45]">
+                    <li key={a} className="font-schibsted text-[14px] text-[#C9C2BE] leading-[1.45]">
                       {a}
                     </li>
                   ))}
                 </ul>
               </div>
               <div>
-                <div className="font-martian text-[8px] tracking-[1px] text-[#665F5D]">GOOD TO KNOW</div>
+                <div className="font-martian text-[10px] tracking-[1px] text-[#A8A09C]">GOOD TO KNOW</div>
                 <ul className="mt-[7px] flex flex-col gap-[5px]">
                   {LIMITS.map((l) => (
-                    <li key={l} className="font-schibsted text-[12px] text-[#9A918F] leading-[1.45]">
+                    <li key={l} className="font-schibsted text-[14px] text-[#C9C2BE] leading-[1.45]">
                       {l}
                     </li>
                   ))}

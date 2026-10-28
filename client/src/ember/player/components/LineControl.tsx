@@ -12,16 +12,16 @@ interface LineControlProps {
 }
 
 function Rate({ caption, r }: { caption: string; r: HitRate }) {
-  const tone = r.pct == null ? 'text-[#9A918F]' : r.pct >= 50 ? 'text-[#3FBF7F]' : 'text-[#FF6B5C]'
+  const tone = r.pct == null ? 'text-[#C9C2BE]' : r.pct >= 50 ? 'text-[#3FBF7F]' : 'text-[#FF6B5C]'
   return (
     <div>
-      <div className="font-martian text-[7px] text-[#665F5D] tracking-[1px]">{caption}</div>
+      <div className="font-martian text-[10px] text-[#A8A09C] tracking-[1px]">{caption}</div>
       <div className={`font-martian font-bold text-[15px] mt-[3px] ${tone}`}>
         {`${r.over}/${r.over + r.under} OVER`}
-        {r.pct != null && <span className="text-[11px] ml-[6px]">{`${r.pct}%`}</span>}
+        {r.pct != null && <span className="text-[13px] ml-[6px]">{`${r.pct}%`}</span>}
       </div>
       {r.push > 0 && (
-        <div className="font-martian text-[7px] text-[#9A918F] mt-[2px] tracking-[0.5px]">
+        <div className="font-martian text-[10px] text-[#C9C2BE] mt-[2px] tracking-[0.5px]">
           {`${r.push} PUSH${r.push > 1 ? 'ES' : ''} EXCLUDED`}
         </div>
       )}
@@ -44,7 +44,7 @@ export default function LineControl({
   return (
     <div className="flex items-end gap-[18px] flex-wrap px-[18px] py-[14px] border-b border-[#27221F]">
       <div>
-        <div className="font-martian text-[7px] text-[#665F5D] tracking-[1px]">
+        <div className="font-martian text-[10px] text-[#A8A09C] tracking-[1px]">
           {`${label} LINE · ${touched ? 'MANUAL' : 'AVG'}`}
         </div>
         <div className="flex items-center gap-2 mt-[5px]">
@@ -52,7 +52,7 @@ export default function LineControl({
             type="button"
             aria-label="Lower line"
             onClick={() => step(-0.5)}
-            className="font-martian font-bold text-[12px] text-[#9A918F] hover:text-[#EFEBE9] border border-[#2C2624] hover:border-[#665F5D] rounded-md w-[26px] h-[26px] cursor-pointer"
+            className="font-martian font-bold text-[14px] text-[#C9C2BE] hover:text-[#EFEBE9] border border-[#2C2624] hover:border-[#665F5D] rounded-md w-[26px] h-[26px] cursor-pointer"
           >
             −
           </button>
@@ -74,7 +74,7 @@ export default function LineControl({
             type="button"
             aria-label="Raise line"
             onClick={() => step(0.5)}
-            className="font-martian font-bold text-[12px] text-[#9A918F] hover:text-[#EFEBE9] border border-[#2C2624] hover:border-[#665F5D] rounded-md w-[26px] h-[26px] cursor-pointer"
+            className="font-martian font-bold text-[14px] text-[#C9C2BE] hover:text-[#EFEBE9] border border-[#2C2624] hover:border-[#665F5D] rounded-md w-[26px] h-[26px] cursor-pointer"
           >
             +
           </button>
@@ -82,7 +82,7 @@ export default function LineControl({
             <button
               type="button"
               onClick={onReset}
-              className="font-martian text-[8px] text-[#9A918F] hover:text-[#FF6B3D] tracking-[0.5px] underline cursor-pointer ml-1"
+              className="font-martian text-[10px] text-[#C9C2BE] hover:text-[#FF6B3D] tracking-[0.5px] underline cursor-pointer ml-1"
             >
               RESET TO AVG
             </button>

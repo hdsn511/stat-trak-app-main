@@ -319,28 +319,12 @@ export async function searchPlayers(req: Request<{}, {}, {}, { q?: string }>, re
 // mlb_player_stats and are gated on batters_faced (not plate_appearances).
 const MLB_PITCHER_SELECT =
   'game_id, team_id, strikeouts_pitched, outs_pitched, earned_runs, hits_allowed, ' +
-  'walks_allowed, home_runs_allowed, batters_faced, game_date, games!inner(game_type)';
+  'walks_allowed, home_runs_allowed, batters_faced, game_date, games!inner(game_type, season)';
 
-/**
- * Season start for player game logs. seasonStartFor() rolls to the new season
- * on the calendar month the league opens, which for NBA/NHL is weeks before a
- * single game has been played. Until a game exists in the new season the log
- * would be empty for every player, so fall back to the previous season's start.
- */
-async function playableSeasonStart(lg: LeagueConfig): Promise<string> {
+/** Start of the season two before the current one: three seasons of history. */
+function threeSeasonStart(lg: LeagueConfig): string {
   const start = seasonStartFor(lg);
-  const { data, error } = await supabaseAdmin
-    .from('games')
-    .select('id')
-    .eq('league_id', lg.leagueId)
-    .gte('game_date', start)
-    .lte('game_date', new Date().toISOString().slice(0, 10))
-    .in('game_type', lg.gameTypes)
-    .eq('status', 2)
-    .limit(1);
-  if (error || (data && data.length > 0)) return start;
-  const prior = Number(start.slice(0, 4)) - 1;
-  return `${prior}${start.slice(4)}`;
+  return `${Number(start.slice(0, 4)) - 2}${start.slice(4)}`;
 }
 
 export async function getPlayerGames(req: Request<{ id: string }>, res: Response) {
@@ -351,7 +335,10 @@ export async function getPlayerGames(req: Request<{ id: string }>, res: Response
 
     // Season window and game-type vocabulary both vary by league; they live in
     // the registry so adding a sport does not mean editing this controller.
-    const seasonStart = await playableSeasonStart(lg);
+    // Three seasons of history, each row tagged with its season; the client
+    // scopes L-N windows and season averages to a single season so a window
+    // never spills back into the prior one.
+    const seasonStart = threeSeasonStart(lg);
     const gameTypes = lg.gameTypes;
 
     // Fetch the player first: for MLB we branch the stat query on whether they
@@ -437,7 +424,15 @@ export async function getPlayerGames(req: Request<{ id: string }>, res: Response
           tackles_total: 'tackles_total' }
       : { points: 'points', rebounds: 'rebounds', assists: 'assists', three_points_made: 'threes' };
 
-    const seasonRows = allSeasonStats.data || [];
+    const allRows = allSeasonStats.data || [];
+    // The player's active season is the latest one they actually appeared in:
+    // a preseason-only or injured player shows last season rather than nothing.
+    const seasonOf = (r: any): number | null => r.games?.season ?? null;
+    const seasons = [...new Set(allRows.map(seasonOf).filter((x: any) => x != null))].sort(
+      (a: any, b: any) => b - a
+    ) as number[];
+    const currentSeason = seasons[0] ?? null;
+    const seasonRows = allRows.filter((r: any) => seasonOf(r) === currentSeason);
     const seasonAvgs: Record<string, number> = {};
     if (seasonRows.length > 0) {
       const sum = (key: string) => seasonRows.reduce((acc: number, r: any) => acc + (r[key] ?? 0), 0);
@@ -520,6 +515,7 @@ export async function getPlayerGames(req: Request<{ id: string }>, res: Response
           const base = {
             gameId: g.game_id,
             date: g.game_date,
+            season: g.games?.season ?? undefined,
             opponent: opponentByGameId[g.game_id] ?? undefined,
             isHome: isHomeByGameId[g.game_id] ?? undefined,
           };
@@ -585,6 +581,8 @@ export async function getPlayerGames(req: Request<{ id: string }>, res: Response
         rollingAvgs,
         seasonAvgs,
         gamesPlayed: seasonRows.length,
+        currentSeason,
+        seasons,
         upcoming,
       },
     });

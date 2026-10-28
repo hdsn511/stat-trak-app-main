@@ -76,7 +76,7 @@ export default function PropsTable({ picks, slug = 'nba' }: PropsTableProps) {
     <div className="bg-[#0D0D0D] border border-[#161616] rounded-2xl overflow-hidden">
       {/* Header */}
       <div className="px-4 pt-4 pb-3 border-b border-[#111]">
-        <span className="text-[10px] font-bold text-gray-500 uppercase tracking-[0.15em] font-condensed">Props</span>
+        <span className="text-[12px] font-bold text-gray-400 uppercase tracking-[0.15em] font-condensed">Props</span>
       </div>
 
       {/* Prop type tabs */}
@@ -86,8 +86,8 @@ export default function PropsTable({ picks, slug = 'nba' }: PropsTableProps) {
             key={t.key}
             onClick={() => setPropTab(t.key)}
             className={cn(
-              'px-4 py-2.5 text-[11px] font-bold font-condensed tracking-wide uppercase transition-colors relative',
-              propTab === t.key ? 'text-white' : 'text-gray-600 hover:text-gray-400'
+              'px-4 py-2.5 text-[13px] font-bold font-condensed tracking-wide uppercase transition-colors relative',
+              propTab === t.key ? 'text-white' : 'text-gray-400 hover:text-gray-400'
             )}
           >
             {t.label}
@@ -102,23 +102,23 @@ export default function PropsTable({ picks, slug = 'nba' }: PropsTableProps) {
           bucket-filtered) — hide them on the ML / Spread / Total tabs. */}
       {propTab === 'player' && (
         <div className="flex gap-1 px-4 py-2.5 border-b border-[#111]">
-          <span className="text-[9px] text-gray-700 font-condensed uppercase tracking-widest self-center mr-1">Mkt %</span>
+          <span className="text-[11px] text-gray-500 font-condensed uppercase tracking-widest self-center mr-1">Mkt %</span>
           {BUCKET_TABS.map(b => (
             <button
               key={b}
               onClick={() => setBucket(b)}
               className={cn(
-                'px-2.5 py-1 rounded-lg text-[11px] font-bold font-mono transition-colors flex items-center gap-1',
+                'px-2.5 py-1 rounded-lg text-[13px] font-bold font-mono transition-colors flex items-center gap-1',
                 bucket === b
                   ? 'bg-mint text-black'
-                  : 'bg-[#141414] text-gray-600 hover:text-white border border-[#222]'
+                  : 'bg-[#141414] text-gray-400 hover:text-white border border-[#222]'
               )}
             >
               {b}
               {bucketCounts[b] > 0 && (
                 <span className={cn(
-                  'text-[9px] font-bold rounded-full w-3.5 h-3.5 flex items-center justify-center leading-none',
-                  bucket === b ? 'bg-black/20 text-black' : 'bg-[#222] text-gray-500'
+                  'text-[11px] font-bold rounded-full w-3.5 h-3.5 flex items-center justify-center leading-none',
+                  bucket === b ? 'bg-black/20 text-black' : 'bg-[#222] text-gray-400'
                 )}>
                   {bucketCounts[b]}
                 </span>
@@ -130,7 +130,7 @@ export default function PropsTable({ picks, slug = 'nba' }: PropsTableProps) {
 
       {/* Table */}
       {isEmpty ? (
-        <div className="px-4 py-8 text-center text-[11px] text-gray-700 font-condensed">
+        <div className="px-4 py-8 text-center text-[13px] text-gray-500 font-condensed">
           {propTab === 'player'
             ? `No props in the ${bucket}–${bucket + 9}% range today`
             : `No ${PROP_TABS.find(t => t.key === propTab)?.label.toLowerCase()} picks today`}
@@ -140,7 +140,7 @@ export default function PropsTable({ picks, slug = 'nba' }: PropsTableProps) {
           {/* Header row */}
           <div className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr] gap-2 px-4 py-2 border-b border-[#111]">
             {['Player / Game', 'Line', 'Mkt %', 'Model %', 'Edge'].map(h => (
-              <span key={h} className="text-[9px] font-bold text-gray-700 uppercase tracking-wider font-condensed">{h}</span>
+              <span key={h} className="text-[11px] font-bold text-gray-500 uppercase tracking-wider font-condensed">{h}</span>
             ))}
           </div>
           {propTab === 'player'
@@ -151,13 +151,13 @@ export default function PropsTable({ picks, slug = 'nba' }: PropsTableProps) {
                 className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr] gap-2 px-4 py-2.5 border-b border-[#0F0F0F] hover:bg-white/[0.03] transition-colors group"
               >
                 <div>
-                  <div className="text-[12px] font-semibold text-white font-condensed truncate group-hover:text-mint transition-colors">{p.player_name}</div>
-                  <div className="text-[10px] text-gray-600 font-condensed">{p.team} · {p.stat_label}</div>
+                  <div className="text-[14px] font-semibold text-white font-condensed truncate group-hover:text-mint transition-colors">{p.player_name}</div>
+                  <div className="text-[12px] text-gray-400 font-condensed">{p.team} · {p.stat_label}</div>
                 </div>
-                <span className="text-[12px] font-mono font-bold text-gray-300 self-center">{p.line}</span>
-                <span className="text-[12px] font-mono font-bold text-gray-300 self-center">{Math.round(p.implied_prob * 100)}%</span>
-                <span className="text-[12px] font-mono font-bold text-gray-300 self-center">{Math.round(p.hit_rate * 100)}%</span>
-                <span className={cn('text-[12px] font-mono font-bold self-center', p.edge >= 0.1 ? 'text-mint' : 'text-gray-500')}>
+                <span className="text-[14px] font-mono font-bold text-gray-300 self-center">{p.line}</span>
+                <span className="text-[14px] font-mono font-bold text-gray-300 self-center">{Math.round(p.implied_prob * 100)}%</span>
+                <span className="text-[14px] font-mono font-bold text-gray-300 self-center">{Math.round(p.hit_rate * 100)}%</span>
+                <span className={cn('text-[14px] font-mono font-bold self-center', p.edge >= 0.1 ? 'text-mint' : 'text-gray-400')}>
                   +{Math.round(p.edge * 100)}%
                 </span>
               </Link>
@@ -171,13 +171,13 @@ export default function PropsTable({ picks, slug = 'nba' }: PropsTableProps) {
               return (
               <div key={i} className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr] gap-2 px-4 py-2.5 border-b border-[#0F0F0F] hover:bg-white/[0.02] transition-colors">
                 <div>
-                  <div className="text-[12px] font-semibold text-white font-condensed truncate">{g.away_team} @ {g.home_team}</div>
-                  <div className="text-[10px] text-gray-600 font-condensed">{label}</div>
+                  <div className="text-[14px] font-semibold text-white font-condensed truncate">{g.away_team} @ {g.home_team}</div>
+                  <div className="text-[12px] text-gray-400 font-condensed">{label}</div>
                 </div>
-                <span className="text-[12px] font-mono font-bold text-gray-300 self-center">{lineDisplay}</span>
-                <span className="text-[12px] font-mono font-bold text-gray-300 self-center">{g.implied_prob != null ? Math.round(g.implied_prob * 100) + '%' : '—'}</span>
-                <span className="text-[12px] font-mono font-bold text-gray-300 self-center">{Math.round(g.hit_rate * 100)}%</span>
-                <span className={cn('text-[12px] font-mono font-bold self-center', g.edge >= 0.1 ? 'text-mint' : 'text-gray-500')}>
+                <span className="text-[14px] font-mono font-bold text-gray-300 self-center">{lineDisplay}</span>
+                <span className="text-[14px] font-mono font-bold text-gray-300 self-center">{g.implied_prob != null ? Math.round(g.implied_prob * 100) + '%' : '—'}</span>
+                <span className="text-[14px] font-mono font-bold text-gray-300 self-center">{Math.round(g.hit_rate * 100)}%</span>
+                <span className={cn('text-[14px] font-mono font-bold self-center', g.edge >= 0.1 ? 'text-mint' : 'text-gray-400')}>
                   +{Math.round(g.edge * 100)}%
                 </span>
               </div>

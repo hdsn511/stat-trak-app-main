@@ -14,7 +14,7 @@ Parameters:
     Description: >-
       Supavisor TRANSACTION-mode pooler URL, port 6543 — not the direct 5432
       connection. Direct connections from a scaling Lambda exhaust Postgres.
-  GroqApiKey:
+  CerebrasApiKey:
     Type: String
     NoEcho: true
   UpstashRedisRestUrl:
@@ -82,7 +82,7 @@ Resources:
           SUPABASE_URL: !Ref SupabaseUrl
           SUPABASE_SERVICE_ROLE_KEY: !Ref SupabaseServiceRoleKey
           SPORTQUERY_DB_URL: !Ref SportqueryDbUrl
-          GROQ_API_KEY: !Ref GroqApiKey
+          CEREBRAS_API_KEY: !Ref CerebrasApiKey
           UPSTASH_REDIS_REST_URL: !Ref UpstashRedisRestUrl
           UPSTASH_REDIS_REST_TOKEN: !Ref UpstashRedisRestToken
           API_SHARED_SECRET: !Ref ApiSharedSecret

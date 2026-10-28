@@ -32,11 +32,11 @@ function Side({
         <span className="font-chakra italic font-bold text-[13px] text-[#EFEBE9] tracking-[0.5px]">
           {team.abbreviation}
         </span>
-        <span className="font-martian text-[8px] text-[#665F5D] tracking-[1px]">{team.name}</span>
+        <span className="font-martian text-[10px] text-[#A8A09C] tracking-[1px]">{team.name}</span>
       </div>
 
       {players.length === 0 ? (
-        <div className="px-[18px] py-8 text-center font-martian text-[9px] text-[#443E3B] tracking-[1.5px]">
+        <div className="px-[18px] py-8 text-center font-martian text-[11px] text-[#8A827E] tracking-[1.5px]">
           NO SEASON DATA
         </div>
       ) : (
@@ -50,7 +50,7 @@ function Side({
               {columns.map((c) => (
                 <span
                   key={c.key}
-                  className="font-martian text-[8px] text-[#665F5D] tracking-[1px] text-right"
+                  className="font-martian text-[10px] text-[#A8A09C] tracking-[1px] text-right"
                 >
                   {c.label}
                 </span>
@@ -64,17 +64,17 @@ function Side({
                 style={{ gridTemplateColumns: gridTemplate }}
               >
                 <div className="min-w-0">
-                  <div className="font-schibsted font-bold text-[12px] text-[#EFEBE9] whitespace-nowrap overflow-hidden text-ellipsis">
+                  <div className="font-schibsted font-bold text-[14px] text-[#EFEBE9] whitespace-nowrap overflow-hidden text-ellipsis">
                     {p.name}
                   </div>
-                  <div className="font-martian text-[8px] text-[#665F5D] mt-[2px]">
+                  <div className="font-martian text-[10px] text-[#A8A09C] mt-[2px]">
                     {p.position} · {p.vs_opp_games > 0 ? `${p.vs_opp_games} VS OPP` : `${p.games_played} GP`}
                   </div>
                 </div>
                 {columns.map((c) => (
                   <span
                     key={c.key}
-                    className="font-martian font-bold text-[12px] text-[#EFEBE9] text-right tabular-nums"
+                    className="font-martian font-bold text-[14px] text-[#EFEBE9] text-right tabular-nums"
                   >
                     {formatStat(c, p.values[c.key])}
                   </span>

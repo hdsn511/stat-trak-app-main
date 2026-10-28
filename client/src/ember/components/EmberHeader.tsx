@@ -33,7 +33,7 @@ export default function EmberHeader({ meta = 'ALL LEAGUES · SEASON 2025–26' }
               `font-chakra italic font-semibold text-[13px] leading-none tracking-[1px] px-3 py-[19px] ${
                 isActive
                   ? 'text-[#EFEBE9] border-b-2 border-[#FF6B3D]'
-                  : 'text-[#665F5D] hover:text-[#EFEBE9]'
+                  : 'text-[#A8A09C] hover:text-[#EFEBE9]'
               }`
             }
           >
@@ -43,7 +43,7 @@ export default function EmberHeader({ meta = 'ALL LEAGUES · SEASON 2025–26' }
       </nav>
       <div className="ml-auto flex items-center gap-4">
         {/* Hidden on narrow viewports so the nav and search never collide. */}
-        <span className="hidden xl:inline font-martian text-[9px] text-[#665F5D] tracking-[1.5px]">
+        <span className="hidden xl:inline font-martian text-[11px] text-[#A8A09C] tracking-[1.5px]">
           {meta}
         </span>
         <GlobalSearch />

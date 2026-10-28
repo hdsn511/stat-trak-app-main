@@ -20,7 +20,7 @@ export default function AskBar({ placeholder, onSubmit, className = '' }: AskBar
     <div
       className={`flex items-center gap-[10px] bg-white border-2 border-[#14100F] rounded-lg pl-4 pr-1 py-1 shadow-[3px_3px_0_#FF6B3D] ${className}`}
     >
-      <span className="font-martian font-bold text-[11px] text-[#C2410C] shrink-0">&gt;_</span>
+      <span className="font-martian font-bold text-[13px] text-[#C2410C] shrink-0">&gt;_</span>
       <input
         value={value}
         onChange={(e) => setValue(e.target.value)}
@@ -33,7 +33,7 @@ export default function AskBar({ placeholder, onSubmit, className = '' }: AskBar
       <button
         type="button"
         onClick={submit}
-        className="font-chakra italic font-bold text-[12px] tracking-[1px] bg-[#14100F] text-[#FF6B3D] rounded px-[18px] py-[9px] cursor-pointer shrink-0"
+        className="font-chakra italic font-bold text-[14px] tracking-[1px] bg-[#14100F] text-[#FF6B3D] rounded px-[18px] py-[9px] cursor-pointer shrink-0"
       >
         ASK
       </button>

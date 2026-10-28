@@ -24,14 +24,14 @@ function MatchupChip({ rank }: { rank: number | null }) {
   if (rank == null) return null
   if (rank <= 10) {
     return (
-      <span className="inline-flex items-center px-1 py-0.5 rounded text-[8px] font-bold font-condensed uppercase tracking-wide border bg-under/10 text-under border-under/20">
+      <span className="inline-flex items-center px-1 py-0.5 rounded text-[10px] font-bold font-condensed uppercase tracking-wide border bg-under/10 text-under border-under/20">
         TOUGH DEF | RANK {rank}
       </span>
     )
   }
   if (rank >= 21) {
     return (
-      <span className="inline-flex items-center px-1 py-0.5 rounded text-[8px] font-bold font-condensed uppercase tracking-wide border bg-over/10 text-over border-over/20">
+      <span className="inline-flex items-center px-1 py-0.5 rounded text-[10px] font-bold font-condensed uppercase tracking-wide border bg-over/10 text-over border-over/20">
         WEAK DEF
       </span>
     )
@@ -44,7 +44,7 @@ function MlbMatchupChip({ matchup }: { matchup?: { tier: 'good' | 'tough'; label
   const good = matchup.tier === 'good'
   return (
     <span className={cn(
-      'inline-flex items-center px-1 py-0.5 rounded text-[8px] font-bold font-condensed uppercase tracking-wide border',
+      'inline-flex items-center px-1 py-0.5 rounded text-[10px] font-bold font-condensed uppercase tracking-wide border',
       good ? 'bg-over/10 text-over border-over/20' : 'bg-under/10 text-under border-under/20'
     )}>
       {good ? '🔥 ' : ''}{matchup.label}
@@ -56,9 +56,9 @@ function PickStatus({ pick }: { pick: TopPickPlayer }) {
   if (pick.did_hit === true) {
     return (
       <div className="flex flex-col items-end gap-0.5">
-        <span className="text-[11px] font-black text-over tracking-wide">HIT</span>
+        <span className="text-[13px] font-black text-over tracking-wide">HIT</span>
         {pick.actual_result != null && (
-          <span className="text-[9px] text-over/60 font-mono">
+          <span className="text-[11px] text-over/60 font-mono">
             got {pick.actual_result}
           </span>
         )}
@@ -68,9 +68,9 @@ function PickStatus({ pick }: { pick: TopPickPlayer }) {
   if (pick.did_hit === false) {
     return (
       <div className="flex flex-col items-end gap-0.5">
-        <span className="text-[11px] font-black text-under tracking-wide">MISS</span>
+        <span className="text-[13px] font-black text-under tracking-wide">MISS</span>
         {pick.actual_result != null && (
-          <span className="text-[9px] text-under/60 font-mono">
+          <span className="text-[11px] text-under/60 font-mono">
             got {pick.actual_result}
           </span>
         )}
@@ -78,7 +78,7 @@ function PickStatus({ pick }: { pick: TopPickPlayer }) {
     )
   }
   return (
-    <span className="text-[10px] text-gray-700 font-condensed uppercase tracking-widest">
+    <span className="text-[12px] text-gray-500 font-condensed uppercase tracking-widest">
       Pending
     </span>
   )
@@ -132,8 +132,8 @@ export default function StreaksCard(
             key={t.key}
             onClick={() => setView(t.key)}
             className={cn(
-              'px-5 py-3.5 text-[11px] font-bold font-condensed tracking-[0.12em] uppercase transition-colors relative',
-              view === t.key ? 'text-white' : 'text-gray-600 hover:text-gray-400'
+              'px-5 py-3.5 text-[13px] font-bold font-condensed tracking-[0.12em] uppercase transition-colors relative',
+              view === t.key ? 'text-white' : 'text-gray-400 hover:text-gray-400'
             )}
           >
             {t.label}
@@ -143,7 +143,7 @@ export default function StreaksCard(
           </button>
         ))}
         <div className="flex-1 flex items-center justify-end pr-4">
-          <span className="text-[9px] text-gray-700 font-condensed uppercase tracking-widest">
+          <span className="text-[11px] text-gray-500 font-condensed uppercase tracking-widest">
             {view === 'streaks' ? (isMlb ? 'Active streak' : 'Last 10 games') : 'Today\'s slate'}
           </span>
         </div>
@@ -159,8 +159,8 @@ export default function StreaksCard(
                 key={t.key}
                 onClick={() => setStat(t.key)}
                 className={cn(
-                  'flex-1 py-2.5 text-[11px] font-bold font-condensed tracking-wide uppercase transition-colors relative',
-                  stat === t.key ? 'text-white' : 'text-gray-600 hover:text-gray-400'
+                  'flex-1 py-2.5 text-[13px] font-bold font-condensed tracking-wide uppercase transition-colors relative',
+                  stat === t.key ? 'text-white' : 'text-gray-400 hover:text-gray-400'
                 )}
               >
                 {t.label}
@@ -176,13 +176,13 @@ export default function StreaksCard(
             <div className="flex items-center px-4 py-2 border-b border-[#111]">
               <div className="flex-1 min-w-0" />
               {isMlb ? (
-                <span className={cn('text-[9px] font-bold text-gray-700 font-condensed uppercase tracking-widest text-right', COL_W)}>
+                <span className={cn('text-[11px] font-bold text-gray-500 font-condensed uppercase tracking-widest text-right', COL_W)}>
                   Streak
                 </span>
               ) : (
                 <div className="flex flex-shrink-0 ml-3">
                   {['100%', '90%', '80%', '70%'].map(label => (
-                    <span key={label} className={cn('text-[9px] font-bold text-gray-700 font-condensed uppercase tracking-widest text-right', COL_W)}>
+                    <span key={label} className={cn('text-[11px] font-bold text-gray-500 font-condensed uppercase tracking-widest text-right', COL_W)}>
                       {label}
                     </span>
                   ))}
@@ -200,7 +200,7 @@ export default function StreaksCard(
           )}
 
           {!streakLoading && streakRows.length === 0 && (
-            <div className="px-4 py-8 text-center text-[11px] text-gray-700 font-condensed">
+            <div className="px-4 py-8 text-center text-[13px] text-gray-500 font-condensed">
               No streaks found
             </div>
           )}
@@ -212,18 +212,18 @@ export default function StreaksCard(
               className="flex items-center px-4 py-3 border-b border-[#0F0F0F] last:border-0 hover:bg-white/[0.03] transition-colors group"
             >
               <div className="flex items-center gap-3 min-w-0 flex-1">
-                <span className="text-[10px] text-gray-700 font-mono w-4 flex-shrink-0 group-hover:text-mint transition-colors">
+                <span className="text-[12px] text-gray-500 font-mono w-4 flex-shrink-0 group-hover:text-mint transition-colors">
                   {i + 1}
                 </span>
                 <div className="min-w-0">
-                  <div className="text-[12px] font-semibold text-white font-condensed truncate group-hover:text-mint transition-colors">
+                  <div className="text-[14px] font-semibold text-white font-condensed truncate group-hover:text-mint transition-colors">
                     {row.player_name}
                   </div>
                   <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                    <span className="text-[10px] text-gray-600 font-condensed">
+                    <span className="text-[12px] text-gray-400 font-condensed">
                       {row.team}
                       {row.opponent ? (
-                        <> vs <span className="text-gray-500">{row.opponent.team}</span></>
+                        <> vs <span className="text-gray-400">{row.opponent.team}</span></>
                       ) : ''}
                     </span>
                     {isMlb
@@ -239,9 +239,9 @@ export default function StreaksCard(
                     <span className="text-[22px] font-black text-over font-mono tabular-nums">
                       {row.streak_count ?? 0}
                     </span>
-                    <span className="text-[9px] text-gray-600 font-condensed uppercase">G</span>
+                    <span className="text-[11px] text-gray-400 font-condensed uppercase">G</span>
                   </div>
-                  <span className="text-[9px] text-gray-500 font-condensed uppercase tracking-wide mt-1">
+                  <span className="text-[11px] text-gray-400 font-condensed uppercase tracking-wide mt-1">
                     {row.streak_line ?? 1}+ {activeLabel}
                   </span>
                 </div>
@@ -272,10 +272,10 @@ export default function StreaksCard(
           {/* Column headers */}
           {!picksLoading && picks.length > 0 && (
             <div className="flex items-center px-4 py-2 border-b border-[#111]">
-              <div className="flex-1 min-w-0 text-[9px] font-bold text-gray-700 font-condensed uppercase tracking-widest">
+              <div className="flex-1 min-w-0 text-[11px] font-bold text-gray-500 font-condensed uppercase tracking-widest">
                 Player
               </div>
-              <div className="flex items-center gap-6 flex-shrink-0 ml-3 text-[9px] font-bold text-gray-700 font-condensed uppercase tracking-widest">
+              <div className="flex items-center gap-6 flex-shrink-0 ml-3 text-[11px] font-bold text-gray-500 font-condensed uppercase tracking-widest">
                 <span className="w-20 text-right">Line</span>
                 <span className="w-10 text-right">Conf</span>
                 <span className="w-16 text-right">Result</span>
@@ -292,7 +292,7 @@ export default function StreaksCard(
           )}
 
           {!picksLoading && picks.length === 0 && (
-            <div className="px-4 py-8 text-center text-[11px] text-gray-700 font-condensed">
+            <div className="px-4 py-8 text-center text-[13px] text-gray-500 font-condensed">
               No picks for today
             </div>
           )}
@@ -305,16 +305,16 @@ export default function StreaksCard(
             >
               {/* Player */}
               <div className="flex items-center gap-3 min-w-0 flex-1">
-                <span className="text-[10px] text-gray-700 font-mono w-4 flex-shrink-0 group-hover:text-mint transition-colors">
+                <span className="text-[12px] text-gray-500 font-mono w-4 flex-shrink-0 group-hover:text-mint transition-colors">
                   {i + 1}
                 </span>
                 <div className="min-w-0">
-                  <div className="text-[12px] font-semibold text-white font-condensed truncate group-hover:text-mint transition-colors">
+                  <div className="text-[14px] font-semibold text-white font-condensed truncate group-hover:text-mint transition-colors">
                     {pick.player_name}
                   </div>
-                  <span className="text-[10px] text-gray-600 font-condensed">
+                  <span className="text-[12px] text-gray-400 font-condensed">
                     {pick.team}
-                    {pick.opponent?.team ? <> vs <span className="text-gray-500">{pick.opponent.team}</span></> : ''}
+                    {pick.opponent?.team ? <> vs <span className="text-gray-400">{pick.opponent.team}</span></> : ''}
                   </span>
                 </div>
               </div>
@@ -323,7 +323,7 @@ export default function StreaksCard(
               <div className="flex items-center gap-6 flex-shrink-0 ml-3">
                 {/* Line badge */}
                 <div className="w-20 text-right">
-                  <span className="text-[11px] font-black text-mint font-mono">
+                  <span className="text-[13px] font-black text-mint font-mono">
                     {pick.direction === 'over' ? '↑' : '↓'} {pick.line} {pick.stat_label}
                   </span>
                 </div>

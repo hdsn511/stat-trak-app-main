@@ -56,7 +56,7 @@ export default function LeaguePage({ config }: LeaguePageProps) {
               {config.name}
               <span className="text-[#D9481F]">.</span>
             </h1>
-            <p className="font-martian text-[10px] text-[#6B675C] tracking-[1px] mt-2">
+            <p className="font-martian text-[12px] text-[#6B675C] tracking-[1px] mt-2">
               {config.metaLine}
               {gameCount > 0 && ` · ${gameCount} GAME${gameCount === 1 ? '' : 'S'} ON THE SLATE`}
             </p>
@@ -78,7 +78,7 @@ export default function LeaguePage({ config }: LeaguePageProps) {
         />
 
         {(errors.length > 0 || standings.error) && (
-          <div className="font-martian text-[9px] text-[#FF6B5C] tracking-[1px]">
+          <div className="font-martian text-[11px] text-[#FF6B5C] tracking-[1px]">
             {[...errors, standings.error ? `STANDINGS: ${standings.error}` : null]
               .filter(Boolean)
               .map((e) => (

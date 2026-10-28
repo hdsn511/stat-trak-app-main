@@ -8,7 +8,7 @@ export default function QueryChips({ chips, onSelect, variant = 'dark' }: QueryC
   const chipClass =
     variant === 'paper'
       ? 'bg-white border-[#E4E0D6] text-[rgba(20,16,15,0.7)] hover:border-[#D9481F] hover:text-[#D9481F]'
-      : 'bg-[#1B1715] border-[#2C2624] text-[#9A918F] hover:border-[#FF6B3D] hover:text-[#EFEBE9]'
+      : 'bg-[#1B1715] border-[#2C2624] text-[#C9C2BE] hover:border-[#FF6B3D] hover:text-[#EFEBE9]'
 
   return (
     <div className="flex flex-wrap gap-2">
@@ -17,7 +17,7 @@ export default function QueryChips({ chips, onSelect, variant = 'dark' }: QueryC
           key={chip}
           type="button"
           onClick={() => onSelect?.(chip)}
-          className={`font-martian text-[10px] border rounded-[14px] px-3 py-[5px] cursor-pointer whitespace-nowrap ${chipClass}`}
+          className={`font-martian text-[12px] border rounded-[14px] px-3 py-[5px] cursor-pointer whitespace-nowrap ${chipClass}`}
         >
           {chip}
         </button>

@@ -27,30 +27,30 @@ function TierCard({ t }: { t: StreakTierStats }) {
     <div className="flex flex-col gap-2 p-4 border border-[#161616] rounded-xl bg-[#0A0A0A]">
       <div className="flex items-center justify-between">
         <span className={cn(
-          'text-[10px] font-bold uppercase tracking-wider font-condensed',
+          'text-[12px] font-bold uppercase tracking-wider font-condensed',
           is10 ? 'text-over' : 'text-mint'
         )}>
           {t.tier}
         </span>
-        <span className="text-[10px] text-gray-700 font-condensed">{t.total} games</span>
+        <span className="text-[12px] text-gray-500 font-condensed">{t.total} games</span>
       </div>
 
       <div className={cn(
         'text-[22px] font-black font-mono tabular-nums leading-none',
-        !hasData ? 'text-gray-700' : beating ? 'text-over' : 'text-under'
+        !hasData ? 'text-gray-500' : beating ? 'text-over' : 'text-under'
       )}>
         {hasData ? fmtPct(t.hitRate) : '—'}
       </div>
 
-      <div className="text-[9px] text-gray-700 font-condensed">
+      <div className="text-[11px] text-gray-500 font-condensed">
         expected {fmtPct(expected)}
       </div>
 
       <div className="h-px bg-[#161616] my-0.5" />
 
-      <div className="flex items-center gap-1.5 font-mono tabular-nums text-[12px]">
+      <div className="flex items-center gap-1.5 font-mono tabular-nums text-[14px]">
         <span className="text-over font-bold">{t.hits}W</span>
-        <span className="text-gray-700">-</span>
+        <span className="text-gray-500">-</span>
         <span className="text-under font-bold">{t.misses}L</span>
       </div>
     </div>
@@ -108,7 +108,7 @@ export default function StreakPerformanceCard({
         </div>
       )}
       {error && (
-        <div className="px-4 py-6 text-center text-[11px] text-gray-700 font-condensed">{error}</div>
+        <div className="px-4 py-6 text-center text-[13px] text-gray-500 font-condensed">{error}</div>
       )}
       {!loading && !error && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 p-4">

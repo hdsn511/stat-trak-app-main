@@ -23,7 +23,7 @@ const WINDOWS = [5, 10, 15, 20] as const
 function zBadgeClass(z: number) {
   if (z >= 1.5) return 'bg-mint/10 text-mint border-mint/20'
   if (z >= 0.5) return 'bg-green-500/10 text-green-400 border-green-500/20'
-  return 'bg-[#1A1A1A] text-gray-600 border-[#222]'
+  return 'bg-[#1A1A1A] text-gray-400 border-[#222]'
 }
 
 export default function TrendFinder(
@@ -82,7 +82,7 @@ export default function TrendFinder(
       {/* Header */}
       <div className="flex items-center gap-2">
         <SlidersHorizontal size={13} className="text-mint" />
-        <h2 className="text-[10px] font-bold text-gray-500 uppercase tracking-[0.15em] font-condensed">
+        <h2 className="text-[12px] font-bold text-gray-400 uppercase tracking-[0.15em] font-condensed">
           {isFiltered ? 'Trend Finder' : 'Top Trending'}
         </h2>
       </div>
@@ -97,7 +97,7 @@ export default function TrendFinder(
             onClick={() => setStat(s.id)}
             className={cn(
               'relative px-5 py-2.5 text-[13px] font-bold font-condensed tracking-widest uppercase rounded-none h-auto transition-colors hover:bg-transparent',
-              stat === s.id ? 'text-white hover:text-white' : 'text-gray-700 hover:text-gray-400'
+              stat === s.id ? 'text-white hover:text-white' : 'text-gray-500 hover:text-gray-400'
             )}
           >
             {s.label}
@@ -111,7 +111,7 @@ export default function TrendFinder(
       {/* Controls */}
       <div className="flex items-center gap-6 flex-wrap">
         <div className="flex items-center gap-2">
-          <span className="text-[10px] text-gray-600 font-condensed tracking-widest uppercase">Line</span>
+          <span className="text-[12px] text-gray-400 font-condensed tracking-widest uppercase">Line</span>
           <Input
             type="number"
             value={threshold}
@@ -119,11 +119,11 @@ export default function TrendFinder(
             placeholder="—"
             className="w-20 bg-[#0D0D0D] border-[#1E1E1E] rounded-xl px-3 py-1.5 text-sm text-white placeholder-gray-800 outline-none focus-visible:ring-0 focus-visible:border-mint/30 transition-colors text-center font-bold tabular-nums h-auto"
           />
-          <span className="text-[11px] text-gray-700 font-condensed">+</span>
+          <span className="text-[13px] text-gray-500 font-condensed">+</span>
           {isFiltered && (
             <button
               onClick={handleClear}
-              className="flex items-center gap-1 text-[10px] text-gray-600 hover:text-white font-condensed uppercase tracking-wider transition-colors"
+              className="flex items-center gap-1 text-[12px] text-gray-400 hover:text-white font-condensed uppercase tracking-wider transition-colors"
               aria-label="Clear filter"
             >
               <X size={11} />
@@ -133,7 +133,7 @@ export default function TrendFinder(
         </div>
 
         <div className="flex items-center gap-1.5">
-          <span className="text-[10px] text-gray-600 font-condensed tracking-widest uppercase mr-1">Last</span>
+          <span className="text-[12px] text-gray-400 font-condensed tracking-widest uppercase mr-1">Last</span>
           {WINDOWS.map(w => (
             <Button
               key={w}
@@ -144,7 +144,7 @@ export default function TrendFinder(
                 'w-9 h-8 rounded-lg text-[13px] font-bold font-condensed tracking-wide transition-colors p-0',
                 window === w
                   ? 'bg-mint text-black hover:bg-mint hover:text-black'
-                  : 'bg-[#0D0D0D] text-gray-600 hover:text-white border border-[#1E1E1E] hover:bg-[#0D0D0D]'
+                  : 'bg-[#0D0D0D] text-gray-400 hover:text-white border border-[#1E1E1E] hover:bg-[#0D0D0D]'
               )}
             >
               {w}
@@ -166,7 +166,7 @@ export default function TrendFinder(
       {!loading && players.length === 0 && (
         <div className="py-14 text-center">
           <div className="text-5xl font-black text-[#161616] font-condensed mb-2">— —</div>
-          <p className="text-sm text-gray-700">No players match these filters</p>
+          <p className="text-sm text-gray-500">No players match these filters</p>
         </div>
       )}
 
@@ -177,14 +177,14 @@ export default function TrendFinder(
           onClick={() => navigate(playerPath(api.slug, player.playerId), { state: { player } })}
           className="w-full flex items-center gap-4 px-4 py-3.5 bg-[#0D0D0D] border border-[#161616] rounded-xl hover:border-mint/25 hover:bg-[#0D1A14] transition-all text-left group"
         >
-          <div className="w-9 h-9 rounded-xl bg-[#161616] flex items-center justify-center text-[11px] font-black text-mint flex-shrink-0 font-condensed group-hover:bg-mint/10 transition-colors">
+          <div className="w-9 h-9 rounded-xl bg-[#161616] flex items-center justify-center text-[13px] font-black text-mint flex-shrink-0 font-condensed group-hover:bg-mint/10 transition-colors">
             {player.playerName?.split(' ').map(n => n[0]).join('') ?? '?'}
           </div>
           <div className="flex-1 min-w-0">
             <div className="text-[14px] font-semibold text-gray-300 truncate group-hover:text-white transition-colors">
               {player.playerName}
             </div>
-            <div className="text-[10px] text-gray-700 font-condensed tracking-wide mt-0.5">
+            <div className="text-[12px] text-gray-500 font-condensed tracking-wide mt-0.5">
               {player.team} · {player.position}
             </div>
           </div>
@@ -192,14 +192,14 @@ export default function TrendFinder(
             <div className="text-[20px] font-black text-white font-mono tabular-nums leading-none">
               {player.rollingAvg.toFixed(1)}
             </div>
-            <div className="text-[10px] text-gray-700 font-condensed mt-0.5">
+            <div className="text-[12px] text-gray-500 font-condensed mt-0.5">
               avg {statLabel(player.stat)}
             </div>
           </div>
-          <Badge className={`flex-shrink-0 font-mono font-bold text-[11px] ${zBadgeClass(player.zScore)}`}>
+          <Badge className={`flex-shrink-0 font-mono font-bold text-[13px] ${zBadgeClass(player.zScore)}`}>
             {player.zScore > 0 ? '+' : ''}{player.zScore.toFixed(2)}σ
           </Badge>
-          <ChevronRight size={13} className="text-gray-800 group-hover:text-mint flex-shrink-0 transition-colors" />
+          <ChevronRight size={13} className="text-gray-500 group-hover:text-mint flex-shrink-0 transition-colors" />
         </button>
       ))}
     </div>

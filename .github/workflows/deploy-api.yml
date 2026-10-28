@@ -61,7 +61,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SPORTQUERY_DB_URL: ${{ secrets.SPORTQUERY_DB_URL }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
           UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
           UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
           API_SHARED_SECRET: ${{ secrets.API_SHARED_SECRET }}
@@ -93,7 +93,7 @@ jobs:
             SupabaseUrl="${{ secrets.SUPABASE_URL }}"
             SupabaseServiceRoleKey="${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}"
             SportqueryDbUrl="${{ secrets.SPORTQUERY_DB_URL }}"
-            GroqApiKey="${{ secrets.GROQ_API_KEY }}"
+            CerebrasApiKey="${{ secrets.CEREBRAS_API_KEY }}"
             UpstashRedisRestUrl="${{ secrets.UPSTASH_REDIS_REST_URL }}"
             UpstashRedisRestToken="${{ secrets.UPSTASH_REDIS_REST_TOKEN }}"
             ApiSharedSecret="${{ secrets.API_SHARED_SECRET }}"

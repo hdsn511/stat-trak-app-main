@@ -41,8 +41,8 @@ export default function ModuleCard({
         ) : (
           meta !== undefined && (
             <span
-              className={`ml-auto text-right font-martian text-[8px] tracking-[1px] ${
-                onPaper ? 'text-[#78716A]' : 'text-[#665F5D]'
+              className={`ml-auto text-right font-martian text-[10px] tracking-[1px] ${
+                onPaper ? 'text-[#78716A]' : 'text-[#A8A09C]'
               }`}
             >
               {meta}

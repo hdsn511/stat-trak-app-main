@@ -158,11 +158,11 @@ export default function GlobalSearch() {
         onKeyDown={onKeyDown}
         placeholder="search players, teams…"
         aria-label="Search players and teams"
-        className="w-full bg-[#171310] border border-[#2C2624] focus:border-[#FF6B3D] rounded-md pl-[26px] pr-[10px] py-[7px] font-martian text-[10px] text-[#EFEBE9] placeholder:text-[#584F4C] outline-none [&::-webkit-search-cancel-button]:appearance-none"
+        className="w-full bg-[#171310] border border-[#2C2624] focus:border-[#FF6B3D] rounded-md pl-[26px] pr-[10px] py-[7px] font-martian text-[12px] text-[#EFEBE9] placeholder:text-[#968E8A] outline-none [&::-webkit-search-cancel-button]:appearance-none"
       />
       <span
         aria-hidden
-        className="absolute left-[9px] top-1/2 -translate-y-1/2 font-martian font-bold text-[10px] text-[#FF6B3D] pointer-events-none"
+        className="absolute left-[9px] top-1/2 -translate-y-1/2 font-martian font-bold text-[12px] text-[#FF6B3D] pointer-events-none"
       >
         {'>'}
       </span>
@@ -170,19 +170,19 @@ export default function GlobalSearch() {
       {showPanel && (
         <div className="absolute top-[calc(100%+6px)] right-0 w-[320px] max-h-[420px] overflow-y-auto bg-[#171310] border border-[#2C2624] rounded-md shadow-[0_12px_32px_rgba(0,0,0,0.55)] z-50 animate-rise">
           {loading && hits.length === 0 && (
-            <div className="px-[14px] py-[14px] font-martian text-[9px] text-[#665F5D] tracking-[1px]">
+            <div className="px-[14px] py-[14px] font-martian text-[11px] text-[#A8A09C] tracking-[1px]">
               SEARCHING…
             </div>
           )}
 
           {error && (
-            <div className="px-[14px] py-[14px] font-martian text-[9px] text-[#FF6B5C] tracking-[1px]">
+            <div className="px-[14px] py-[14px] font-martian text-[11px] text-[#FF6B5C] tracking-[1px]">
               SEARCH FAILED — {error}
             </div>
           )}
 
           {!loading && !error && hits.length === 0 && (
-            <div className="px-[14px] py-[14px] font-martian text-[9px] text-[#665F5D] tracking-[1px]">
+            <div className="px-[14px] py-[14px] font-martian text-[11px] text-[#A8A09C] tracking-[1px]">
               NO MATCHES FOR “{trimmed}”
             </div>
           )}
@@ -192,7 +192,7 @@ export default function GlobalSearch() {
             if (group.length === 0) return null
             return (
               <div key={kind}>
-                <div className="px-[14px] pt-[10px] pb-[5px] font-martian text-[8px] text-[#665F5D] tracking-[1.5px]">
+                <div className="px-[14px] pt-[10px] pb-[5px] font-martian text-[10px] text-[#A8A09C] tracking-[1.5px]">
                   {kind === 'player' ? 'PLAYERS' : 'TEAMS'}
                 </div>
                 {group.map((hit) => {
@@ -214,17 +214,17 @@ export default function GlobalSearch() {
                     >
                       <LeaguePill league={hit.league.toUpperCase()} />
                       <div className="min-w-0 flex-1">
-                        <div className="font-schibsted font-bold text-[12px] text-[#EFEBE9] whitespace-nowrap overflow-hidden text-ellipsis">
+                        <div className="font-schibsted font-bold text-[14px] text-[#EFEBE9] whitespace-nowrap overflow-hidden text-ellipsis">
                           {hit.name}
                         </div>
-                        <div className="font-martian text-[8px] text-[#665F5D] mt-[2px] whitespace-nowrap overflow-hidden text-ellipsis">
+                        <div className="font-martian text-[10px] text-[#A8A09C] mt-[2px] whitespace-nowrap overflow-hidden text-ellipsis">
                           {hitSubtitle(hit)}
                         </div>
                       </div>
                       <span
                         aria-hidden
-                        className={`font-martian text-[10px] shrink-0 ${
-                          index === active ? 'text-[#FF6B3D]' : 'text-[#443E3B]'
+                        className={`font-martian text-[12px] shrink-0 ${
+                          index === active ? 'text-[#FF6B3D]' : 'text-[#8A827E]'
                         }`}
                       >
                         →

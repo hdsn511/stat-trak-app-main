@@ -161,6 +161,9 @@ RULES:
 - Use ILIKE for case-insensitive name matching.
 - Select p.id AS player_id alongside p.name so results can link to the player's page.
 - Don't filter CURRENT_DATE unless asked about today; for "latest"/"recent" use ORDER BY game_date DESC + LIMIT.
+- "Last night"/"yesterday"/"most recent games": the pipeline can lag a day, so don't hardcode a date.
+  Use game_date = (SELECT MAX(game_date) FROM <sport>_player_stats WHERE game_date < CURRENT_DATE)
+  and say which date it resolved to in the narrative.
 - Ambiguous player name (in one sport or across sports) → "disambiguation", "sql": null.
 - "Against team X" → prefer game_matchups.
 - "Without teammate X" → NOT EXISTS against that sport's *_player_stats with its played-gate

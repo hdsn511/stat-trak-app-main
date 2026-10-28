@@ -19,7 +19,7 @@ function DriverChip({ label }: { label: string }) {
   const style = DRIVER_STYLES[label] ?? 'bg-[#161616] text-gray-400 border-[#222]'
   return (
     <span
-      className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold font-condensed uppercase tracking-wider border ${style}`}
+      className={`inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-bold font-condensed uppercase tracking-wider border ${style}`}
     >
       {label}
     </span>
@@ -42,11 +42,11 @@ export default function TopTrending() {
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <TrendingUp size={13} className="text-mint" />
-          <h2 className="text-[10px] font-bold text-gray-500 uppercase tracking-[0.15em] font-condensed">
+          <h2 className="text-[12px] font-bold text-gray-400 uppercase tracking-[0.15em] font-condensed">
             Top Trending
           </h2>
         </div>
-        <span className="text-[9px] text-gray-700 font-condensed uppercase tracking-widest">
+        <span className="text-[11px] text-gray-500 font-condensed uppercase tracking-widest">
           Last 10 games
         </span>
       </div>
@@ -58,7 +58,7 @@ export default function TopTrending() {
       )}
 
       {!loading && players.length === 0 && (
-        <div className="px-4 py-8 text-center text-[11px] text-gray-700 font-condensed">
+        <div className="px-4 py-8 text-center text-[13px] text-gray-500 font-condensed">
           No trending players
         </div>
       )}
@@ -79,7 +79,7 @@ export default function TopTrending() {
               className="flex items-center gap-3 px-3 py-2.5 rounded-lg border border-transparent hover:border-[#1E1E1E] hover:bg-[#0F0F0F] transition-colors group min-h-[72px]"
             >
               {/* Rank */}
-              <span className="text-[11px] font-black text-gray-800 font-mono w-5 shrink-0 group-hover:text-mint transition-colors tabular-nums">
+              <span className="text-[13px] font-black text-gray-500 font-mono w-5 shrink-0 group-hover:text-mint transition-colors tabular-nums">
                 {i + 1}
               </span>
 
@@ -89,7 +89,7 @@ export default function TopTrending() {
                   <span className="text-[13px] font-semibold text-gray-300 group-hover:text-white transition-colors truncate leading-tight">
                     {player.playerName}
                   </span>
-                  <span className="text-[10px] text-gray-700 font-condensed tracking-wide shrink-0">
+                  <span className="text-[12px] text-gray-500 font-condensed tracking-wide shrink-0">
                     {player.team} · {statLabel}
                   </span>
                 </div>
@@ -97,15 +97,15 @@ export default function TopTrending() {
                 {/* Stat line: season avg → L10 as a prop-line pill */}
                 <div className="flex items-center gap-2 mt-1">
                   {season != null && (
-                    <span className="text-[10px] text-gray-600 font-mono tabular-nums">
+                    <span className="text-[12px] text-gray-400 font-mono tabular-nums">
                       {season.toFixed(1)} avg
                     </span>
                   )}
                   {season != null && (
-                    <span className="text-gray-800 text-[9px]">→</span>
+                    <span className="text-gray-500 text-[11px]">→</span>
                   )}
-                  <span className="inline-flex items-center px-1.5 py-0.5 rounded border border-mint/20 bg-mint/5 text-[11px] font-bold text-mint font-mono tabular-nums">
-                    {rolling.toFixed(1)}+ <span className="text-[9px] font-condensed text-mint/60 ml-1 uppercase tracking-wide">L10</span>
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded border border-mint/20 bg-mint/5 text-[13px] font-bold text-mint font-mono tabular-nums">
+                    {rolling.toFixed(1)}+ <span className="text-[11px] font-condensed text-mint/60 ml-1 uppercase tracking-wide">L10</span>
                   </span>
                 </div>
 
@@ -121,12 +121,12 @@ export default function TopTrending() {
               <div className="shrink-0 flex flex-col items-end">
                 <span
                   className={`text-[15px] font-black font-mono tabular-nums leading-none ${
-                    z > 0 ? 'text-mint' : 'text-gray-500'
+                    z > 0 ? 'text-mint' : 'text-gray-400'
                   }`}
                 >
                   {z > 0 ? '+' : ''}{z.toFixed(2)}
                 </span>
-                <span className="text-[8px] text-gray-700 font-condensed uppercase tracking-widest mt-0.5">
+                <span className="text-[10px] text-gray-500 font-condensed uppercase tracking-widest mt-0.5">
                   z-score
                 </span>
               </div>

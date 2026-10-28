@@ -49,8 +49,8 @@ SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
 # OpenAI (optional — only used for some SportQuery paths)
 OPENAI_API_KEY=sk-...
 
-# Groq (used by SportQuery main path)
-GROQ_API_KEY=gsk_...
+# Cerebras (used by SportQuery main path)
+CEREBRAS_API_KEY=csk-...
 
 # API-Sports
 API_SPORTS_KEY=...
@@ -296,7 +296,7 @@ Expect entries like `[cron:start] nightly`, `[cron:done] nightly (exit 0)`, and 
 | `/api/nba/trends/top` returns empty | `nba_trends` not populated. Run `npx tsx server/src/jobs/computeNBATrends.ts` manually. |
 | `daily_lines.entity_id` NULL for recent game-prop rows | `games` table missing rows for those dates. Run the catch-up loop in §4. Kalshi markets list ~7 days out; the 2:30am job back-fills this going forward. |
 | Picks pipeline returns "No candidates found" | Either no games on slate or all players filtered out by availability / min-minutes thresholds. Check `player_availability` hasn't marked the whole slate Out by mistake. |
-| SportQuery returns "unknown SQL error" | The Groq model may be returning malformed JSON. Check `GROQ_API_KEY` is valid and the model ID in `server/src/config/groq.ts` is not retired. |
+| SportQuery returns "unknown SQL error" | The Cerebras model may be returning malformed JSON. Check `CEREBRAS_API_KEY` is valid and the model ID in `server/src/config/cerebras.ts` is not retired. |
 | SportQuery "Tenant or user not found" | `DATABASE_URL` user must be `<user>.<project-ref>`, not bare `<user>`. |
 
 ---

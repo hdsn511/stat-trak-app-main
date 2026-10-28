@@ -104,7 +104,7 @@ const NBA: LeagueConfig = {
   regularSeasonType: 'regular',
   seasonStartMonth: 10,
   playerGameSelect:
-    'game_id, team_id, points, rebounds, assists, three_points_made, fouls, minutes_played, game_date, games!inner(game_type)',
+    'game_id, team_id, points, rebounds, assists, three_points_made, fouls, minutes_played, game_date, games!inner(game_type, season)',
   boxScore: {
     select: 'points, rebounds, assists, three_points_made, fouls, minutes_played',
     groups: [
@@ -156,7 +156,7 @@ const MLB: LeagueConfig = {
   regularSeasonType: 'regular',
   seasonStartMonth: 1,
   playerGameSelect:
-    'game_id, team_id, hits, total_bases, rbi, runs, home_runs, strikeouts, plate_appearances, game_date, games!inner(game_type)',
+    'game_id, team_id, hits, total_bases, rbi, runs, home_runs, strikeouts, plate_appearances, game_date, games!inner(game_type, season)',
   boxScore: {
     select:
       'at_bats, hits, doubles, triples, home_runs, rbi, runs, walks, strikeouts, stolen_bases, ' +
@@ -229,7 +229,7 @@ const NHL: LeagueConfig = {
     blk:  { col: 'blocks',        statId: 4 },
     hits: { col: 'hits',          statId: 5 },
   },
-  streakStats: [],
+  streakStats: ['p', 'sog'],
   streakStartDate: '2025-10-01',
   streakGateTierIndex: 0,
   playedGate: { col: 'toi_seconds', min: 0 },
@@ -241,7 +241,7 @@ const NHL: LeagueConfig = {
   playerGameSelect:
     'game_id, team_id, game_date, position_type, goals, assists, points, shots_on_goal, ' +
     'blocks, hits, plus_minus, pim, takeaways, giveaways, toi_seconds, pp_toi_seconds, ' +
-    'saves, shots_against, goals_against, save_pct, goalie_toi_seconds, games!inner(game_type)',
+    'saves, shots_against, goals_against, save_pct, goalie_toi_seconds, games!inner(game_type, season)',
   boxScore: {
     select:
       'position_type, goals, assists, points, shots_on_goal, blocks, hits, plus_minus, pim, ' +
@@ -318,7 +318,7 @@ const NFL: LeagueConfig = {
     rectd:  { col: 'receiving_tds',   statId: 6 },
     tkl:    { col: 'tackles_total',   statId: 7 },
   },
-  streakStats: [],
+  streakStats: ['recyds', 'rec', 'ruyds'],
   streakStartDate: '2025-09-01',
   streakGateTierIndex: 0,
   playedGate: null,
@@ -329,7 +329,7 @@ const NFL: LeagueConfig = {
     'game_id, team_id, game_date, completions, attempts, passing_yards, passing_tds, ' +
     'interceptions, carries, rushing_yards, rushing_tds, receptions, targets, ' +
     'receiving_yards, receiving_tds, fumbles_lost, tackles_total, sacks, ' +
-    'fg_made, fg_att, games!inner(game_type)',
+    'fg_made, fg_att, games!inner(game_type, season)',
   boxScore: {
     select:
       'completions, attempts, passing_yards, passing_tds, interceptions, carries, ' +

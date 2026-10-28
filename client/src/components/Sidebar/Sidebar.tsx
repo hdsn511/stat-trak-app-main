@@ -28,7 +28,7 @@ export default function Sidebar({ api = nbaApi }: { api?: LeagueApi }) {
       <div className="p-3.5">
         <div className="flex items-center gap-2 mb-4 pb-3 border-b border-[#141414]">
           <Calendar size={12} className="text-mint" />
-          <span className="text-[10px] font-bold text-gray-500 uppercase tracking-[0.15em] font-condensed">Today's Games</span>
+          <span className="text-[12px] font-bold text-gray-400 uppercase tracking-[0.15em] font-condensed">Today's Games</span>
         </div>
 
         {loading && (
@@ -40,7 +40,7 @@ export default function Sidebar({ api = nbaApi }: { api?: LeagueApi }) {
         )}
 
         {!loading && games.length === 0 && (
-          <p className="text-[11px] text-gray-700 text-center py-8 font-condensed">No games today</p>
+          <p className="text-[13px] text-gray-500 text-center py-8 font-condensed">No games today</p>
         )}
 
         {!loading && games.map(game => {
@@ -60,18 +60,18 @@ export default function Sidebar({ api = nbaApi }: { api?: LeagueApi }) {
                   {live && (
                     <span className="w-1.5 h-1.5 rounded-full bg-mint animate-pulse-live flex-shrink-0" />
                   )}
-                  <span className={`text-[10px] font-bold font-condensed tracking-widest uppercase ${live ? 'text-mint' : 'text-gray-700'}`}>
+                  <span className={`text-[12px] font-bold font-condensed tracking-widest uppercase ${live ? 'text-mint' : 'text-gray-500'}`}>
                     {game.status}
                   </span>
                 </div>
 
                 {/* Away */}
                 <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-[12px] font-semibold text-gray-300 font-condensed tracking-wide leading-none">
+                  <span className="text-[14px] font-semibold text-gray-300 font-condensed tracking-wide leading-none">
                     {game.away.team}
                   </span>
                   {game.away.score != null && (
-                    <span className={`text-[13px] font-black font-mono tabular-nums leading-none ${live ? 'text-white' : 'text-gray-500'}`}>
+                    <span className={`text-[13px] font-black font-mono tabular-nums leading-none ${live ? 'text-white' : 'text-gray-400'}`}>
                       {game.away.score}
                     </span>
                   )}
@@ -80,17 +80,17 @@ export default function Sidebar({ api = nbaApi }: { api?: LeagueApi }) {
                 {/* VS divider */}
                 <div className="flex items-center gap-2 my-1.5">
                   <div className="flex-1 h-px bg-[#1A1A1A]" />
-                  <span className="text-[9px] text-gray-800 font-condensed font-bold">VS</span>
+                  <span className="text-[11px] text-gray-500 font-condensed font-bold">VS</span>
                   <div className="flex-1 h-px bg-[#1A1A1A]" />
                 </div>
 
                 {/* Home */}
                 <div className="flex items-center justify-between mt-1.5">
-                  <span className="text-[12px] font-semibold text-gray-300 font-condensed tracking-wide leading-none">
+                  <span className="text-[14px] font-semibold text-gray-300 font-condensed tracking-wide leading-none">
                     {game.home.team}
                   </span>
                   {game.home.score != null && (
-                    <span className={`text-[13px] font-black font-mono tabular-nums leading-none ${live ? 'text-white' : 'text-gray-500'}`}>
+                    <span className={`text-[13px] font-black font-mono tabular-nums leading-none ${live ? 'text-white' : 'text-gray-400'}`}>
                       {game.home.score}
                     </span>
                   )}

@@ -1,9 +1,9 @@
 import {
-  groq,
+  llm,
   SPORTQUERY_MODEL,
   SQL_TEMPERATURE,
   MAX_OUTPUT_TOKENS,
-} from '../config/groq'
+} from '../config/cerebras'
 import { SPORTQUERY_SYSTEM_PROMPT } from '../prompts/sportquery-system'
 import { FEW_SHOT_EXAMPLES } from '../prompts/sportquery-examples'
 
@@ -61,14 +61,18 @@ export function parseEnvelope(raw: string): EnvelopeParseResult {
   return { ok: true, envelope: env }
 }
 
-export type HistoryEntry = { role: 'user' | 'assistant'; content: string }
+function todayET(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date())
+}
+
+export type HistoryEntry ={ role: 'user' | 'assistant'; content: string }
 
 export async function callLLM(
   history: HistoryEntry[],
   userMessage: string
 ): Promise<Envelope> {
   const messages: { role: 'system' | 'user' | 'assistant'; content: string }[] =
-    [{ role: 'system', content: SPORTQUERY_SYSTEM_PROMPT }]
+    [{ role: 'system', content: `${SPORTQUERY_SYSTEM_PROMPT}\n\nTODAY (US Eastern): ${todayET()}. Resolve "today"/"yesterday"/"last night" against this date.` }]
 
   for (const ex of FEW_SHOT_EXAMPLES) {
     messages.push({ role: 'user', content: ex.user })
@@ -81,7 +85,7 @@ export async function callLLM(
 
   messages.push({ role: 'user', content: userMessage })
 
-  const completion = await groq.chat.completions.create({
+  const completion = await llm.chat.completions.create({
     model: SPORTQUERY_MODEL,
     temperature: SQL_TEMPERATURE,
     max_tokens: MAX_OUTPUT_TOKENS,
@@ -98,7 +102,7 @@ export async function callLLM(
       content:
         'Your previous output was not valid JSON matching the required envelope. Respond with exactly one JSON object: {"sql": string|null, "narrative": string}. No code fences.',
     })
-    const retry = await groq.chat.completions.create({
+    const retry = await llm.chat.completions.create({
       model: SPORTQUERY_MODEL,
       temperature: SQL_TEMPERATURE,
       max_tokens: MAX_OUTPUT_TOKENS,

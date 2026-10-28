@@ -17,8 +17,8 @@ const KIND_COLOR: Record<SignalKind, string> = {
   rising: 'text-[#FF6B3D] border-[#FF6B3D]/40',
   streak: 'text-[#E9B949] border-[#E9B949]/40',
   live: 'text-[#3FBF7F] border-[#3FBF7F]/40',
-  final: 'text-[#9A918F] border-[#3A3330]',
-  next: 'text-[#9A918F] border-[#3A3330]',
+  final: 'text-[#C9C2BE] border-[#3A3330]',
+  next: 'text-[#C9C2BE] border-[#3A3330]',
 }
 
 interface LeagueSignalsProps {
@@ -41,10 +41,10 @@ function LeagueLane({ lane }: { lane: LeagueSignalsData }) {
       title={`${lane.label} SIGNALS`}
       headerRight={
         <div className="flex items-center gap-3">
-          <span className="font-martian text-[8px] text-[#665F5D] tracking-[1px]">{meta}</span>
+          <span className="font-martian text-[10px] text-[#A8A09C] tracking-[1px]">{meta}</span>
           <Link
             to={`/${lane.league}`}
-            className="font-martian text-[8px] text-[#9A918F] hover:text-[#FF6B3D] tracking-[1px]"
+            className="font-martian text-[10px] text-[#C9C2BE] hover:text-[#FF6B3D] tracking-[1px]"
           >
             {`${lane.label} →`}
           </Link>
@@ -52,7 +52,7 @@ function LeagueLane({ lane }: { lane: LeagueSignalsData }) {
       }
     >
       {lane.signals.length === 0 && (
-        <div className="px-[18px] py-6 font-martian text-[9px] text-[#665F5D] tracking-[1px]">
+        <div className="px-[18px] py-6 font-martian text-[11px] text-[#A8A09C] tracking-[1px]">
           NO SIGNALS YET — DATA ARRIVES AFTER THE NEXT SLATE
         </div>
       )}
@@ -66,7 +66,7 @@ function LeagueLane({ lane }: { lane: LeagueSignalsData }) {
             <div className="font-chakra italic font-bold text-[26px] leading-none text-[#EFEBE9] whitespace-nowrap">
               {s.stat}
             </div>
-            <div className="font-martian text-[8px] text-[#665F5D] tracking-[0.5px] mt-[6px] whitespace-nowrap overflow-hidden text-ellipsis">
+            <div className="font-martian text-[10px] text-[#A8A09C] tracking-[0.5px] mt-[6px] whitespace-nowrap overflow-hidden text-ellipsis">
               {s.statLabel}
             </div>
           </div>
@@ -74,12 +74,12 @@ function LeagueLane({ lane }: { lane: LeagueSignalsData }) {
             <div className="font-schibsted font-bold text-[14px] text-[#EFEBE9] whitespace-nowrap overflow-hidden text-ellipsis">
               {s.name}
             </div>
-            <div className="font-schibsted text-[11.5px] text-[#9A918F] mt-[4px] whitespace-nowrap overflow-hidden text-ellipsis">
+            <div className="font-schibsted text-[13px] text-[#C9C2BE] mt-[4px] whitespace-nowrap overflow-hidden text-ellipsis">
               {s.context}
             </div>
           </div>
           <span
-            className={`font-martian font-bold text-[8px] tracking-[1px] border rounded px-[7px] py-[3px] ${KIND_COLOR[s.kind]}`}
+            className={`font-martian font-bold text-[10px] tracking-[1px] border rounded px-[7px] py-[3px] ${KIND_COLOR[s.kind]}`}
           >
             {KIND_LABEL[s.kind]}
           </span>
@@ -93,7 +93,7 @@ export default function LeagueSignals({ lanes, offSeason = [], loading = false }
   if (lanes.length === 0) {
     return (
       <section>
-        <div className="font-martian text-[9px] text-[#665F5D] tracking-[1.5px]">
+        <div className="font-martian text-[11px] text-[#A8A09C] tracking-[1.5px]">
           {loading ? 'LOADING SIGNALS…' : 'NO LEAGUES IN SEASON RIGHT NOW'}
         </div>
       </section>
@@ -107,11 +107,11 @@ export default function LeagueSignals({ lanes, offSeason = [], loading = false }
           <span className="text-[#FF6B3D]">{'// '}</span>
           STAT SIGNALS
         </span>
-        <span className="font-martian text-[9px] text-[#665F5D] tracking-[1.5px] uppercase">
+        <span className="font-martian text-[11px] text-[#A8A09C] tracking-[1.5px] uppercase">
           IN SEASON NOW
         </span>
         {offSeason.length > 0 && (
-          <span className="ml-auto flex items-center gap-2 font-martian text-[8px] text-[#4A403C] tracking-[1px]">
+          <span className="ml-auto flex items-center gap-2 font-martian text-[10px] text-[#8A827E] tracking-[1px]">
             OFF-SEASON
             {offSeason.map((l) => (
               <LeaguePill key={l} league={l} />

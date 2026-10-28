@@ -28,7 +28,7 @@ function GenericTable({ rows, expanded }: { rows: ResultRow[]; expanded: boolean
             {columns.map((c) => (
               <th
                 key={c}
-                className="text-left font-martian text-[8px] text-[#665F5D] tracking-[1px] px-[14px] py-[9px] whitespace-nowrap"
+                className="text-left font-martian text-[10px] text-[#A8A09C] tracking-[1px] px-[14px] py-[9px] whitespace-nowrap"
               >
                 {humanizeKey(c)}
               </th>
@@ -41,7 +41,7 @@ function GenericTable({ rows, expanded }: { rows: ResultRow[]; expanded: boolean
               {columns.map((c) => (
                 <td
                   key={c}
-                  className="font-martian text-[11px] text-[#D8D2CE] px-[14px] py-[8px] whitespace-nowrap tabular-nums"
+                  className="font-martian text-[13px] text-[#D8D2CE] px-[14px] py-[8px] whitespace-nowrap tabular-nums"
                 >
                   {formatCell(row[c])}
                 </td>
@@ -78,7 +78,7 @@ export default function ResultCards({
     <button
       type="button"
       onClick={() => setExpanded((v) => !v)}
-      className="text-left font-martian font-bold text-[9px] text-[#FF6B3D] tracking-[1px] px-1 py-1 hover:text-[#FFD9C9] cursor-pointer"
+      className="text-left font-martian font-bold text-[11px] text-[#FF6B3D] tracking-[1px] px-1 py-1 hover:text-[#FFD9C9] cursor-pointer"
     >
       {expanded ? `// SHOW TOP ${MAX_CARDS} ↑` : `// SHOW ALL ${rows.length} ROWS ↓`}
     </button>
@@ -106,14 +106,14 @@ export default function ResultCards({
 
         const body = (
           <>
-            <span className="font-martian font-bold text-[14px] text-[#665F5D]">
+            <span className="font-martian font-bold text-[14px] text-[#A8A09C]">
               {String(i + 1).padStart(2, '0')}
             </span>
             <div className="min-w-0">
               <div className="font-schibsted font-bold text-[14px] text-[#EFEBE9] whitespace-nowrap overflow-hidden text-ellipsis">
                 {label}
               </div>
-              <div className="font-martian text-[9px] text-[#9A918F] mt-[3px] whitespace-nowrap overflow-hidden text-ellipsis">
+              <div className="font-martian text-[11px] text-[#C9C2BE] mt-[3px] whitespace-nowrap overflow-hidden text-ellipsis">
                 {[meta.team, meta.secondary].filter(Boolean).join(' · ') || '—'}
               </div>
             </div>
@@ -126,12 +126,12 @@ export default function ResultCards({
                   : '—'}
               </div>
               {meta.valueLabel && (
-                <div className="font-martian text-[8px] text-[#665F5D] tracking-[0.5px] mt-[2px]">
+                <div className="font-martian text-[10px] text-[#A8A09C] tracking-[0.5px] mt-[2px]">
                   {meta.valueLabel}
                 </div>
               )}
             </div>
-            <span className="font-martian font-bold text-[12px] text-[#665F5D]">
+            <span className="font-martian font-bold text-[14px] text-[#A8A09C]">
               {canOpen ? '→' : ''}
             </span>
           </>

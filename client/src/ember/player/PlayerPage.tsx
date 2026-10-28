@@ -26,7 +26,7 @@ function PlayerPageInner({ slug, id }: { slug: LeagueSlug; id: number }) {
   if (loading) {
     return (
       <Centered>
-        <span className="font-martian text-[10px] text-[#665F5D] tracking-[1px]">
+        <span className="font-martian text-[12px] text-[#A8A09C] tracking-[1px]">
           LOADING PLAYER…
         </span>
       </Centered>
@@ -36,13 +36,13 @@ function PlayerPageInner({ slug, id }: { slug: LeagueSlug; id: number }) {
   if (error || !data) {
     return (
       <Centered>
-        <div className="font-martian text-[10px] text-[#FF6B5C] tracking-[1px]">
+        <div className="font-martian text-[12px] text-[#FF6B5C] tracking-[1px]">
           {`COULD NOT LOAD PLAYER — ${error ?? 'no data'}`}
         </div>
         <button
           type="button"
           onClick={reload}
-          className="font-martian text-[9px] text-[#9A918F] hover:text-[#EFEBE9] border border-[#2C2624] hover:border-[#665F5D] rounded-md px-[14px] py-[7px] mt-4 cursor-pointer"
+          className="font-martian text-[11px] text-[#C9C2BE] hover:text-[#EFEBE9] border border-[#2C2624] hover:border-[#665F5D] rounded-md px-[14px] py-[7px] mt-4 cursor-pointer"
         >
           RETRY
         </button>

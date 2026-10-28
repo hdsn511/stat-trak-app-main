@@ -17,8 +17,8 @@ function Card({ label, value, active }: { label: string; value: string; active: 
       }`}
     >
       <div
-        className={`font-martian text-[8px] tracking-[1px] ${
-          active ? 'text-[#504A44]' : 'text-[#665F5D]'
+        className={`font-martian text-[10px] tracking-[1px] ${
+          active ? 'text-[#504A44]' : 'text-[#A8A09C]'
         }`}
       >
         {label}

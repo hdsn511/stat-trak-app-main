@@ -44,14 +44,14 @@ function RecordBadge({
   pending: number;
 }) {
   return (
-    <div className="flex items-center gap-1.5 font-mono tabular-nums text-[12px]">
+    <div className="flex items-center gap-1.5 font-mono tabular-nums text-[14px]">
       <span className="text-over font-bold">{hits}W</span>
-      <span className="text-gray-700">-</span>
+      <span className="text-gray-500">-</span>
       <span className="text-under font-bold">{misses}L</span>
       {pending > 0 && (
         <>
-          <span className="text-gray-700">-</span>
-          <span className="text-gray-500">{pending}P</span>
+          <span className="text-gray-500">-</span>
+          <span className="text-gray-400">{pending}P</span>
         </>
       )}
     </div>
@@ -62,7 +62,7 @@ function SegmentCard({ label, stats }: { label: string; stats: SegmentStats }) {
   return (
     <div className="flex flex-col gap-1 px-4 py-3 border-b border-[#0F0F0F] last:border-0">
       <div className="flex items-center justify-between">
-        <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider font-condensed">
+        <span className="text-[12px] font-bold text-gray-400 uppercase tracking-wider font-condensed">
           {label}
         </span>
         <span
@@ -82,7 +82,7 @@ function SegmentCard({ label, stats }: { label: string; stats: SegmentStats }) {
           misses={stats.misses}
           pending={stats.pending}
         />
-        <span className="text-[10px] text-gray-700 font-condensed">
+        <span className="text-[12px] text-gray-500 font-condensed">
           {stats.total} picks
         </span>
       </div>
@@ -96,19 +96,19 @@ function BucketCard({ b }: { b: BucketStats }) {
   return (
     <div className="flex flex-col gap-2 p-4 border border-[#161616] rounded-xl bg-[#0A0A0A]">
       <div className="flex items-center justify-between">
-        <span className="text-[10px] font-bold text-gray-600 uppercase tracking-wider font-condensed">
+        <span className="text-[12px] font-bold text-gray-400 uppercase tracking-wider font-condensed">
           {b.label}
         </span>
         <span
           className={cn(
-            "text-[11px] font-bold font-condensed uppercase tracking-wide border px-1.5 py-0.5 rounded",
+            "text-[13px] font-bold font-condensed uppercase tracking-wide border px-1.5 py-0.5 rounded",
             !hasData
-              ? "text-gray-700 border-[#222] bg-[#111]"
+              ? "text-gray-500 border-[#222] bg-[#111]"
               : edge != null && edge >= 0.05
                 ? "text-over border-over/20 bg-over/5"
                 : edge != null && edge <= -0.05
                   ? "text-under border-under/20 bg-under/5"
-                  : "text-gray-500 border-[#222] bg-[#111]",
+                  : "text-gray-400 border-[#222] bg-[#111]",
           )}
         >
           {hasData ? fmtEdge(edge) : "—"} edge
@@ -118,14 +118,14 @@ function BucketCard({ b }: { b: BucketStats }) {
       <div className="text-[22px] font-black font-mono tabular-nums leading-none text-white">
         {hasData ? fmtPct(b.hitRate) : "—"}
       </div>
-      <div className="text-[9px] text-gray-700 font-condensed">
+      <div className="text-[11px] text-gray-500 font-condensed">
         expected {fmtPct(b.expectedRate)}
       </div>
 
       <div className="h-px bg-[#161616] my-1" />
 
       <RecordBadge hits={b.hits} misses={b.misses} pending={b.pending} />
-      <div className="text-[9px] text-gray-700 font-condensed">
+      <div className="text-[11px] text-gray-500 font-condensed">
         {b.total} picks total
       </div>
     </div>
@@ -134,11 +134,11 @@ function BucketCard({ b }: { b: BucketStats }) {
 
 function OutcomeIcon({ didHit }: { didHit: boolean | null }) {
   if (didHit === null)
-    return <span className="text-[10px] text-gray-600 font-mono">PEND</span>;
+    return <span className="text-[12px] text-gray-400 font-mono">PEND</span>;
   return didHit ? (
-    <span className="text-[11px] font-bold text-over">W</span>
+    <span className="text-[13px] font-bold text-over">W</span>
   ) : (
-    <span className="text-[11px] font-bold text-under">L</span>
+    <span className="text-[13px] font-bold text-under">L</span>
   );
 }
 
@@ -148,12 +148,12 @@ function PickHistoryRow({ pick }: { pick: PickOutcome }) {
     isPlayer && pick.player_id ? (
       <Link
         to={`/player/${pick.player_id}`}
-        className="text-[12px] font-semibold text-white hover:text-mint transition-colors font-condensed truncate"
+        className="text-[14px] font-semibold text-white hover:text-mint transition-colors font-condensed truncate"
       >
         {pick.player_name ?? "—"}
       </Link>
     ) : (
-      <span className="text-[12px] font-semibold text-white font-condensed truncate">
+      <span className="text-[14px] font-semibold text-white font-condensed truncate">
         {pick.player_name ?? "—"}
       </span>
     );
@@ -162,13 +162,13 @@ function PickHistoryRow({ pick }: { pick: PickOutcome }) {
     <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-3 px-4 py-2.5 border-b border-[#0A0A0A] last:border-0 hover:bg-white/[0.01] items-center">
       <div className="min-w-0">
         {nameEl}
-        <div className="text-[10px] text-gray-600 font-condensed">
+        <div className="text-[12px] text-gray-400 font-condensed">
           {pick.game_date}
           {pick.stat_label && ` · ${pick.stat_label}`}
           {pick.team && ` · ${pick.team}`}
         </div>
       </div>
-      <span className="text-[11px] font-mono text-gray-400 tabular-nums">
+      <span className="text-[13px] font-mono text-gray-400 tabular-nums">
         {pick.line != null
           ? pick.prop_type === "player"
             ? `${pick.line}+`
@@ -177,20 +177,20 @@ function PickHistoryRow({ pick }: { pick: PickOutcome }) {
               : `${pick.line}`
           : "—"}
       </span>
-      <span className="text-[11px] font-mono text-gray-600 tabular-nums">
+      <span className="text-[13px] font-mono text-gray-400 tabular-nums">
         {pick.implied_prob != null
           ? `${Math.round(pick.implied_prob * 100)}%`
           : "—"}
       </span>
       <span
         className={cn(
-          "text-[11px] font-mono tabular-nums font-bold",
-          pick.edge != null && pick.edge >= 0.1 ? "text-mint" : "text-gray-500",
+          "text-[13px] font-mono tabular-nums font-bold",
+          pick.edge != null && pick.edge >= 0.1 ? "text-mint" : "text-gray-400",
         )}
       >
         {pick.edge != null ? fmtEdge(pick.edge) : "—"}
       </span>
-      <span className="text-[10px] font-mono text-gray-600 tabular-nums">
+      <span className="text-[12px] font-mono text-gray-400 tabular-nums">
         {pick.actual_result != null ? pick.actual_result : "—"}
       </span>
       <OutcomeIcon didHit={pick.did_hit} />
@@ -285,15 +285,15 @@ export default function Performance() {
                 key={l.slug}
                 onClick={() => setLeague(l.slug)}
                 className={cn(
-                  "relative px-4 py-1.5 rounded-lg text-[11px] font-bold font-condensed tracking-widest uppercase transition-colors",
+                  "relative px-4 py-1.5 rounded-lg text-[13px] font-bold font-condensed tracking-widest uppercase transition-colors",
                   isActive
                     ? "bg-mint text-black"
-                    : "bg-[#141414] text-gray-500 hover:text-white border border-[#222]",
+                    : "bg-[#141414] text-gray-400 hover:text-white border border-[#222]",
                 )}
               >
                 {l.label}
                 {!l.available && (
-                  <span className="ml-1.5 text-[8px] text-gray-600 tracking-normal align-top">
+                  <span className="ml-1.5 text-[10px] text-gray-400 tracking-normal align-top">
                     soon
                   </span>
                 )}
@@ -310,17 +310,17 @@ export default function Performance() {
         <div className="flex items-center justify-between">
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-[11px] font-bold text-gray-500 uppercase tracking-[0.2em] font-condensed">
+              <h1 className="text-[13px] font-bold text-gray-400 uppercase tracking-[0.2em] font-condensed">
                 Performance
               </h1>
               {days === 1 && (
-                <span className="flex items-center gap-1 text-[9px] text-over font-condensed uppercase tracking-wide">
+                <span className="flex items-center gap-1 text-[11px] text-over font-condensed uppercase tracking-wide">
                   <span className="w-1.5 h-1.5 rounded-full bg-over animate-pulse-live" />
                   live
                 </span>
               )}
             </div>
-            <p className="text-[10px] text-gray-700 font-condensed mt-0.5">
+            <p className="text-[12px] text-gray-500 font-condensed mt-0.5">
               {lastUpdated
                 ? `updated ${lastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
                 : data
@@ -334,10 +334,10 @@ export default function Performance() {
                 key={opt.days}
                 onClick={() => setDays(opt.days)}
                 className={cn(
-                  "px-3 py-1.5 rounded-lg text-[11px] font-bold font-condensed transition-colors",
+                  "px-3 py-1.5 rounded-lg text-[13px] font-bold font-condensed transition-colors",
                   days === opt.days
                     ? "bg-mint text-black"
-                    : "bg-[#141414] text-gray-600 hover:text-white border border-[#222]",
+                    : "bg-[#141414] text-gray-400 hover:text-white border border-[#222]",
                 )}
               >
                 {opt.label}
@@ -355,7 +355,7 @@ export default function Performance() {
         )}
 
         {error && (
-          <div className="bg-[#0D0D0D] border border-[#161616] rounded-2xl px-4 py-8 text-center text-[11px] text-gray-700 font-condensed">
+          <div className="bg-[#0D0D0D] border border-[#161616] rounded-2xl px-4 py-8 text-center text-[13px] text-gray-500 font-condensed">
             {error}
           </div>
         )}
@@ -394,13 +394,13 @@ export default function Performance() {
                     key={item.label}
                     className="flex flex-col gap-1 px-4 py-4"
                   >
-                    <span className="text-[9px] font-bold text-gray-700 uppercase tracking-widest font-condensed">
+                    <span className="text-[11px] font-bold text-gray-500 uppercase tracking-widest font-condensed">
                       {item.label}
                     </span>
                     <span className="text-[20px] font-black text-white font-mono tabular-nums leading-none">
                       {item.value}
                     </span>
-                    <span className="text-[10px] text-gray-700 font-condensed">
+                    <span className="text-[12px] text-gray-500 font-condensed">
                       {item.sub}
                     </span>
                   </div>
@@ -497,14 +497,14 @@ export default function Performance() {
                           key={sf.key}
                           onClick={() => setStreakStatFilter(sf.key)}
                           className={cn(
-                            "flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-bold font-condensed uppercase tracking-wide transition-colors",
+                            "flex items-center gap-1 px-2.5 py-1 rounded-md text-[12px] font-bold font-condensed uppercase tracking-wide transition-colors",
                             isActive
                               ? "bg-[#1a1a1a] text-white border border-[#2a2a2a]"
-                              : "text-gray-600 hover:text-gray-400",
+                              : "text-gray-400 hover:text-gray-400",
                           )}
                         >
                           {sf.label}
-                          <span className="text-[9px] font-mono text-gray-700">{count}</span>
+                          <span className="text-[11px] font-mono text-gray-500">{count}</span>
                         </button>
                       );
                     })}
@@ -526,19 +526,19 @@ export default function Performance() {
                           key={f.key}
                           onClick={() => setActive(f.key)}
                           className={cn(
-                            "flex items-center gap-1.5 px-4 py-2.5 text-[10px] font-bold font-condensed uppercase tracking-wide relative transition-colors",
-                            isActive ? "text-white" : "text-gray-600 hover:text-gray-400",
+                            "flex items-center gap-1.5 px-4 py-2.5 text-[12px] font-bold font-condensed uppercase tracking-wide relative transition-colors",
+                            isActive ? "text-white" : "text-gray-400 hover:text-gray-400",
                           )}
                         >
                           <span className={cn(
                             f.key === "hit" ? "text-over" : "",
                             f.key === "miss" ? "text-under" : "",
-                            f.key === "pending" ? "text-gray-500" : "",
+                            f.key === "pending" ? "text-gray-400" : "",
                             !isActive && "opacity-60",
                           )}>
                             {f.label}
                           </span>
-                          <span className="text-gray-700 text-[9px] font-mono">
+                          <span className="text-gray-500 text-[11px] font-mono">
                             {countByFilter(rows, f.key)}
                           </span>
                           {isActive && (
@@ -557,7 +557,7 @@ export default function Performance() {
               function renderPicksTable() {
                 if (filteredPicks.length === 0) {
                   return (
-                    <div className="px-4 py-8 text-center text-[11px] text-gray-700 font-condensed">
+                    <div className="px-4 py-8 text-center text-[13px] text-gray-500 font-condensed">
                       No picks in this period
                     </div>
                   );
@@ -566,7 +566,7 @@ export default function Performance() {
                   <>
                     <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-3 px-4 py-2 border-b border-[#111]">
                       {["Player / Prop", "Line", "Mkt", "Edge", "Result", ""].map((h) => (
-                        <span key={h} className="text-[9px] font-bold text-gray-700 uppercase tracking-wider font-condensed">
+                        <span key={h} className="text-[11px] font-bold text-gray-500 uppercase tracking-wider font-condensed">
                           {h}
                         </span>
                       ))}
@@ -584,7 +584,7 @@ export default function Performance() {
                 : outcomeFilteredStreaks.filter(r => r.stat === streakStatFilter);
 
               function tierColor(hit: boolean | null): string {
-                if (hit === null) return "text-gray-600";
+                if (hit === null) return "text-gray-400";
                 return hit ? "text-over" : "text-under";
               }
 
@@ -600,14 +600,14 @@ export default function Performance() {
                 }
                 if (streakError) {
                   return (
-                    <div className="px-4 py-8 text-center text-[11px] text-gray-700 font-condensed">
+                    <div className="px-4 py-8 text-center text-[13px] text-gray-500 font-condensed">
                       {streakError}
                     </div>
                   );
                 }
                 if (filteredStreaks.length === 0) {
                   return (
-                    <div className="px-4 py-8 text-center text-[11px] text-gray-700 font-condensed">
+                    <div className="px-4 py-8 text-center text-[13px] text-gray-500 font-condensed">
                       No streaks in this period
                     </div>
                   );
@@ -616,17 +616,17 @@ export default function Performance() {
                   <>
                     {/* Column headers — match StreaksCard layout */}
                     <div className="flex items-center px-4 py-2 border-b border-[#111]">
-                      <div className="flex-1 min-w-0 text-[9px] font-bold text-gray-700 font-condensed uppercase tracking-widest">
+                      <div className="flex-1 min-w-0 text-[11px] font-bold text-gray-500 font-condensed uppercase tracking-widest">
                         Player / Stat
                       </div>
                       <div className="flex flex-shrink-0 ml-3">
                         {["100%", "90%", "80%", "70%"].map((label) => (
-                          <span key={label} className={cn("text-[9px] font-bold text-gray-700 font-condensed uppercase tracking-widest text-right", COL_W)}>
+                          <span key={label} className={cn("text-[11px] font-bold text-gray-500 font-condensed uppercase tracking-widest text-right", COL_W)}>
                             {label}
                           </span>
                         ))}
                       </div>
-                      <div className="ml-4 w-16 text-right text-[9px] font-bold text-gray-700 font-condensed uppercase tracking-widest">
+                      <div className="ml-4 w-16 text-right text-[11px] font-bold text-gray-500 font-condensed uppercase tracking-widest">
                         Result
                       </div>
                     </div>
@@ -640,14 +640,14 @@ export default function Performance() {
                         {/* Left: player name + stat badge + team + date */}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5 min-w-0">
-                            <span className="text-[12px] font-semibold text-white font-condensed truncate group-hover:text-mint transition-colors">
+                            <span className="text-[14px] font-semibold text-white font-condensed truncate group-hover:text-mint transition-colors">
                               {row.player_name ?? "—"}
                             </span>
-                            <span className="flex-shrink-0 text-[8px] font-bold font-condensed uppercase tracking-wide px-1 py-0.5 rounded bg-[#1a1a1a] text-gray-500 border border-[#252525]">
+                            <span className="flex-shrink-0 text-[10px] font-bold font-condensed uppercase tracking-wide px-1 py-0.5 rounded bg-[#1a1a1a] text-gray-400 border border-[#252525]">
                               {row.stat_label}
                             </span>
                           </div>
-                          <div className="text-[10px] text-gray-600 font-condensed mt-0.5">
+                          <div className="text-[12px] text-gray-400 font-condensed mt-0.5">
                             {row.team} · {row.game_date}
                           </div>
                         </div>
@@ -676,21 +676,21 @@ export default function Performance() {
                         {/* Outcome badge */}
                         <div className="ml-4 w-16 flex-shrink-0 flex flex-col items-end justify-center">
                           {row.did_hit === null ? (
-                            <span className="text-[10px] text-gray-600 font-condensed uppercase tracking-widest">
+                            <span className="text-[12px] text-gray-400 font-condensed uppercase tracking-widest">
                               PEND
                             </span>
                           ) : row.did_hit ? (
                             <>
-                              <span className="text-[11px] font-black text-over tracking-wide">HIT</span>
+                              <span className="text-[13px] font-black text-over tracking-wide">HIT</span>
                               {row.actual != null && (
-                                <span className="text-[9px] text-over/60 font-mono">got {row.actual}</span>
+                                <span className="text-[11px] text-over/60 font-mono">got {row.actual}</span>
                               )}
                             </>
                           ) : (
                             <>
-                              <span className="text-[11px] font-black text-under tracking-wide">MISS</span>
+                              <span className="text-[13px] font-black text-under tracking-wide">MISS</span>
                               {row.actual != null && (
-                                <span className="text-[9px] text-under/60 font-mono">got {row.actual}</span>
+                                <span className="text-[11px] text-under/60 font-mono">got {row.actual}</span>
                               )}
                             </>
                           )}
@@ -711,8 +711,8 @@ export default function Performance() {
                         key={v}
                         onClick={() => setBottomView(v)}
                         className={cn(
-                          "px-5 py-3.5 text-[11px] font-bold font-condensed tracking-[0.12em] uppercase transition-colors relative",
-                          bottomView === v ? "text-white" : "text-gray-600 hover:text-gray-400",
+                          "px-5 py-3.5 text-[13px] font-bold font-condensed tracking-[0.12em] uppercase transition-colors relative",
+                          bottomView === v ? "text-white" : "text-gray-400 hover:text-gray-400",
                         )}
                       >
                         {v}
@@ -722,7 +722,7 @@ export default function Performance() {
                       </button>
                     ))}
                     <div className="flex-1 flex justify-end pr-4">
-                      <span className="text-[9px] text-gray-700 font-condensed uppercase tracking-widest">
+                      <span className="text-[11px] text-gray-500 font-condensed uppercase tracking-widest">
                         {bottomView === "streaks" ? "10-game window · next game outcome" : "most recent first"}
                       </span>
                     </div>

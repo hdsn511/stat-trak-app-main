@@ -11,14 +11,17 @@ interface FilterBarProps {
   onVsTeam: (t: string | null) => void
   onHomeAway: (h: HomeAway) => void
   onStat: (s: string) => void
+  seasons?: number[]
+  season?: number
+  onSeason?: (s: number) => void
 }
 
 const windowLabel = (w: number) => (w === 0 ? 'ALL' : `L${w}`)
 
 const BTN =
-  'font-martian font-medium text-[9px] px-[11px] py-[6px] cursor-pointer whitespace-nowrap transition-colors'
+  'font-martian font-medium text-[11px] px-[11px] py-[6px] cursor-pointer whitespace-nowrap transition-colors'
 const ON = 'bg-[#EFE9E0] text-[#14100F]'
-const OFF = 'bg-transparent text-[#9A918F] hover:text-[#EFEBE9]'
+const OFF = 'bg-transparent text-[#C9C2BE] hover:text-[#EFEBE9]'
 
 function Group({ children }: { children: ReactNode }) {
   return <div className="flex border border-[#2C2624] rounded-md overflow-hidden">{children}</div>
@@ -26,7 +29,7 @@ function Group({ children }: { children: ReactNode }) {
 
 function Label({ children }: { children: string }) {
   return (
-    <span className="font-martian text-[8px] text-[#665F5D] tracking-[1px] self-center">
+    <span className="font-martian text-[10px] text-[#A8A09C] tracking-[1px] self-center">
       {children}
     </span>
   )
@@ -42,7 +45,7 @@ function Chip({ text, onClear }: { text: string; onClear: () => void }) {
       type="button"
       aria-label={`Clear ${text} filter`}
       onClick={onClear}
-      className="font-martian font-medium text-[9px] tracking-[0.5px] px-[10px] py-[4px] rounded-xl border border-[rgba(255,107,61,0.5)] bg-[rgba(255,107,61,0.08)] text-[#FF6B3D] hover:bg-[rgba(255,107,61,0.16)] cursor-pointer"
+      className="font-martian font-medium text-[11px] tracking-[0.5px] px-[10px] py-[4px] rounded-xl border border-[rgba(255,107,61,0.5)] bg-[rgba(255,107,61,0.08)] text-[#FF6B3D] hover:bg-[rgba(255,107,61,0.16)] cursor-pointer"
     >
       {text} ✕
     </button>
@@ -58,6 +61,9 @@ export default function FilterBar({
   onVsTeam,
   onHomeAway,
   onStat,
+  seasons = [],
+  season = 0,
+  onSeason,
 }: FilterBarProps) {
   // "ANY" rather than "ALL" so it never collides with the window group's ALL.
   const venues: [string, HomeAway][] = [
@@ -70,6 +76,24 @@ export default function FilterBar({
   return (
     <div className="flex flex-col gap-[10px] px-[18px] py-[13px] border-b border-[#27221F]">
       <div className="flex items-center gap-3 flex-wrap">
+        {onSeason && seasons.length > 1 && (
+          <>
+            <Label>SEASON</Label>
+            <Group>
+              {[...seasons, 0].map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  aria-pressed={season === s}
+                  onClick={() => onSeason(s)}
+                  className={`${BTN} ${season === s ? ON : OFF}`}
+                >
+                  {s === 0 ? 'ALL' : s}
+                </button>
+              ))}
+            </Group>
+          </>
+        )}
         <Label>WINDOW</Label>
         <Group>
           {windows.map((w) => (
@@ -90,7 +114,7 @@ export default function FilterBar({
           aria-label="Opponent"
           value={filters.vsTeam ?? ''}
           onChange={(e) => onVsTeam(e.target.value || null)}
-          className="font-martian text-[9px] bg-[#221D1A] text-[#EFEBE9] border border-[#2C2624] rounded-md px-[10px] py-[6px] cursor-pointer"
+          className="font-martian text-[11px] bg-[#221D1A] text-[#EFEBE9] border border-[#2C2624] rounded-md px-[10px] py-[6px] cursor-pointer"
         >
           <option value="">ALL TEAMS</option>
           {opponents.map((o) => (

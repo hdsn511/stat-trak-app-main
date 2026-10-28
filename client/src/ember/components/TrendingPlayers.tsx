@@ -51,7 +51,7 @@ export default function TrendingPlayers({
                 : 'grid-cols-[26px_1fr_auto_150px_52px]'
             }`}
           >
-            <span className="font-martian font-bold text-[12px] text-[#665F5D]">
+            <span className="font-martian font-bold text-[14px] text-[#A8A09C]">
               {String(row.rank).padStart(2, '0')}
             </span>
             {showLeague && <LeaguePill league={row.leagueLabel} />}
@@ -59,7 +59,7 @@ export default function TrendingPlayers({
               <div className="font-schibsted font-bold text-[14px] text-[#EFEBE9] whitespace-nowrap overflow-hidden text-ellipsis">
                 {row.name}
               </div>
-              <div className="font-martian text-[9px] text-[#9A918F] mt-[2px]">
+              <div className="font-martian text-[11px] text-[#C9C2BE] mt-[2px]">
                 {row.team} · {row.stat}
               </div>
             </div>
@@ -67,7 +67,7 @@ export default function TrendingPlayers({
               {row.chips.slice(0, 2).map((chip) => (
                 <span
                   key={chip}
-                  className="font-martian font-medium text-[8px] text-[#FF6B3D] uppercase border border-[rgba(255,107,61,0.5)] bg-[rgba(255,107,61,0.08)] rounded-[3px] px-[6px] py-[2px] whitespace-nowrap"
+                  className="font-martian font-medium text-[10px] text-[#FF6B3D] uppercase border border-[rgba(255,107,61,0.5)] bg-[rgba(255,107,61,0.08)] rounded-[3px] px-[6px] py-[2px] whitespace-nowrap"
                 >
                   {chip}
                 </span>
@@ -81,7 +81,7 @@ export default function TrendingPlayers({
                     style={{ width: `${(row.seasonVal / max) * 100}%` }}
                   />
                 </div>
-                <span className="font-martian text-[9px] text-[#9A918F] w-[32px] text-right shrink-0">
+                <span className="font-martian text-[11px] text-[#C9C2BE] w-[32px] text-right shrink-0">
                   {row.seasonVal}
                 </span>
               </div>
@@ -92,7 +92,7 @@ export default function TrendingPlayers({
                     style={{ width: `${(row.l10Val / max) * 100}%` }}
                   />
                 </div>
-                <span className="font-martian font-bold text-[10px] text-[#FF6B3D] w-[32px] text-right shrink-0">
+                <span className="font-martian font-bold text-[12px] text-[#FF6B3D] w-[32px] text-right shrink-0">
                   {row.l10Val}
                 </span>
               </div>

@@ -28,10 +28,10 @@ function TeamBlock({
       <div className="font-chakra italic font-bold text-[clamp(22px,3vw,34px)] tracking-[-1px] leading-none text-[#EFEBE9] group-hover:text-[#FF6B3D]">
         {team.abbreviation}
       </div>
-      <div className="font-martian text-[9px] text-[#9A918F] mt-[5px] whitespace-nowrap overflow-hidden text-ellipsis">
+      <div className="font-martian text-[11px] text-[#C9C2BE] mt-[5px] whitespace-nowrap overflow-hidden text-ellipsis">
         {team.name}
       </div>
-      <div className="font-martian text-[8px] text-[#665F5D] mt-[2px] tracking-[1px]">{label}</div>
+      <div className="font-martian text-[10px] text-[#A8A09C] mt-[2px] tracking-[1px]">{label}</div>
     </Link>
   )
 }
@@ -44,7 +44,7 @@ export default function ScoreHeader({ league, game, rest }: ScoreHeaderProps) {
   const score = (v: number, winning: boolean) => (
     <div
       className={`font-martian font-bold text-[clamp(30px,4vw,46px)] leading-none ${
-        winning ? 'text-[#EFEBE9]' : 'text-[#665F5D]'
+        winning ? 'text-[#EFEBE9]' : 'text-[#A8A09C]'
       }`}
     >
       {v}
@@ -61,16 +61,16 @@ export default function ScoreHeader({ league, game, rest }: ScoreHeaderProps) {
         {final ? score(as_, as_ >= hs) : null}
 
         <div className="text-center min-w-[92px] shrink-0">
-          <div className="font-martian font-medium text-[10px] text-[#FF6B3D] tracking-[1px]">
+          <div className="font-martian font-medium text-[12px] text-[#FF6B3D] tracking-[1px]">
             {final ? 'FINAL' : (tip ?? 'SCHEDULED')}
           </div>
-          <div className="font-martian text-[8px] text-[#665F5D] mt-[5px] tracking-[1px]">
+          <div className="font-martian text-[10px] text-[#A8A09C] mt-[5px] tracking-[1px]">
             {formatGameDate(game.game_date)}
           </div>
           {/* 'other' is the ESPN ingest's placeholder for NHL and NFL — it
               says nothing, so it isn't worth a chip. */}
           {game.game_type && !['regular', 'other'].includes(game.game_type) && (
-            <div className="font-martian text-[8px] text-[#FF6B3D] mt-[3px] tracking-[1px] uppercase">
+            <div className="font-martian text-[10px] text-[#FF6B3D] mt-[3px] tracking-[1px] uppercase">
               {game.game_type}
             </div>
           )}
@@ -85,11 +85,11 @@ export default function ScoreHeader({ league, game, rest }: ScoreHeaderProps) {
 
       {(rest.away_days != null || rest.home_days != null) && (
         <div className="flex items-center justify-center gap-4 mt-4 pt-3 border-t border-[#27221F]">
-          <span className="font-martian text-[8px] text-[#665F5D] tracking-[1px]">
+          <span className="font-martian text-[10px] text-[#A8A09C] tracking-[1px]">
             {away.abbreviation} REST {rest.away_days ?? '—'}D
           </span>
-          <span className="font-martian text-[8px] text-[#443E3B]">·</span>
-          <span className="font-martian text-[8px] text-[#665F5D] tracking-[1px]">
+          <span className="font-martian text-[10px] text-[#8A827E]">·</span>
+          <span className="font-martian text-[10px] text-[#A8A09C] tracking-[1px]">
             {home.abbreviation} REST {rest.home_days ?? '—'}D
           </span>
         </div>

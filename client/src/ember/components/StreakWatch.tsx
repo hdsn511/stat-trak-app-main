@@ -56,12 +56,12 @@ function TierLadder({ tiers }: { tiers: StreakTier[] }) {
       {tiers.map((t, i) => (
         <div key={t.pct} className="text-center w-[38px]">
           <div
-            className="font-martian font-bold text-[11px] text-[#FF6B3D] tabular-nums"
+            className="font-martian font-bold text-[13px] text-[#FF6B3D] tabular-nums"
             style={{ opacity: opacity[i] ?? 0.28 }}
           >
             {t.line}
           </div>
-          <div className="font-martian text-[7px] text-[#665F5D] mt-[3px] tracking-[0.5px]">
+          <div className="font-martian text-[10px] text-[#A8A09C] mt-[3px] tracking-[0.5px]">
             {t.pct / 10}/10
           </div>
         </div>
@@ -81,7 +81,7 @@ function RunBadge({ games, line }: { games: number; line: number }) {
           <span key={i} className="w-[5px] h-[14px] rounded-[1.5px] bg-[#FF6B3D]" />
         ))}
         {games > pips && (
-          <span className="font-martian text-[8px] text-[#FF6B3D] self-center ml-[2px]">
+          <span className="font-martian text-[10px] text-[#FF6B3D] self-center ml-[2px]">
             +{games - pips}
           </span>
         )}
@@ -90,7 +90,7 @@ function RunBadge({ games, line }: { games: number; line: number }) {
         <div className="font-martian font-bold text-[13px] text-[#FF6B3D] tabular-nums">
           {line}+
         </div>
-        <div className="font-martian text-[7px] text-[#665F5D] mt-[3px] tracking-[0.5px]">
+        <div className="font-martian text-[10px] text-[#A8A09C] mt-[3px] tracking-[0.5px]">
           {games} STRAIGHT
         </div>
       </div>
@@ -120,7 +120,7 @@ export default function StreakWatch({
             <div className="font-schibsted font-bold text-[13px] text-[#EFEBE9] whitespace-nowrap overflow-hidden text-ellipsis">
               {row.name}
             </div>
-            <div className="font-martian text-[9px] text-[#9A918F] mt-[2px] whitespace-nowrap overflow-hidden text-ellipsis">
+            <div className="font-martian text-[11px] text-[#C9C2BE] mt-[2px] whitespace-nowrap overflow-hidden text-ellipsis">
               {row.team} · {row.label}
               {row.opponent ? ` · vs ${row.opponent}` : ''}
             </div>
@@ -134,7 +134,7 @@ export default function StreakWatch({
             <div className="font-martian font-bold text-[15px] text-[#EFEBE9] tabular-nums">
               {row.rollingAvg}
             </div>
-            <div className="font-martian text-[7px] text-[#665F5D] mt-[3px] tracking-[0.5px]">
+            <div className="font-martian text-[10px] text-[#A8A09C] mt-[3px] tracking-[0.5px]">
               L10 AVG
             </div>
           </div>
@@ -143,7 +143,7 @@ export default function StreakWatch({
       {footerLink && rows.length > 0 && (
         <Link
           to={footerLink.to}
-          className="block font-martian font-bold text-[10px] text-[#FF6B3D] tracking-[1px] px-[18px] py-3 border-t border-[#221D1A]"
+          className="block font-martian font-bold text-[12px] text-[#FF6B3D] tracking-[1px] px-[18px] py-3 border-t border-[#221D1A]"
         >
           {footerLink.label}
         </Link>

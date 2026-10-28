@@ -9,7 +9,7 @@ import { formatGameDate, formatRecord } from '@/ember/game/format'
 const RESULT_COLOR: Record<'W' | 'L' | 'T', string> = {
   W: 'text-[#4ADE80]',
   L: 'text-[#FF6B5C]',
-  T: 'text-[#9A918F]',
+  T: 'text-[#C9C2BE]',
 }
 
 function RecordCell({ label, record }: { label: string; record: TeamRecord }) {
@@ -18,7 +18,7 @@ function RecordCell({ label, record }: { label: string; record: TeamRecord }) {
       <div className="font-martian font-bold text-[18px] text-[#EFEBE9] tabular-nums">
         {formatRecord(record)}
       </div>
-      <div className="font-martian text-[8px] text-[#665F5D] tracking-[1px] mt-[5px]">{label}</div>
+      <div className="font-martian text-[10px] text-[#A8A09C] tracking-[1px] mt-[5px]">{label}</div>
     </div>
   )
 }
@@ -32,23 +32,23 @@ function GameRow({ league, game }: { league: string; game: TeamGameEntry }) {
       to={gamePath(league, game.id)}
       className="grid grid-cols-[74px_18px_1fr_auto_28px] gap-3 items-center px-[18px] py-[10px] border-b border-[#221D1A] last:border-b-0 hover:bg-[#211C1A]"
     >
-      <span className="font-martian text-[8px] text-[#665F5D] tracking-[1px]">
+      <span className="font-martian text-[10px] text-[#A8A09C] tracking-[1px]">
         {formatGameDate(game.game_date)}
       </span>
-      <span className="font-martian text-[9px] text-[#443E3B]">{game.is_home ? 'vs' : '@'}</span>
-      <span className="font-schibsted font-bold text-[12px] text-[#EFEBE9] whitespace-nowrap overflow-hidden text-ellipsis">
+      <span className="font-martian text-[11px] text-[#8A827E]">{game.is_home ? 'vs' : '@'}</span>
+      <span className="font-schibsted font-bold text-[14px] text-[#EFEBE9] whitespace-nowrap overflow-hidden text-ellipsis">
         {opp.abbreviation}
       </span>
       {played ? (
-        <span className="font-martian text-[11px] text-[#9A918F] tabular-nums">
+        <span className="font-martian text-[13px] text-[#C9C2BE] tabular-nums">
           {game.team_score}–{game.opp_score}
         </span>
       ) : (
-        <span className="font-martian text-[9px] text-[#FF6B3D] tracking-[1px]">UPCOMING</span>
+        <span className="font-martian text-[11px] text-[#FF6B3D] tracking-[1px]">UPCOMING</span>
       )}
       <span
-        className={`font-martian font-bold text-[11px] text-center ${
-          game.result ? RESULT_COLOR[game.result] : 'text-[#443E3B]'
+        className={`font-martian font-bold text-[13px] text-center ${
+          game.result ? RESULT_COLOR[game.result] : 'text-[#8A827E]'
         }`}
       >
         {game.result ?? '–'}
@@ -78,7 +78,7 @@ export default function TeamView({ data }: { data: TeamDetail }) {
           <div className="font-chakra italic font-bold text-[clamp(24px,3.2vw,36px)] tracking-[-1px] leading-none text-[#EFEBE9]">
             {team.name}
           </div>
-          <div className="font-martian text-[10px] text-[#9A918F] mt-[7px] tracking-[0.5px]">
+          <div className="font-martian text-[12px] text-[#C9C2BE] mt-[7px] tracking-[0.5px]">
             {[team.abbreviation, league.toUpperCase(), `${formatRecord(record.overall)} OVERALL`]
               .filter(Boolean)
               .join(' · ')}
@@ -112,7 +112,7 @@ export default function TeamView({ data }: { data: TeamDetail }) {
             <button
               type="button"
               onClick={() => setAllGames((v) => !v)}
-              className="block w-full text-center p-3 border-t border-[#27221F] font-martian font-bold text-[10px] text-[#FF6B3D] tracking-[1.5px] hover:text-[#FFD9C9] cursor-pointer"
+              className="block w-full text-center p-3 border-t border-[#27221F] font-martian font-bold text-[12px] text-[#FF6B3D] tracking-[1.5px] hover:text-[#FFD9C9] cursor-pointer"
             >
               {allGames
                 ? `SHOW ${SCHEDULE_PREVIEW} ↑`
@@ -131,10 +131,10 @@ export default function TeamView({ data }: { data: TeamDetail }) {
                 to={playerPath(league, p.id)}
                 className="flex items-center gap-3 px-[18px] py-[9px] border-b border-[#221D1A] last:border-b-0 hover:bg-[#211C1A]"
               >
-                <span className="font-schibsted font-bold text-[12px] text-[#EFEBE9] flex-1 min-w-0 whitespace-nowrap overflow-hidden text-ellipsis">
+                <span className="font-schibsted font-bold text-[14px] text-[#EFEBE9] flex-1 min-w-0 whitespace-nowrap overflow-hidden text-ellipsis">
                   {p.name}
                 </span>
-                <span className="font-martian text-[9px] text-[#665F5D] shrink-0">
+                <span className="font-martian text-[11px] text-[#A8A09C] shrink-0">
                   {p.position}
                 </span>
               </Link>

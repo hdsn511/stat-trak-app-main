@@ -20,12 +20,12 @@ interface ChatPaneProps {
 function AiLabel({ meta }: { meta?: string }) {
   return (
     <div className="flex items-center gap-2">
-      <span className="font-martian font-bold text-[10px] text-[#FF6B3D]">&gt;_</span>
-      <span className="font-chakra italic font-bold text-[11px] tracking-[1.5px] text-[#665F5D]">
+      <span className="font-martian font-bold text-[12px] text-[#FF6B3D]">&gt;_</span>
+      <span className="font-chakra italic font-bold text-[13px] tracking-[1.5px] text-[#A8A09C]">
         SPORTQUERY
       </span>
       {meta && (
-        <span className="font-martian text-[9px] text-[#443E3B] tracking-[0.5px]">{meta}</span>
+        <span className="font-martian text-[11px] text-[#8A827E] tracking-[0.5px]">{meta}</span>
       )}
     </div>
   )
@@ -49,7 +49,7 @@ function Notice({ tone, children }: { tone: 'warn' | 'error'; children: string }
   const color = tone === 'error' ? '#FF6B5C' : '#FFB020'
   return (
     <div
-      className="font-martian text-[10px] tracking-[0.5px] border rounded-md px-[12px] py-[8px]"
+      className="font-martian text-[12px] tracking-[0.5px] border rounded-md px-[12px] py-[8px]"
       style={{ color, borderColor: `${color}55`, background: `${color}12` }}
     >
       {children}
@@ -91,7 +91,7 @@ function AssistantBlock({
 
       {turn.disambiguation && (
         <div className="flex flex-col gap-2">
-          <div className="font-martian text-[10px] text-[#9A918F] tracking-[0.5px]">
+          <div className="font-martian text-[12px] text-[#C9C2BE] tracking-[0.5px]">
             {turn.disambiguation.prompt}
           </div>
           <QueryChips
@@ -144,7 +144,7 @@ export default function ChatPane({ turns, busy, selection, onAsk, onSelect }: Ch
             <div className="font-chakra italic font-bold text-[26px] tracking-[-0.5px] text-[#EFEBE9]">
               SPORT<span className="text-[#FF6B3D]">QUERY</span>
             </div>
-            <div className="font-martian text-[10px] text-[#665F5D] tracking-[0.5px] mt-[5px]">
+            <div className="font-martian text-[12px] text-[#A8A09C] tracking-[0.5px] mt-[5px]">
               NATURAL-LANGUAGE STATS · NBA · MLB · NFL · NHL
             </div>
             <div className="mt-[12px]">
@@ -153,7 +153,7 @@ export default function ChatPane({ turns, busy, selection, onAsk, onSelect }: Ch
           </div>
 
           {turns.length === 0 && (
-            <div className="font-schibsted text-[13px] text-[#9A918F] leading-[1.6] max-w-[560px]">
+            <div className="font-schibsted text-[13px] text-[#C9C2BE] leading-[1.6] max-w-[560px]">
               Ask a question in plain English about player and team stats in the NBA, MLB, NFL
               and NHL. SportQuery looks it up read-only and shows the rows it found — see{' '}
               <span className="text-[#EFEBE9]">What can I ask?</span> for every stat it covers.

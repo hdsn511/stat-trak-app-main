@@ -132,7 +132,7 @@ export default function Home() {
         <LeagueSignals lanes={lanes} offSeason={offSeason} loading={loading} />
 
         {errors.length > 0 && (
-          <div className="font-martian text-[9px] text-[#FF6B5C] tracking-[1px]">
+          <div className="font-martian text-[11px] text-[#FF6B5C] tracking-[1px]">
             {errors.map((e) => (
               <div key={e}>{`// ${e}`}</div>
             ))}
@@ -140,17 +140,17 @@ export default function Home() {
         )}
 
         <div className="flex flex-wrap items-center gap-2">
-          <span className="font-martian text-[8px] text-[#665F5D] tracking-[1.5px] mr-1">SHOW</span>
+          <span className="font-martian text-[10px] text-[#A8A09C] tracking-[1.5px] mr-1">SHOW</span>
           {(['all', ...inSeason] as const).map((l) => (
             <button
               key={l}
               type="button"
               onClick={() => setLeagueFilter(l)}
               aria-pressed={leagueFilter === l}
-              className={`font-martian font-bold text-[9px] tracking-[1px] rounded px-[10px] py-[5px] border cursor-pointer ${
+              className={`font-martian font-bold text-[11px] tracking-[1px] rounded px-[10px] py-[5px] border cursor-pointer ${
                 leagueFilter === l
                   ? 'text-[#14100F] bg-[#FF6B3D] border-[#FF6B3D]'
-                  : 'text-[#9A918F] border-[#2C2624] hover:border-[#665F5D]'
+                  : 'text-[#C9C2BE] border-[#2C2624] hover:border-[#665F5D]'
               }`}
             >
               {l === 'all' ? 'ALL' : l.toUpperCase()}

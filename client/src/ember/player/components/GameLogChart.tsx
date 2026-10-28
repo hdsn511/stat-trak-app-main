@@ -36,7 +36,7 @@ export default function GameLogChart({ games, def, line }: GameLogChartProps) {
 
   if (points.length === 0) {
     return (
-      <div className="px-[18px] py-9 text-center font-martian text-[10px] text-[#665F5D] tracking-[1px]">
+      <div className="px-[18px] py-9 text-center font-martian text-[12px] text-[#A8A09C] tracking-[1px]">
         NO GAMES MATCH THESE FILTERS
       </div>
     )
@@ -65,7 +65,7 @@ export default function GameLogChart({ games, def, line }: GameLogChartProps) {
                 bottom: `${lineBottom}px`,
               }}
             >
-              <span className="absolute right-0 top-[-14px] font-martian font-medium text-[7px] text-[#FF6B3D] tracking-[0.5px] bg-[#1B1715] px-[3px]">
+              <span className="absolute right-0 top-[-14px] font-martian font-medium text-[10px] text-[#FF6B3D] tracking-[0.5px] bg-[#1B1715] px-[3px]">
                 {`LINE ${line}`}
               </span>
             </div>
@@ -83,7 +83,7 @@ export default function GameLogChart({ games, def, line }: GameLogChartProps) {
                   >
                     <span
                       data-testid="chart-value"
-                      className="font-martian font-medium text-[8px] text-[#9A918F] leading-[10px]"
+                      className="font-martian font-medium text-[10px] text-[#C9C2BE] leading-[10px]"
                     >
                       {def.format ? def.format(p.v) : p.v}
                     </span>
@@ -105,7 +105,7 @@ export default function GameLogChart({ games, def, line }: GameLogChartProps) {
             {points.map((p, i) => (
               <span
                 key={i}
-                className="flex-1 text-center font-martian text-[7px] text-[#665F5D] overflow-hidden whitespace-nowrap"
+                className="flex-1 text-center font-martian text-[10px] text-[#A8A09C] overflow-hidden whitespace-nowrap"
                 style={{ minWidth: `${BAR_MIN}px` }}
               >
                 {p.opp}

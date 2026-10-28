@@ -9,7 +9,7 @@ interface SessionBarProps {
 }
 
 const CHIP =
-  'group flex items-center gap-2 shrink-0 rounded border px-[10px] py-[5px] font-martian text-[10px] whitespace-nowrap'
+  'group flex items-center gap-2 shrink-0 rounded border px-[10px] py-[5px] font-martian text-[12px] whitespace-nowrap'
 
 function title(s: SessionSummary): string {
   if (s.title) return s.title.length > 34 ? `${s.title.slice(0, 34)}…` : s.title
@@ -25,7 +25,7 @@ export default function SessionBar({
 }: SessionBarProps) {
   return (
     <div className="flex items-center gap-[10px] px-[28px] py-[9px] border-b border-[#221E1B] overflow-x-auto no-scrollbar shrink-0">
-      <span className="font-martian font-medium text-[9px] text-[#665F5D] tracking-[1.5px] shrink-0">
+      <span className="font-martian font-medium text-[11px] text-[#A8A09C] tracking-[1.5px] shrink-0">
         SESSIONS
       </span>
 
@@ -45,7 +45,7 @@ export default function SessionBar({
             className={`${CHIP} ${
               active
                 ? 'border-[#FF6B3D] bg-[#241C18] text-[#EFEBE9]'
-                : 'border-[#2C2624] text-[#9A918F] hover:border-[#665F5D]'
+                : 'border-[#2C2624] text-[#C9C2BE] hover:border-[#665F5D]'
             }`}
           >
             <button
@@ -59,7 +59,7 @@ export default function SessionBar({
               type="button"
               onClick={() => onDelete(s.id)}
               aria-label={`Delete session ${title(s)}`}
-              className="text-[#584F4C] hover:text-[#FF6B5C] cursor-pointer"
+              className="text-[#968E8A] hover:text-[#FF6B5C] cursor-pointer"
             >
               ✕
             </button>

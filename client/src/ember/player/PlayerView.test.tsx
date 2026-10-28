@@ -13,6 +13,8 @@ const DATA: PlayerLogResponse = {
   ],
   seasonAvgs: { points: 20 },
   gamesPlayed: 3,
+  currentSeason: null,
+  seasons: [],
   upcoming: null,
 }
 

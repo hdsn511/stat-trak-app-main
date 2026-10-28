@@ -55,8 +55,8 @@ export default function GameView({ data }: GameViewProps) {
 
       {hasSidePanels && (
         <div
-          className="grid gap-[14px]"
-          style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}
+          className="grid gap-[14px] items-start"
+          style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))' }}
         >
           {sidePanels}
         </div>

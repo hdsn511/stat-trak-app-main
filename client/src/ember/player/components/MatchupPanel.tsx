@@ -51,10 +51,10 @@ export default function MatchupPanel({
   if (!target) {
     return (
       <div className="bg-[#1B1715] border border-[#2C2624] rounded-lg mt-[14px] px-[18px] py-9 text-center">
-        <div className="font-martian text-[10px] text-[#665F5D] tracking-[1px]">
+        <div className="font-martian text-[12px] text-[#A8A09C] tracking-[1px]">
           SELECT AN OPPONENT TO SEE MATCHUP DETAIL
         </div>
-        <div className="font-martian text-[8px] text-[#4A403C] tracking-[0.5px] mt-2">
+        <div className="font-martian text-[10px] text-[#8A827E] tracking-[0.5px] mt-2">
           NO SCHEDULED GAME — USE THE VS FILTER ABOVE
         </div>
       </div>
@@ -71,7 +71,7 @@ export default function MatchupPanel({
             cannot match across sibling text nodes. */}
         <Title>{`${target.source === 'schedule' ? 'NEXT' : 'MATCHUP'}: VS ${target.team}`}</Title>
         {u && (
-          <span className="font-martian text-[8px] text-[#9A918F] tracking-[1px]">
+          <span className="font-martian text-[10px] text-[#C9C2BE] tracking-[1px]">
             {`${u.date} · ${u.isHome ? 'HOME' : 'AWAY'}${
               u.daysRest != null ? ` · ${u.daysRest}D REST` : ''
             }`}
@@ -79,7 +79,7 @@ export default function MatchupPanel({
         )}
         {signal && (
           <span
-            className="ml-auto font-martian font-bold text-[9px] tracking-[0.5px] px-[11px] py-[5px] rounded-xl border"
+            className="ml-auto font-martian font-bold text-[11px] tracking-[0.5px] px-[11px] py-[5px] rounded-xl border"
             style={{
               color: BUCKET_COLOR[signal.bucket],
               borderColor: BUCKET_COLOR[signal.bucket],
@@ -92,25 +92,25 @@ export default function MatchupPanel({
       </div>
 
       {signal && (
-        <div className="px-[18px] py-[10px] border-b border-[#221D1A] font-martian text-[9px] text-[#9A918F] tracking-[0.5px]">
+        <div className="px-[18px] py-[10px] border-b border-[#221D1A] font-martian text-[11px] text-[#C9C2BE] tracking-[0.5px]">
           {`${target.team} RANKS ${ord(signal.rank)}${
             signal.positionGroup ? ` VS ${signal.positionGroup}` : ''
           } · ${signal.allowed} ALLOWED PER GAME`}
-          <span className="text-[#4A403C]">{` · AS OF ${signal.asOf}`}</span>
+          <span className="text-[#8A827E]">{` · AS OF ${signal.asOf}`}</span>
         </div>
       )}
 
       {/* Splits: season and versus side by side, never blended. */}
       <div className="px-[18px] pt-[14px] pb-3">
         <div className="grid grid-cols-[1fr_72px_72px_64px] gap-2 pb-[6px] border-b border-[#27221F]">
-          <span className="font-martian text-[8px] text-[#665F5D] tracking-[1px]">STAT</span>
-          <span className="font-martian text-[8px] text-[#665F5D] tracking-[1px] text-right">
+          <span className="font-martian text-[10px] text-[#A8A09C] tracking-[1px]">STAT</span>
+          <span className="font-martian text-[10px] text-[#A8A09C] tracking-[1px] text-right">
             SEASON
           </span>
-          <span className="font-martian text-[8px] text-[#665F5D] tracking-[1px] text-right">
+          <span className="font-martian text-[10px] text-[#A8A09C] tracking-[1px] text-right">
             {`VS ${target.team}`}
           </span>
-          <span className="font-martian text-[8px] text-[#665F5D] tracking-[1px] text-right">
+          <span className="font-martian text-[10px] text-[#A8A09C] tracking-[1px] text-right">
             DIFF
           </span>
         </div>
@@ -119,17 +119,17 @@ export default function MatchupPanel({
             key={s.key}
             className="grid grid-cols-[1fr_72px_72px_64px] gap-2 py-[7px] border-b border-[#221D1A] items-center"
           >
-            <span className="font-martian text-[9px] text-[#9A918F] tracking-[0.5px]">
+            <span className="font-martian text-[11px] text-[#C9C2BE] tracking-[0.5px]">
               {s.label}
             </span>
-            <span className="font-martian font-bold text-[12px] text-[#EFEBE9] text-right">
+            <span className="font-martian font-bold text-[14px] text-[#EFEBE9] text-right">
               {s.season == null ? '—' : s.season.toFixed(1)}
             </span>
-            <span className="font-martian font-bold text-[12px] text-[#EFEBE9] text-right">
+            <span className="font-martian font-bold text-[14px] text-[#EFEBE9] text-right">
               {s.versus == null ? '—' : s.versus.toFixed(1)}
             </span>
             <span
-              className="font-martian font-medium text-[11px] text-right"
+              className="font-martian font-medium text-[13px] text-right"
               style={{ color: s.delta == null ? '#665F5D' : s.delta >= 0 ? '#3FBF7F' : '#FF6B5C' }}
             >
               {s.delta == null ? '—' : `${s.delta >= 0 ? '+' : ''}${s.delta.toFixed(1)}`}
@@ -143,13 +143,13 @@ export default function MatchupPanel({
         <div className="flex items-baseline px-[18px] py-[11px] gap-3">
           <Title>HEAD TO HEAD</Title>
           {thin && (
-            <span className="font-martian text-[8px] text-[#FF6B3D] tracking-[1px]">
+            <span className="font-martian text-[10px] text-[#FF6B3D] tracking-[1px]">
               {`SMALL SAMPLE · ${h2h.length} GAME${h2h.length > 1 ? 'S' : ''}`}
             </span>
           )}
         </div>
         {h2h.length === 0 ? (
-          <div className="px-[18px] pb-8 text-center font-martian text-[10px] text-[#665F5D] tracking-[1px]">
+          <div className="px-[18px] pb-8 text-center font-martian text-[12px] text-[#A8A09C] tracking-[1px]">
             NO MEETINGS THIS SEASON
           </div>
         ) : (

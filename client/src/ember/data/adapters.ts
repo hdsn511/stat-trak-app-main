@@ -1,7 +1,7 @@
 import type { LeagueSlug } from '@/config/leagues'
 import type { PlayerStreakRow, TodaysGame, TrendingPlayer } from '@/services/api'
 import type { TickerGame } from '@/ember/components/LiveTicker'
-import type { StreakRow } from '@/ember/components/StreakWatch'
+import type { StreakRow, StreakTier } from '@/ember/components/StreakWatch'
 import type { TrendingRow } from '@/ember/components/TrendingPlayers'
 
 // Pure mappings from API payloads to the shapes the Ember modules render.
@@ -76,6 +76,26 @@ export function toTrendingRows(
  * of their last 10 games. Rendering a tier ladder for an MLB row would print
  * four zeroes, so the shape has to distinguish them.
  */
+/**
+ * Tier i is the line cleared in (n - i) of the last n games, where n is the
+ * sample the server actually had (3-10). Early season or a short NFL year gives
+ * n < 10, so labels read "3/3", not a false "10/10". Tiers below 70% of the
+ * sample are dropped; with tiny samples they would just repeat the floor.
+ */
+function tiersFor(r: PlayerStreakRow): StreakTier[] {
+  const n = Math.max(1, Math.min(r.games_used ?? 10, 10))
+  const lines = [r.line_100, r.line_90, r.line_80, r.line_70]
+  const minCleared = Math.ceil(n * 0.7)
+  const out: StreakTier[] = []
+  lines.forEach((line, i) => {
+    const cleared = n - i
+    if (cleared >= minCleared && cleared >= 1) {
+      out.push({ pct: Math.round((cleared / n) * 100), line, cleared, of: n })
+    }
+  })
+  return out
+}
+
 export function toStreakRows(
   league: LeagueSlug,
   rows: PlayerStreakRow[],
@@ -95,12 +115,7 @@ export function toStreakRows(
         ? { kind: 'run' as const, games: r.streak_count, line: r.streak_line ?? 1 }
         : {
             kind: 'tiers' as const,
-            tiers: [
-              { pct: 100, line: r.line_100 },
-              { pct: 90, line: r.line_90 },
-              { pct: 80, line: r.line_80 },
-              { pct: 70, line: r.line_70 },
-            ],
+            tiers: tiersFor(r),
           },
   }))
 }

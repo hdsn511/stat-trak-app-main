@@ -5,9 +5,12 @@ import ModuleCard from './ModuleCard'
 import { EmptyState } from './EntityState'
 
 export type StreakTier = {
-  /** Share of the last 10 games cleared: 100, 90, 80 or 70. */
+  /** Share of the sample cleared. */
   pct: number
   line: number
+  /** Games cleared out of `of`; `of` is 10 in a full season, fewer early on. */
+  cleared: number
+  of: number
 }
 
 /**
@@ -54,7 +57,7 @@ function TierLadder({ tiers }: { tiers: StreakTier[] }) {
   return (
     <div className="flex gap-[6px] shrink-0">
       {tiers.map((t, i) => (
-        <div key={t.pct} className="text-center w-[38px]">
+        <div key={t.cleared} className="text-center w-[38px]">
           <div
             className="font-martian font-bold text-[13px] text-[#FF6B3D] tabular-nums"
             style={{ opacity: opacity[i] ?? 0.28 }}
@@ -62,7 +65,7 @@ function TierLadder({ tiers }: { tiers: StreakTier[] }) {
             {t.line}
           </div>
           <div className="font-martian text-[10px] text-[#A8A09C] mt-[3px] tracking-[0.5px]">
-            {t.pct / 10}/10
+            {t.cleared}/{t.of}
           </div>
         </div>
       ))}

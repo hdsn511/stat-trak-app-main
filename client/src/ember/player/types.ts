@@ -19,7 +19,14 @@ export interface DefenseSplit {
 }
 
 export interface PlayerLogResponse {
-  player: { id: number; name: string; team: string; position: string | null; league?: string }
+  player: {
+    id: number
+    name: string
+    team: string
+    position: string | null
+    league?: string
+    ext_id?: string | null
+  }
   teamId: number | null
   games: GameRow[]
   seasonAvgs: Record<string, number>

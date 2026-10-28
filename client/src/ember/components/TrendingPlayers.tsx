@@ -1,70 +1,65 @@
-import { useState } from "react";
-import { Link } from "react-router-dom";
-import { playerPath } from "@/lib/paths";
-import LeaguePill from "./LeaguePill";
-import ModuleCard from "./ModuleCard";
-import { EmptyState } from "./EntityState";
+import { useState } from 'react'
+import { Link } from 'react-router-dom'
+import { playerPath } from '@/lib/paths'
+import LeaguePill from './LeaguePill'
+import ModuleCard from './ModuleCard'
+import { EmptyState } from './EntityState'
 
 export type TrendingRow = {
-  rank: number;
-  playerId: number;
+  rank: number
+  playerId: number
   /** League slug, for routing. */
-  league: string;
-  leagueLabel: string;
-  name: string;
-  team: string;
-  stat: string;
-  chips: string[];
+  league: string
+  leagueLabel: string
+  name: string
+  team: string
+  stat: string
+  chips: string[]
   /** Quantified explanation for each chip, shown when it is clicked. */
-  chipDetails?: { label: string; summary: string; lines: string[] }[];
-  seasonVal: number;
-  l10Val: number;
-  delta: string;
+  chipDetails?: { label: string; summary: string; lines: string[] }[]
+  seasonVal: number
+  l10Val: number
+  delta: string
   /** Sort key; not rendered. */
-  zScore: number;
-};
+  zScore: number
+}
 
 interface TrendingPlayersProps {
-  rows: TrendingRow[];
-  meta: string;
-  showLeague?: boolean;
-  className?: string;
-  emptyLabel?: string;
+  rows: TrendingRow[]
+  meta: string
+  showLeague?: boolean
+  className?: string
+  emptyLabel?: string
 }
 
 export default function TrendingPlayers({
   rows,
   meta,
   showLeague = false,
-  className = "",
-  emptyLabel = "NO TRENDS AVAILABLE",
+  className = '',
+  emptyLabel = 'NO TRENDS AVAILABLE',
 }: TrendingPlayersProps) {
   // One open explanation at a time, keyed by row + chip.
-  const [openKey, setOpenKey] = useState<string | null>(null);
+  const [openKey, setOpenKey] = useState<string | null>(null)
   return (
     <ModuleCard title="TRENDING PLAYERS" meta={meta} className={className}>
       {rows.length === 0 && <EmptyState label={emptyLabel} compact />}
       {rows.map((row) => {
-        const max = Math.max(row.seasonVal, row.l10Val) || 1;
-        const rowKey = `${row.league}-${row.playerId}-${row.stat}`;
-        const openDetail = row.chipDetails?.find(
-          (d) => openKey === `${rowKey}:${d.label}`,
-        );
+        const max = Math.max(row.seasonVal, row.l10Val) || 1
+        const rowKey = `${row.league}-${row.playerId}-${row.stat}`
+        const openDetail = row.chipDetails?.find((d) => openKey === `${rowKey}:${d.label}`)
         return (
-          <div
-            key={rowKey}
-            className="border-b border-[#221D1A] last:border-b-0"
-          >
+          <div key={rowKey} className="border-b border-[#221D1A] last:border-b-0">
             <Link
               to={playerPath(row.league, row.playerId)}
               className={`grid items-center gap-[14px] px-[18px] py-[14px] hover:bg-[#211C1A] ${
                 showLeague
-                  ? "grid-cols-[26px_38px_1fr_auto_150px_52px]"
-                  : "grid-cols-[26px_1fr_auto_150px_52px]"
+                  ? 'grid-cols-[26px_38px_1fr_auto_150px_52px]'
+                  : 'grid-cols-[26px_1fr_auto_150px_52px]'
               }`}
             >
               <span className="font-martian font-bold text-[14px] text-[#A8A09C]">
-                {String(row.rank).padStart(2, "0")}
+                {String(row.rank).padStart(2, '0')}
               </span>
               {showLeague && <LeaguePill league={row.leagueLabel} />}
               <div className="min-w-0">
@@ -77,42 +72,38 @@ export default function TrendingPlayers({
               </div>
               <div className="flex gap-[6px]">
                 {row.chips.slice(0, 2).map((chip) => {
-                  const has = row.chipDetails?.some((d) => d.label === chip);
-                  const isOpen = openKey === `${rowKey}:${chip}`;
+                  const has = row.chipDetails?.some((d) => d.label === chip)
+                  const isOpen = openKey === `${rowKey}:${chip}`
                   return (
                     <span
                       key={chip}
-                      role={has ? "button" : undefined}
+                      role={has ? 'button' : undefined}
                       tabIndex={has ? 0 : undefined}
                       aria-expanded={has ? isOpen : undefined}
-                      title={
-                        has ? "Click for the numbers behind this" : undefined
-                      }
+                      title={has ? 'Click for the numbers behind this' : undefined}
                       onClick={(e) => {
-                        if (!has) return;
-                        e.preventDefault();
-                        setOpenKey(isOpen ? null : `${rowKey}:${chip}`);
+                        if (!has) return
+                        e.preventDefault()
+                        setOpenKey(isOpen ? null : `${rowKey}:${chip}`)
                       }}
                       onKeyDown={(e) => {
-                        if (has && (e.key === "Enter" || e.key === " ")) {
-                          e.preventDefault();
-                          setOpenKey(isOpen ? null : `${rowKey}:${chip}`);
+                        if (has && (e.key === 'Enter' || e.key === ' ')) {
+                          e.preventDefault()
+                          setOpenKey(isOpen ? null : `${rowKey}:${chip}`)
                         }
                       }}
                       className={`font-martian font-medium text-[11px] uppercase border rounded-[3px] px-[7px] py-[3px] whitespace-nowrap ${
-                        has
-                          ? "cursor-pointer hover:bg-[rgba(255,107,61,0.18)]"
-                          : ""
+                        has ? 'cursor-pointer hover:bg-[rgba(255,107,61,0.18)]' : ''
                       } ${
                         isOpen
-                          ? "bg-[#FF6B3D] text-[#14100F] border-[#FF6B3D]"
-                          : "text-[#FF6B3D] border-[rgba(255,107,61,0.5)] bg-[rgba(255,107,61,0.08)]"
+                          ? 'bg-[#FF6B3D] text-[#14100F] border-[#FF6B3D]'
+                          : 'text-[#FF6B3D] border-[rgba(255,107,61,0.5)] bg-[rgba(255,107,61,0.08)]'
                       }`}
                     >
                       {chip}
-                      {has ? " ⓘ" : ""}
+                      {has ? ' ⓘ' : ''}
                     </span>
-                  );
+                  )
                 })}
               </div>
               <div className="flex flex-col gap-[5px] w-[150px]">
@@ -150,10 +141,7 @@ export default function TrendingPlayers({
                 </div>
                 <ul className="mt-2 flex flex-col gap-[5px]">
                   {openDetail.lines.map((l) => (
-                    <li
-                      key={l}
-                      className="font-schibsted text-[13px] text-[#D8D2CE] leading-snug"
-                    >
+                    <li key={l} className="font-schibsted text-[13px] text-[#D8D2CE] leading-snug">
                       {l}
                     </li>
                   ))}
@@ -161,8 +149,8 @@ export default function TrendingPlayers({
               </div>
             )}
           </div>
-        );
+        )
       })}
     </ModuleCard>
-  );
+  )
 }

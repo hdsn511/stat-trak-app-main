@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { Fragment, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { gamePath } from '@/lib/paths'
 import LeaguePill from './LeaguePill'
@@ -75,6 +75,19 @@ function ChipBody({ g }: { g: TickerGame }) {
         {g.status}
       </span>
     </>
+  )
+}
+
+function LaneDivider() {
+  return (
+    <span
+      role="separator"
+      aria-orientation="vertical"
+      className="block w-[2px] h-[22px] rounded-full shrink-0"
+      style={{
+        background: 'linear-gradient(180deg, transparent, #FF6B3D 30%, #FF6B3D 70%, transparent)',
+      }}
+    />
   )
 }
 
@@ -158,26 +171,27 @@ export default function LiveTicker({ label, games, emptyLabel, onGameClick }: Li
   const moving = games.length > 4
   useAutoScroll(scroller, moving)
   const renderLanes = (copy: number) =>
-    lanes.map(([league, items]) => (
-      <div
-        key={`${copy}-${league}`}
-        className="flex items-center gap-[10px] pl-[12px] pr-[6px] my-[7px] border-l-2 border-l-[#FF6B3D] shrink-0"
-        style={{ boxShadow: 'inset 12px 0 14px -14px rgba(255,107,61,0.55)' }}
-      >
-        {items.map((g) =>
-          // A game without a database id can't be opened, and an explicit
-          // handler takes precedence over navigation.
-          !onGameClick && g.dbId && g.slug ? (
-            <Link key={g.id} to={gamePath(g.slug, g.dbId)} className={CHIP}>
-              <ChipBody g={g} />
-            </Link>
-          ) : (
-            <button key={g.id} type="button" onClick={() => onGameClick?.(g)} className={CHIP}>
-              <ChipBody g={g} />
-            </button>
-          )
-        )}
-      </div>
+    lanes.map(([league, items], laneIdx) => (
+      <Fragment key={`${copy}-${league}`}>
+        {/* Vertical rule centred between lanes: equal space either side and
+            vertically centred by the row's items-center. */}
+        {(laneIdx > 0 || copy > 0) && <LaneDivider />}
+        <div className="flex items-center gap-[10px] shrink-0">
+          {items.map((g) =>
+            // A game without a database id can't be opened, and an explicit
+            // handler takes precedence over navigation.
+            !onGameClick && g.dbId && g.slug ? (
+              <Link key={g.id} to={gamePath(g.slug, g.dbId)} className={CHIP}>
+                <ChipBody g={g} />
+              </Link>
+            ) : (
+              <button key={g.id} type="button" onClick={() => onGameClick?.(g)} className={CHIP}>
+                <ChipBody g={g} />
+              </button>
+            )
+          )}
+        </div>
+      </Fragment>
     ))
 
   return (
@@ -196,10 +210,14 @@ export default function LiveTicker({ label, games, emptyLabel, onGameClick }: Li
         // A real scroll container: the drift is a slow scrollLeft nudge, so the
         // user can wheel, drag-scroll or swipe it themselves at any time.
         <div ref={scroller} className="flex-1 min-w-0 overflow-x-auto no-scrollbar">
-          <div className="flex w-max items-center gap-[18px]">
+          <div className="flex w-max items-center gap-[18px] py-[9px]">
             {renderLanes(0)}
             {/* Duplicate so the drift can wrap without a visible jump. */}
-            {moving && <div aria-hidden className="contents">{renderLanes(1)}</div>}
+            {moving && (
+              <div aria-hidden className="contents">
+                {renderLanes(1)}
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -12,6 +12,9 @@ import {
   splitsFor,
 } from './derive'
 import { usePlayerFilters } from './usePlayerFilters'
+import PlayerAvatar from '@/ember/components/PlayerAvatar'
+import TeamLogo from '@/ember/components/TeamLogo'
+import { teamAccent } from '@/lib/teamBrand'
 import FilterBar from './components/FilterBar'
 import LineControl from './components/LineControl'
 import GameLogChart from './components/GameLogChart'
@@ -32,6 +35,7 @@ const TEAM_COUNT: Record<LeagueSlug, number> = { nba: 30, mlb: 30, nhl: 32, nfl:
 
 export default function PlayerView({ slug, data, mode, initialFilters }: PlayerViewProps) {
   const cfg = getPlayerStatConfig(slug)
+  const accent = teamAccent(slug, data.player.team)
   const allGames = data.games
   // Season scope: windows (L10…) and averages never reach into a prior season.
   // Defaults to the player's latest real season; 0 = every stored season.
@@ -96,13 +100,29 @@ export default function PlayerView({ slug, data, mode, initialFilters }: PlayerV
   return (
     <div className={`${pad} pt-6 pb-11`}>
       {/* Identity */}
-      <div className="flex items-end gap-4 flex-wrap">
+      <div
+        className="flex items-center gap-5 flex-wrap rounded-lg border border-[#2C2624] px-[20px] py-[16px]"
+        style={{
+          background: `linear-gradient(100deg, ${accent}33 0%, #1B1715 60%)`,
+          borderLeft: `4px solid ${accent}`,
+        }}
+      >
+        <PlayerAvatar
+          league={slug}
+          extId={data.player.ext_id}
+          name={data.player.name}
+          accent={accent}
+          size={mode === 'full' ? 88 : 68}
+        />
         <div className="min-w-0">
           <div className="font-chakra italic font-bold text-[clamp(22px,3vw,34px)] tracking-[-1px] leading-none text-[#EFEBE9]">
             {data.player.name}
           </div>
-          <div className="font-martian text-[12px] text-[#C9C2BE] mt-[7px] tracking-[0.5px]">
-            {`${data.player.team} · ${data.player.position ?? '—'} · ${data.gamesPlayed} GP${data.currentSeason ? ` · ${data.currentSeason} SEASON` : ''}`.toUpperCase()}
+          <div className="flex items-center gap-2 mt-[8px]">
+            <TeamLogo league={slug} abbr={data.player.team} size={20} />
+            <span className="font-martian text-[12px] text-[#C9C2BE] tracking-[0.5px]">
+              {`${data.player.team} · ${data.player.position ?? '—'} · ${data.gamesPlayed} GP${data.currentSeason ? ` · ${data.currentSeason} SEASON` : ''}`.toUpperCase()}
+            </span>
           </div>
         </div>
       </div>

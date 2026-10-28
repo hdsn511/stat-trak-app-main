@@ -43,7 +43,10 @@ export default function LeaguePage({ config }: LeaguePageProps) {
         emptyLabel={loading ? 'LOADING SLATE…' : 'NO GAMES SCHEDULED'}
       />
 
-      <section className="relative overflow-hidden bg-[#EFE9E0] border-b border-[#E4E0D6] px-8 pt-[26px] pb-6">
+      <section
+        className="relative overflow-hidden border-b border-[#E4E0D6] px-8 pt-[26px] pb-6"
+        style={{ background: 'linear-gradient(180deg, #F7F5F0 0%, #FFFFFF 100%)' }}
+      >
         <span
           aria-hidden
           className="pointer-events-none select-none absolute -top-[58px] -right-[14px] font-chakra italic font-bold text-[170px] leading-none tracking-[-8px] text-[rgba(20,16,15,0.05)]"

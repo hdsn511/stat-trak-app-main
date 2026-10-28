@@ -43,7 +43,7 @@ export const SPORTS: SportCapability[] = [
       'Shooting percentages, steals, blocks, turnovers, plus-minus. Usage, pace and tracking stats stop after 2025-26.',
     examples: [
       'Top 5 NBA scorers by points per game last season',
-      "LeBron's last 10 games without Austin Reaves",
+      'Who scored the most points in the NBA last night?',
       'Which guards are trending up on assists over the last 5 games?',
     ],
   },

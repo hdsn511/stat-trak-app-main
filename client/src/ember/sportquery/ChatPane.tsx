@@ -1,3 +1,4 @@
+import RichText from './RichText'
 import { useEffect, useRef } from 'react'
 import AskBar from '@/ember/components/AskBar'
 import QueryChips from '@/ember/components/QueryChips'
@@ -81,8 +82,8 @@ function AssistantBlock({
       </div>
 
       {turn.text && (
-        <div className="font-schibsted text-[14px] leading-[1.6] text-[#D8D2CE] max-w-[620px] [text-wrap:pretty]">
-          {turn.text}
+        <div className="font-schibsted text-[15px] leading-[1.6] text-[#D8D2CE] max-w-[620px] [text-wrap:pretty]">
+          <RichText text={turn.text} />
         </div>
       )}
 

@@ -23,7 +23,7 @@ function Row({ league, rank, row }: { league: string; rank: number; row: Standin
   return (
     <Link
       to={teamPath(league, row.team_id)}
-      className="grid grid-cols-[26px_1fr_58px_44px_64px_34px] gap-[10px] items-center px-[18px] py-2 border-t border-[#221D1A] hover:bg-[#211C1A]"
+      className="grid grid-cols-[26px_1fr_84px_44px_64px_34px] gap-[10px] items-center px-[18px] py-2 border-t border-[#221D1A] hover:bg-[#211C1A]"
     >
       <span className="font-martian text-[12px] text-[#A8A09C]">{rank}</span>
       <div className="min-w-0 flex items-center gap-2 whitespace-nowrap overflow-hidden text-ellipsis">
@@ -33,7 +33,7 @@ function Row({ league, rank, row }: { league: string; rank: number; row: Standin
         </span>{' '}
         <span className="font-schibsted text-[13px] text-[#C9C2BE]">{row.name}</span>
       </div>
-      <span className="font-martian font-bold text-[14px] text-[#EFEBE9] text-right tabular-nums">
+      <span className="font-martian font-bold text-[14px] text-[#EFEBE9] text-right tabular-nums whitespace-nowrap">
         {/* Hockey reads W-L-OTL; the NFL's third number is ties. */}
         {row.w}–{row.l}
         {row.otl > 0 ? `–${row.otl}` : row.t > 0 ? `–${row.t}` : ''}
@@ -146,7 +146,7 @@ export default function StandingsCard({ league, standings, loading }: StandingsC
       >
         <div
           className="grid"
-          style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}
+          style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))' }}
         >
           {conferences.map(([name, rows], i) => (
             <Column
@@ -180,7 +180,7 @@ export default function StandingsCard({ league, standings, loading }: StandingsC
       title="STANDINGS"
       meta={`${league.toUpperCase()} · ${expanded ? `ALL ${standings.length}` : `TOP ${shown.length}`} BY WIN PCT`}
     >
-      <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}>
+      <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))' }}>
         <Column
           label={`1–${first.length}`}
           league={league}

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 
 // Shared loading / error / empty states for the full-page entity views
 // (player, game, team). Keeps every route reporting failure the same way
@@ -58,6 +59,24 @@ export function EmptyState({ label, compact }: { label: string; compact?: boolea
         <span className="text-[#FF6B3D] opacity-60">{'// '}</span>
         {label}
       </span>
+    </Centered>
+  )
+}
+
+/** Catch-all for URLs no route matches; without it the page rendered blank. */
+export function NotFoundState() {
+  return (
+    <Centered>
+      <div className="font-chakra italic font-bold text-[56px] leading-none text-[#FF6B3D]">404</div>
+      <div className="font-martian text-[12px] text-[#A8A09C] tracking-[1px] mt-4">
+        NOTHING AT THIS ADDRESS
+      </div>
+      <Link
+        to="/"
+        className="inline-block font-martian text-[11px] text-[#C9C2BE] hover:text-[#EFEBE9] border border-[#2C2624] hover:border-[#665F5D] rounded-md px-[14px] py-[7px] mt-6"
+      >
+        → HOME
+      </Link>
     </Centered>
   )
 }

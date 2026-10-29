@@ -10,6 +10,8 @@ import searchRoutes from './routes/search';
 import { leagueMiddleware } from './config/leagues';
 import { proxySecretGate } from './middleware/proxySecret';
 import { cacheControl } from './middleware/cacheControl';
+import { apiErrorHandler, apiNotFound, safeErrors } from './middleware/safeErrors';
+import { apiReadLimiter } from './middleware/sportqueryRateLimit';
 
 const isLambda = Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME);
 
@@ -65,6 +67,11 @@ app.get('/health', (req: any, res: any) => {
 // Everything below is reachable only through the Cloudflare proxy.
 app.use('/api', proxySecretGate());
 app.use('/api', cacheControl());
+app.use('/api', safeErrors());
+// SportQuery has its own, tighter limiters.
+app.use('/api', (req: any, res: any, next: any) =>
+  req.path.startsWith('/sportquery') ? next() : apiReadLimiter(req, res, next)
+);
 
 // Same handlers, mounted per-league. The middleware sets res.locals.league so
 // the (league-agnostic) controllers resolve their tables/filters per sport.
@@ -90,3 +97,6 @@ app.use('/api/search', searchRoutes);
 app.use('/api/performance', performanceRoutes);
 app.use('/api/nba/performance', leagueMiddleware('nba'), performanceRoutes);
 app.use('/api/mlb/performance', leagueMiddleware('mlb'), performanceRoutes);
+
+app.use('/api', apiNotFound());
+app.use(apiErrorHandler());

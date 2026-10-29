@@ -97,7 +97,9 @@ export default function LeaguePage({ config }: LeaguePageProps) {
             emptyLabel={
               loading
                 ? 'LOADING TRENDS…'
-                : `NO ${config.name} TREND DATA — PIPELINE NOT YET BUILT FOR THIS LEAGUE`
+                : // Trends compare the last 10 games with the season, so early in a
+                  // season the list is legitimately empty — say so.
+                  `NO ${config.name} TRENDS YET — THEY START ONCE PLAYERS HAVE 10 GAMES THIS SEASON`
             }
           />
           <StreakWatch

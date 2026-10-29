@@ -90,6 +90,30 @@ describe('sqlValidator — table whitelist', () => {
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.reason).toMatch(/function|pg_/i)
   })
+
+  // These run SQL or read a table named inside a string, which the table
+  // allowlist cannot see — the route by which chat history was reachable.
+  it.each([
+    "SELECT query_to_xml('select * from sportquery_messages', true, false, '') FROM leagues",
+    "SELECT table_to_xml('sportquery_sessions', true, false, '') FROM leagues",
+    "SELECT query_to_xml_and_xmlschema('select 1', true, false, '') FROM leagues",
+    "SELECT * FROM ts_stat('select to_tsvector(content) from sportquery_messages')",
+    "SELECT current_setting('server_version') FROM leagues",
+    "SELECT set_config('statement_timeout', '0', true) FROM leagues",
+    'SELECT version() FROM leagues',
+  ])('rejects string-executing / server-state function: %s', async (sql) => {
+    const result = await validateSql(sql)
+    expect(result.ok).toBe(false)
+  })
+
+  it('still accepts ordinary aggregate and window functions', async () => {
+    const result = await validateSql(
+      'SELECT player_id, round(avg(pts)::numeric, 1), rank() OVER (ORDER BY sum(pts) DESC), ' +
+        "coalesce(max(reb), 0), date_trunc('month', max(game_date)) " +
+        'FROM nba_player_stats GROUP BY player_id'
+    )
+    expect(result.ok).toBe(true)
+  })
 })
 
 describe('sqlValidator — LIMIT injection', () => {

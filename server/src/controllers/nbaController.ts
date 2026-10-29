@@ -452,6 +452,10 @@ export async function getPlayerGames(req: Request<{ id: string }>, res: Response
   try {
     const lg = resolveLeague(res);
     const { id } = req.params;
+    if (!/^\d+$/.test(id)) {
+      res.status(400).json({ success: false, error: 'Invalid player ID' });
+      return;
+    }
     const logLimit = resolveLogLimit(req.query.window);
 
     // Season window and game-type vocabulary both vary by league; they live in
@@ -469,8 +473,12 @@ export async function getPlayerGames(req: Request<{ id: string }>, res: Response
       .from('players')
       .select('id, name, team, position, league, ext_id')
       .eq('id', parseInt(id))
-      .single();
+      .maybeSingle();
     if (playerResult.error) throw playerResult.error;
+    if (!playerResult.data) {
+      res.status(404).json({ success: false, error: 'Player not found' });
+      return;
+    }
 
     const isPitcher =
       lg.slug === 'mlb' &&

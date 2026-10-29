@@ -48,6 +48,29 @@ const ALLOWED_TABLES = new Set([
   'nhl_trends',
 ])
 
+/**
+ * Substrings of function names that are never allowed. The table allowlist only
+ * sees relations the parser finds in FROM clauses, so anything that runs SQL
+ * held in a string (query_to_xml, ts_stat, ts_rewrite), reads a table named by
+ * a string (table_to_xml and the *_to_xml family), or exposes server state
+ * (current_setting, set_config, version, inet_server_*) would walk straight
+ * past it.
+ */
+const DENIED_FUNCTION_PARTS = [
+  'dblink',
+  'lo_',
+  '_to_xml',
+  'xmlschema',
+  'ts_stat',
+  'ts_rewrite',
+  'current_setting',
+  'set_config',
+  'version',
+  'inet_',
+  'txid_',
+  'has_',
+]
+
 function collectRangeVars(node: any, bucket: string[]): void {
   if (!node || typeof node !== 'object') return
   if (Array.isArray(node)) {
@@ -161,7 +184,7 @@ export async function validateSql(sql: string): Promise<ValidationResult> {
     if (f.startsWith('pg_') || f.includes('.pg_')) {
       return { ok: false, reason: `function '${f}' is not allowed` }
     }
-    if (['dblink', 'lo_import', 'lo_export'].some((bad) => f.includes(bad))) {
+    if (DENIED_FUNCTION_PARTS.some((bad) => f.includes(bad))) {
       return { ok: false, reason: `function '${f}' is not allowed` }
     }
   }

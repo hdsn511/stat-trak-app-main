@@ -11,6 +11,7 @@ import SportQueryPage from '@/ember/sportquery/SportQueryPage'
 import PlayerPage from '@/ember/player/PlayerPage'
 import GamePage from '@/ember/game/GamePage'
 import TeamPage from '@/ember/team/TeamPage'
+import { NotFoundState } from '@/ember/components/EntityState'
 
 function LegacyLayout() {
   return (
@@ -58,6 +59,7 @@ export default function App() {
         <Route path="/player/:league/:id" element={<PlayerPage />} />
         <Route path="/game/:league/:id" element={<GamePage />} />
         <Route path="/team/:league/:id" element={<TeamPage />} />
+        <Route path="*" element={<NotFoundState />} />
       </Route>
 
       {/* Legacy two-segment URLs. Registered after the three-segment routes

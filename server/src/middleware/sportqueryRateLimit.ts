@@ -104,3 +104,9 @@ export const sportquerySessionLimiter = makeLimiter(
   'sportquery-session',
   'rate_limit: slow down'
 )
+
+// Every other /api read. Pages fan out ~10 requests on load and most are served
+// from the edge cache before reaching the Lambda at all, so a human never gets
+// near this; it caps a scraper looping over player/game ids, each of which is a
+// Lambda invocation and a Supabase query.
+export const apiReadLimiter = makeLimiter(300, '1 m', 'api-read', 'rate_limit: slow down')

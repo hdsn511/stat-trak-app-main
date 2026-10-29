@@ -17,7 +17,7 @@ export default function QueryChips({ chips, onSelect, variant = 'dark' }: QueryC
           key={chip}
           type="button"
           onClick={() => onSelect?.(chip)}
-          className={`font-martian text-[12px] border rounded-[14px] px-3 py-[5px] cursor-pointer whitespace-nowrap ${chipClass}`}
+          className={`font-martian text-[12px] border rounded-[14px] px-3 py-[5px] cursor-pointer max-w-full sm:whitespace-nowrap ${chipClass}`}
         >
           {chip}
         </button>

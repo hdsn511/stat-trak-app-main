@@ -145,7 +145,7 @@ export default function GlobalSearch() {
   const showPanel = open && trimmed.length >= MIN_QUERY
 
   return (
-    <div ref={rootRef} className="relative w-[210px] shrink-0">
+    <div ref={rootRef} className="relative w-[150px] sm:w-[210px] shrink-0">
       <input
         ref={inputRef}
         type="search"
@@ -168,7 +168,7 @@ export default function GlobalSearch() {
       </span>
 
       {showPanel && (
-        <div className="absolute top-[calc(100%+6px)] right-0 w-[320px] max-h-[420px] overflow-y-auto bg-[#171310] border border-[#2C2624] rounded-md shadow-[0_12px_32px_rgba(0,0,0,0.55)] z-50 animate-rise">
+        <div className="absolute top-[calc(100%+6px)] right-0 w-[min(320px,calc(100vw-32px))] max-h-[420px] overflow-y-auto bg-[#171310] border border-[#2C2624] rounded-md shadow-[0_12px_32px_rgba(0,0,0,0.55)] z-50 animate-rise">
           {loading && hits.length === 0 && (
             <div className="px-[14px] py-[14px] font-martian text-[11px] text-[#A8A09C] tracking-[1px]">
               SEARCHING…

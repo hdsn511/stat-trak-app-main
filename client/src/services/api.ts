@@ -16,6 +16,10 @@ export interface TrendingPlayer {
   rollingAvg: number
   windowSize: number
   seasonAvg?: number | null
+  /** players.ext_id, for the headshot. */
+  extId?: string | null
+  /** The Kalshi rung nearest the recent average (null: no ladder for this stat). */
+  suggested?: KalshiSuggestion | null
   /**
    * Driver chips explaining WHY the player is trending — derived from
    * daily_conditions (usage spike, minutes bump, pace) + player_availability
@@ -24,6 +28,13 @@ export interface TrendingPlayer {
   trendDrivers?: string[]
   /** Quantified drill-down behind each driver chip. */
   trendDriverDetails?: { label: string; summary: string; lines: string[] }[]
+}
+
+/** A Kalshi "X+" market: rung 10 = over 9.5. */
+export interface KalshiSuggestion {
+  rung: number
+  line: number
+  side: 'over'
 }
 
 export interface PlayerSearchResult {
@@ -230,6 +241,10 @@ export interface PlayerStreakRow {
   line_90: number
   line_80: number
   line_70: number
+  /** players.ext_id, for the headshot. */
+  ext_id?: string | null
+  /** The highest Kalshi rung the 10/10 floor still clears (null: none does). */
+  suggested?: KalshiSuggestion | null
   /** MLB: current active streak (consecutive games with 1+ of the stat), uncapped. */
   streak_count?: number
   /** MLB: the streak's guaranteed level — min stat value across the run (1+, 2+, …). */
@@ -469,7 +484,45 @@ export interface ProjectPick {
     elo_prob?: number | null
     elo_agrees?: boolean | null
   }
-  game: { id: number; date: string; time: string | null; matchup: string }
+  /** players.ext_id for a prop's headshot; null for winners. */
+  ext_id: string | null
+  game: { id: number; date: string; time: string | null; matchup: string; away: string | null; home: string | null }
+}
+
+export interface NewsItem {
+  id: string
+  kind: 'trade' | 'injury'
+  headline: string
+  description: string | null
+  published: string
+  url: string | null
+  /** Team abbreviations tagged on the story. */
+  teams: string[]
+  athlete: { name: string; headshot: string } | null
+}
+
+export interface SuggestionResult {
+  player_id: number
+  name: string
+  team: string | null
+  ext_id: string | null
+  stat: string
+  stat_label: string
+  rung: number
+  actual: number
+  did_hit: boolean
+}
+
+export interface SuggestionResultSet {
+  record: { w: number; l: number }
+  rows: SuggestionResult[]
+}
+
+/** Yesterday's graded Trending Players / Streak Watch suggestions. */
+export interface SuggestionResults {
+  date: string | null
+  trending: SuggestionResultSet
+  streak: SuggestionResultSet
 }
 
 export interface ProjectGame {
@@ -699,6 +752,12 @@ export function createLeagueApi(slug: string) {
 
     getProjects: (): Promise<ProjectsResponse> =>
       get(`${BASE}/${slug}/projects`),
+
+    getNews: (): Promise<{ items: NewsItem[] }> =>
+      get(`${BASE}/${slug}/news`),
+
+    getSuggestionResults: (): Promise<SuggestionResults> =>
+      get(`${BASE}/${slug}/suggestions/results`),
   }
 }
 

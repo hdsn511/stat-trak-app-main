@@ -62,6 +62,8 @@ export function toTrendingRows(
       stat: statLabel(p.stat),
       chips: p.trendDrivers ?? [],
       chipDetails: p.trendDriverDetails ?? [],
+      extId: p.extId ?? null,
+      suggested: p.suggested?.rung ?? null,
       seasonVal: season,
       l10Val: recent,
       delta: `${diff > 0 ? '+' : ''}${diff.toFixed(1)}`,
@@ -111,6 +113,8 @@ export function toStreakRows(
     label,
     rollingAvg: round1(r.rolling_avg),
     opponent: r.opponent?.team ?? null,
+    extId: r.ext_id ?? null,
+    suggested: r.suggested?.rung ?? null,
     detail:
       r.streak_count != null && r.streak_count > 0
         ? { kind: 'run' as const, games: r.streak_count, line: r.streak_line ?? 1 }

@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabaseAdmin';
 import { findNearestPickDate, findNearestLinesDate } from '../utils/dateQueries';
 import { league as resolveLeague, seasonStartFor } from '../config/leagues';
+import { rungAtOrBelow, type Suggestion } from '../utils/kalshiLadder';
 
 export async function getTopPicks(req: Request<{}, {}, {}, { limit?: string }>, res: Response) {
   try {
@@ -19,7 +20,7 @@ export async function getTopPicks(req: Request<{}, {}, {}, { limit?: string }>, 
       )
       .eq('game_date', pickDate)
       .eq('league_id', lg.leagueId)
-      .neq('pick_type', 'project')
+      .not('pick_type', 'in', '(project,sugg_trending,sugg_streak)')
       .order('confidence_score', { ascending: false });
 
     if (error) throw error;
@@ -338,7 +339,7 @@ export async function getPerfectStreaks(req: Request<{}, {}, {}, { type?: string
     // abbreviations like "ATL" exist in both NBA and MLB).
     const { data: allPlayers } = await supabaseAdmin
       .from('players')
-      .select('id,name,team,position')
+      .select('id,name,team,position,ext_id')
       .eq('league_id', lg.leagueId)
       .in('team', [...slateTeams]);
     const candidates = (allPlayers ?? []).filter((p: any) => !outIds.has(p.id));
@@ -358,6 +359,9 @@ export async function getPerfectStreaks(req: Request<{}, {}, {}, { type?: string
       player_name: string;
       team: string;
       position: string;
+      ext_id?: string | null;
+      // The highest Kalshi rung the 10/10 floor still clears (null: no market covers it).
+      suggested?: Suggestion | null;
       line_100: number;
       line_90: number;
       line_80: number;
@@ -483,6 +487,8 @@ export async function getPerfectStreaks(req: Request<{}, {}, {}, { type?: string
         player_name: p?.name,
         team: p?.team,
         position: p?.position,
+        ext_id: p?.ext_id ?? null,
+        suggested: rungAtOrBelow(lg.slug, stat, at(0)),
         line_100: clamp(toKalshiLine(at(0))),
         line_90:  clamp(toKalshiLine(at(1))),
         line_80:  clamp(toKalshiLine(at(2))),

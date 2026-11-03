@@ -1,6 +1,11 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { playerPath } from '@/lib/paths'
+import { teamAccent } from '@/lib/teamBrand'
+import type { SuggestionResultSet } from '@/services/api'
+import { recordLabel } from '@/ember/data/results'
+import PlayerAvatar from './PlayerAvatar'
+import YesterdayResults from './YesterdayResults'
 import LeaguePill from './LeaguePill'
 import ModuleCard from './ModuleCard'
 import { EmptyState } from './EntityState'
@@ -22,6 +27,10 @@ export type TrendingRow = {
   delta: string
   /** Sort key; not rendered. */
   zScore: number
+  /** players.ext_id, for the headshot. */
+  extId?: string | null
+  /** Kalshi rung nearest the L10 average, e.g. 10 for "10+". */
+  suggested?: number | null
 }
 
 interface TrendingPlayersProps {
@@ -30,6 +39,8 @@ interface TrendingPlayersProps {
   showLeague?: boolean
   className?: string
   emptyLabel?: string
+  /** Yesterday's graded snapshot of this card. */
+  results?: SuggestionResultSet | null
 }
 
 export default function TrendingPlayers({
@@ -38,16 +49,19 @@ export default function TrendingPlayers({
   showLeague = false,
   className = '',
   emptyLabel = 'NO TRENDS AVAILABLE',
+  results,
 }: TrendingPlayersProps) {
+  const record = recordLabel(results)
   // One open explanation at a time, keyed by row + chip.
   const [openKey, setOpenKey] = useState<string | null>(null)
   return (
-    <ModuleCard title="TRENDING PLAYERS" meta={meta} className={className}>
+    <ModuleCard title="TRENDING PLAYERS" meta={record ? `${meta} · YESTERDAY ${record}` : meta} className={className}>
       {rows.length === 0 && <EmptyState label={emptyLabel} compact />}
       {rows.map((row) => {
         const max = Math.max(row.seasonVal, row.l10Val) || 1
         const rowKey = `${row.league}-${row.playerId}-${row.stat}`
         const openDetail = row.chipDetails?.find((d) => openKey === `${rowKey}:${d.label}`)
+        const yday = results?.rows.find((r) => r.player_id === row.playerId && r.stat_label === row.stat)
         return (
           <div key={rowKey} className="border-b border-[#221D1A] last:border-b-0">
             <Link
@@ -62,12 +76,31 @@ export default function TrendingPlayers({
                 {String(row.rank).padStart(2, '0')}
               </span>
               {showLeague && <LeaguePill league={row.leagueLabel} />}
-              <div className="min-w-0">
-                <div className="font-schibsted font-bold text-[14px] text-[#EFEBE9] whitespace-nowrap overflow-hidden text-ellipsis">
-                  {row.name}
-                </div>
-                <div className="font-martian text-[11px] text-[#C9C2BE] mt-[2px]">
-                  {row.team} · {row.stat}
+              <div className="min-w-0 flex items-center gap-[10px]">
+                <PlayerAvatar
+                  league={row.league}
+                  extId={row.extId}
+                  name={row.name}
+                  accent={teamAccent(row.league, row.team)}
+                  size={34}
+                />
+                <div className="min-w-0">
+                  <div className="font-schibsted font-bold text-[14px] text-[#EFEBE9] whitespace-nowrap overflow-hidden text-ellipsis">
+                    {row.name}
+                  </div>
+                  <div className="font-martian text-[11px] text-[#C9C2BE] mt-[2px] whitespace-nowrap overflow-hidden text-ellipsis">
+                    {row.team} · {row.stat}
+                    {row.suggested != null && (
+                      <span className="text-[#FF6B3D]">
+                        {' '}· {row.suggested}+ {row.stat}
+                      </span>
+                    )}
+                    {yday && (
+                      <span className={yday.did_hit ? 'text-[#3FBF7F]' : 'text-[#FF6B5C]'}>
+                        {' '}· YDAY {yday.actual} {yday.did_hit ? 'W' : 'L'}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
               <div className="flex gap-[6px]">
@@ -151,6 +184,7 @@ export default function TrendingPlayers({
           </div>
         )
       })}
+      <YesterdayResults league={rows[0]?.league ?? 'nba'} set={results} />
     </ModuleCard>
   )
 }

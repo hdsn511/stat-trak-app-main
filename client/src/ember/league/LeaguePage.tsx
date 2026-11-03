@@ -2,10 +2,11 @@ import { useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AskBar, LiveTicker, QueryChips, StreakWatch, TrendingPlayers } from '@/ember/components'
 import StandingsCard from '@/ember/nba/StandingsCard'
-import ProjectsCard from '@/ember/league/ProjectsCard'
+import PicksCard from '@/ember/league/PicksCard'
+import NewsCard from '@/ember/league/NewsCard'
 import { useEntityData } from '@/ember/useEntityData'
 import { useSportData } from '@/ember/data/useSportData'
-import { createLeagueApi, type StandingsResponse } from '@/services/api'
+import { createLeagueApi, type StandingsResponse, type SuggestionResults } from '@/services/api'
 import { formatGameDate } from '@/ember/game/format'
 import { LeagueConfig } from '@/ember/league/leagueConfigs'
 
@@ -28,6 +29,17 @@ export default function LeaguePage({ config }: LeaguePageProps) {
     [config.slug]
   )
   const standings = useEntityData<StandingsResponse>(loadStandings)
+
+  // Picks and the card snapshots behind yesterday's W-L exist for these leagues only.
+  const hasPicks = config.slug === 'nba' || config.slug === 'nfl'
+  const loadResults = useCallback(
+    () =>
+      config.slug === 'nba'
+        ? createLeagueApi(config.slug).getSuggestionResults()
+        : Promise.resolve<SuggestionResults | null>(null),
+    [config.slug]
+  )
+  const results = useEntityData<SuggestionResults | null>(loadResults)
 
   const gameCount = ticker.length
   // A single league is always on one slate, so the header can name its date.
@@ -81,7 +93,12 @@ export default function LeaguePage({ config }: LeaguePageProps) {
           loading={standings.loading}
         />
 
-        {(config.slug === 'nba' || config.slug === 'nfl') && <ProjectsCard league={config.slug} />}
+        {hasPicks && (
+          <div className="grid gap-[14px] lg:grid-cols-[1fr_380px] items-start">
+            <PicksCard league={config.slug as 'nba' | 'nfl'} />
+            <NewsCard league={config.slug} />
+          </div>
+        )}
 
         {(errors.length > 0 || standings.error) && (
           <div className="font-martian text-[11px] text-[#FF6B5C] tracking-[1px]">
@@ -97,6 +114,7 @@ export default function LeaguePage({ config }: LeaguePageProps) {
           <TrendingPlayers
             rows={trending}
             meta="L10 VS SEASON"
+            results={results.data?.trending}
             emptyLabel={
               loading
                 ? 'LOADING TRENDS…'
@@ -108,6 +126,7 @@ export default function LeaguePage({ config }: LeaguePageProps) {
           <StreakWatch
             rows={streaks}
             meta="LAST 10"
+            results={results.data?.streak}
             emptyLabel={loading ? 'LOADING STREAKS…' : `NO ACTIVE ${config.name} STREAKS`}
             footerLink={{ label: 'ALL STREAKS →', to: '/sportquery' }}
           />

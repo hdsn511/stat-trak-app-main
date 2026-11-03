@@ -58,7 +58,7 @@ export async function getProjects(_req: Request, res: Response) {
 
     const playerIds = [...byGame.values()].flatMap((g) => g.props.map((p: any) => p.entity_id));
     const { data: players } = playerIds.length
-      ? await supabaseAdmin.from('players').select('id,name,team').in('id', playerIds)
+      ? await supabaseAdmin.from('players').select('id,name,team,ext_id').in('id', playerIds)
       : { data: [] as any[] };
     const playerById = new Map((players ?? []).map((p: any) => [p.id, p]));
 
@@ -75,6 +75,8 @@ export async function getProjects(_req: Request, res: Response) {
         entity_id: kind === 'prop' ? p.entity_id : p.game_id,
         name: kind === 'prop' ? (player?.name ?? 'Unknown') : (pickedTeam?.name ?? mods.team_abbr),
         team: mods.team_abbr ?? null,
+        // Headshot id (players.ext_id), props only.
+        ext_id: kind === 'prop' ? (player?.ext_id ?? null) : null,
         stat: kind === 'prop' ? p.stat : null,
         stat_label: kind === 'prop' ? (lg.statLabels[p.stat] ?? p.stat) : null,
         side: mods.side,
@@ -102,6 +104,8 @@ export async function getProjects(_req: Request, res: Response) {
           date: g.game_date,
           time: g.game_time,
           matchup: `${away?.abbreviation ?? '?'} @ ${home?.abbreviation ?? '?'}`,
+          away: away?.abbreviation ?? null,
+          home: home?.abbreviation ?? null,
         },
       };
     };

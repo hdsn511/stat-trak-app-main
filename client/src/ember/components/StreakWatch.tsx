@@ -1,5 +1,10 @@
 import { Link } from 'react-router-dom'
 import { playerPath } from '@/lib/paths'
+import { teamAccent } from '@/lib/teamBrand'
+import type { SuggestionResultSet } from '@/services/api'
+import { recordLabel } from '@/ember/data/results'
+import PlayerAvatar from './PlayerAvatar'
+import YesterdayResults from './YesterdayResults'
 import LeaguePill from './LeaguePill'
 import ModuleCard from './ModuleCard'
 import { EmptyState } from './EntityState'
@@ -35,6 +40,10 @@ export type StreakRow = {
   rollingAvg: number
   opponent: string | null
   detail: StreakDetail
+  /** players.ext_id, for the headshot. */
+  extId?: string | null
+  /** Highest Kalshi rung the streak floor still clears. */
+  suggested?: number | null
 }
 
 interface StreakWatchProps {
@@ -44,6 +53,8 @@ interface StreakWatchProps {
   footerLink?: { label: string; to: string }
   className?: string
   emptyLabel?: string
+  /** Yesterday's graded snapshot of this card. */
+  results?: SuggestionResultSet | null
 }
 
 /**
@@ -108,23 +119,46 @@ export default function StreakWatch({
   footerLink,
   className = '',
   emptyLabel = 'NO ACTIVE STREAKS',
+  results,
 }: StreakWatchProps) {
+  const record = recordLabel(results)
   return (
-    <ModuleCard title="STREAK WATCH" meta={meta} className={className}>
+    <ModuleCard title="STREAK WATCH" meta={record ? `${meta} · YESTERDAY ${record}` : meta} className={className}>
       {rows.length === 0 && <EmptyState label={emptyLabel} compact />}
-      {rows.map((row) => (
+      {rows.map((row) => {
+        const yday = results?.rows.find((r) => r.player_id === row.playerId && r.stat_label === row.label)
+        return (
         <Link
           key={`${row.league}-${row.playerId}-${row.label}`}
           to={playerPath(row.league, row.playerId)}
           className="flex items-center gap-3 px-[18px] py-[13px] border-b border-[#221D1A] last:border-b-0 hover:bg-[#211C1A]"
         >
           {showLeague && <LeaguePill league={row.leagueLabel} />}
+          <PlayerAvatar
+            league={row.league}
+            extId={row.extId}
+            name={row.name}
+            accent={teamAccent(row.league, row.team)}
+            size={32}
+          />
           <div className="min-w-0 flex-1">
             <div className="font-schibsted font-bold text-[13px] text-[#EFEBE9] whitespace-nowrap overflow-hidden text-ellipsis">
               {row.name}
             </div>
             <div className="font-martian text-[11px] text-[#C9C2BE] mt-[2px] whitespace-nowrap overflow-hidden text-ellipsis">
-              {row.team} · {row.label}
+              {row.team} ·{' '}
+              {row.suggested != null ? (
+                <span className="text-[#FF6B3D]">
+                  {row.suggested}+ {row.label}
+                </span>
+              ) : (
+                row.label
+              )}
+              {yday && (
+                <span className={yday.did_hit ? 'text-[#3FBF7F]' : 'text-[#FF6B5C]'}>
+                  {' '}· YDAY {yday.actual} {yday.did_hit ? 'W' : 'L'}
+                </span>
+              )}
               {row.opponent ? ` · vs ${row.opponent}` : ''}
             </div>
           </div>
@@ -142,7 +176,9 @@ export default function StreakWatch({
             </div>
           </div>
         </Link>
-      ))}
+        )
+      })}
+      <YesterdayResults league={rows[0]?.league ?? 'nba'} set={results} />
       {footerLink && rows.length > 0 && (
         <Link
           to={footerLink.to}

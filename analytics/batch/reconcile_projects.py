@@ -1,7 +1,8 @@
 """
 analytics/batch/reconcile_projects.py
 
-Grades pick_type='project' rows. nightly.py's reconcile assumes every prop is an
+Grades pick_type='project' rows and the sugg_trending / sugg_streak card snapshots
+(batch/snapshot_suggestions.py). nightly.py's reconcile assumes every prop is an
 over and has no winner branch, so these are excluded there and settled here.
 Sweeps all past ungraded rows and only grades a truly final game (status 2 with
 points on the board; a 0-0 row is a pre-game snapshot). Nothing is deleted: a
@@ -21,6 +22,7 @@ from analytics.db.connection import supabase
 from analytics.engine.prop_model import SPEC
 
 TRACK_START = "2026-11-03"
+SUGGESTION_TYPES = ["sugg_trending", "sugg_streak"]
 
 
 def grade(side: str, actual: float, line: float) -> bool:
@@ -32,6 +34,9 @@ def run() -> None:
         rows = (supabase.table("pick_results").select("*").eq("league_id", s["league_id"])
                 .eq("pick_type", "project").is_("actual_result", "null")
                 .gte("game_date", TRACK_START).execute().data or [])
+        # Trending / Streak Watch suggestions (batch/snapshot_suggestions.py): overs at a rung.
+        rows += (supabase.table("pick_results").select("*").eq("league_id", s["league_id"])
+                 .in_("pick_type", SUGGESTION_TYPES).is_("actual_result", "null").execute().data or [])
         rows = [r for r in rows if not (r.get("modifiers") or {}).get("void")
                 and not (r.get("modifiers") or {}).get("untracked")]
         done = 0
@@ -50,8 +55,11 @@ def run() -> None:
                 upd = {"actual_result": margin, "did_hit": margin > 0}
             else:
                 col = s["stats"][r["stat"]]
-                st = (supabase.table(s["table"]).select(col).eq("game_id", r["game_id"])
+                sel = col + (f",{s['played']}" if s["played"] else "")
+                st = (supabase.table(s["table"]).select(sel).eq("game_id", r["game_id"])
                       .eq("player_id", r["entity_id"]).limit(1).execute().data or [])
+                if st and s["played"] and not (st[0].get(s["played"]) or 0) > 0:
+                    st = []     # a 0-minute row is a did-not-play, not a 0-stat game
                 if not st:
                     box = (supabase.table(s["table"]).select("player_id").eq("game_id", r["game_id"]).limit(1).execute().data)
                     if box:     # box score landed without him: did not play

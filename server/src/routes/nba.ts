@@ -13,11 +13,15 @@ import { getTeamById } from '../controllers/teamController';
 import { getTeamDefense } from '../controllers/defenseController';
 import { getStandings } from '../controllers/standingsController';
 import { getProjects } from '../controllers/projectsController';
+import { getNews } from '../controllers/newsController';
+import { getSuggestionResults } from '../controllers/suggestionsController';
 
 const router = Router();
 
 router.get('/standings', getStandings);
 router.get('/projects', getProjects);
+router.get('/news', getNews);
+router.get('/suggestions/results', getSuggestionResults);
 
 router.get('/trends/top', getTopTrending);
 router.get('/trends', getTrends);

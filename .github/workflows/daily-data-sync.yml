@@ -278,6 +278,19 @@ jobs:
         if: ${{ !cancelled() && needs.data.outputs.nba_ok == 'true' && (env.LEAGUE == 'all' || env.LEAGUE == 'nba') }}
         run: python -m analytics.picks.generate_projects --league nba
 
+      # Freeze today's Trending / Streak Watch suggestions for tomorrow's W-L. Only
+      # from the 11:00 UTC pass on: the 04:00/07:00 passes run before last night's
+      # late games are final, so the cards would still show yesterday's trends.
+      # Repeat passes are no-ops (unique key, ignore duplicates).
+      - name: Snapshot NBA card suggestions
+        if: ${{ !cancelled() && needs.data.outputs.nba_ok == 'true' && (env.LEAGUE == 'all' || env.LEAGUE == 'nba') }}
+        run: |
+          if [ "$(date -u +%H)" -ge 11 ]; then
+            python -m analytics.batch.snapshot_suggestions --league nba
+          else
+            echo "Before 11:00 UTC: skipping the snapshot until today's trends are final."
+          fi
+
       - name: Generate NFL Projects
         if: ${{ !cancelled() && (env.LEAGUE == 'all' || env.LEAGUE == 'nfl') }}
         run: python -m analytics.picks.generate_projects --league nfl

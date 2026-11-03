@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabaseAdmin';
 import { findNearestConditionsDate, findNearestPickDate, sportsDay } from '../utils/dateQueries';
 import { league as resolveLeague, seasonStartFor, LeagueConfig } from '../config/leagues';
+import { nearestRung } from '../utils/kalshiLadder';
 
 /**
  * Rows to return from the player game log. `all` means the whole season; any
@@ -227,7 +228,7 @@ async function buildTrendingPayload(opts: {
   // back to 5 then 3 per player/stat (deduped below) so the list isn't empty.
   let trendsQuery = supabaseAdmin
     .from(lg.trendsTable)
-    .select('player_id, stat, window_size, trend_val, rolling_avg, season_avg, players!inner(name, team, position)')
+    .select('player_id, stat, window_size, trend_val, rolling_avg, season_avg, players!inner(name, team, position, ext_id)')
     .order('trend_val', { ascending: false })
     .in('window_size', [3, 5, 10])
     .in('stat', lg.validStatIds)
@@ -359,12 +360,15 @@ async function buildTrendingPayload(opts: {
       playerName: row.players?.name,
       team: row.players?.team,
       position: row.players?.position,
+      extId: row.players?.ext_id ?? null,
       stat: lg.trendStatNames[row.stat],
       statId: row.stat,
       zScore: Number(row.trend_val),
       rollingAvg: Number(row.rolling_avg),
       seasonAvg: row.season_avg != null ? Number(row.season_avg) : null,
       windowSize: row.window_size,
+      // The Kalshi rung closest to the recent average: the line this trend argues for.
+      suggested: nearestRung(lg.slug, lg.trendStatNames[row.stat], Number(row.rolling_avg)),
       trendDrivers: drivers,
       trendDriverDetails,
     };
@@ -980,7 +984,7 @@ export async function getTodaysPicks(_req: Request, res: Response) {
       .eq('game_date', pickDate)
       .eq('prop_type', 'player')
       .eq('league_id', lg.leagueId)
-      .neq('pick_type', 'project')
+      .not('pick_type', 'in', '(project,sugg_trending,sugg_streak)')
       .order('confidence_score', { ascending: false });
 
     if (error) throw error;
@@ -1071,7 +1075,7 @@ export async function getPlayerPicks(req: Request<{ id: string }>, res: Response
       .eq('entity_id', parseInt(id))
       .eq('prop_type', 'player')
       .eq('league_id', lg.leagueId)
-      .neq('pick_type', 'project')
+      .not('pick_type', 'in', '(project,sugg_trending,sugg_streak)')
       .gte('game_date', fromDate)
       .order('game_date', { ascending: false });
 

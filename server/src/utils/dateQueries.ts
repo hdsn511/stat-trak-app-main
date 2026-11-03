@@ -8,7 +8,7 @@ async function findNearest(table: string, today: string, leagueId?: number): Pro
   const applyLeague = (q: any) => {
     const scoped = leagueId != null ? q.eq('league_id', leagueId) : q
     // Projects rows have their own endpoint; they must not move the legacy slate date.
-    return table === 'pick_results' ? scoped.neq('pick_type', 'project') : scoped
+    return table === 'pick_results' ? scoped.not('pick_type', 'in', '(project,sugg_trending,sugg_streak)') : scoped
   }
 
   const { data: upcoming } = await applyLeague(

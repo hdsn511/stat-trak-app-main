@@ -104,7 +104,7 @@ async function fetchMarkets(lg: LeagueConfig, gameDate: string) {
       )
       .eq('game_date', gameDate)
       .eq('league_id', lg.leagueId)
-      .neq('pick_type', 'project')
+      .not('pick_type', 'in', '(project,sugg_trending,sugg_streak)')
       .limit(100),
   ]);
 

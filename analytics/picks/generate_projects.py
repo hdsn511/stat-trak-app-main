@@ -1,15 +1,21 @@
 """
 analytics/picks/generate_projects.py
 
-"Projects" picks for the NBA and NFL league pages: player props and moneylines at
-moderate probability, priced against executable Kalshi quotes.
+"Projects" picks for the NBA and NFL league pages. The book is treated as accurate;
+context decides which priced sides we believe in.
 
-  player prop: model_prob <= PROP_MAX_PROB, edge >= PROP_MIN_EDGE
-  moneyline:   model_prob <  ML_MAX_PROB,  edge >= ML_MIN_EDGE
-  edge = model_prob - the price you would pay (ask for YES, 1 - bid for NO)
+  player props: every Kalshi rung, both sides, priced within prop_context.BAND
+      (the price you would pay: ask for YES, 1 - bid for NO). model_prob is the
+      context hit model (engine/prop_context.py). A side is "believed" when recent
+      form supports it (z20_s >= BELIEF_Z). Each game keeps its top GAME_PROPS; the
+      league features the best LEAGUE_PROPS, one per game and player, walking
+      FALLBACK tiers so the card always fills: the veto (model_prob < price) is only
+      relaxed when the stricter tier can't supply three.
+  winners: every game gets a predicted winner at the de-vigged ESPN moneyline, with
+      the Elo rating (engine/win_model.py) as an agree/disagree check. One is
+      featured, preferring ML_BAND with Elo agreeing.
 
-model_prob is calibrated, never a raw hit rate. See engine/prop_model.py and
-engine/win_model.py for the evidence behind each.
+modifiers.featured marks the card picks; modifiers.game_rank orders a game's props.
 
 Rows are pick_results with pick_type='project' and follow the same additive-lock
 contract as MLB: frozen at first creation, later runs only add. Games that have
@@ -33,21 +39,20 @@ from zoneinfo import ZoneInfo
 from analytics.batch.odds_ingest import fetch as fetch_espn_odds
 from analytics.data.espn.client import get_injuries
 from analytics.db.connection import supabase
-from analytics.engine.prop_model import History, SPEC, _paged, calibrated_over
+from analytics.engine.prop_context import BAND, BELIEF_Z, HitModel, context, sided
+from analytics.engine.prop_model import History, SPEC, _paged
 from analytics.engine.win_model import WinModel, devig
 from analytics.kalshi.client import KalshiClient
 
-PROP_MAX_PROB = 0.60    # inclusive
-ML_MAX_PROB = 0.70      # strict
-PROP_MIN_EDGE = 0.03
-ML_MIN_EDGE = 0.02      # roughly Kalshi's taker fee near even money
+ML_BAND = (0.60, 0.70)  # featured winner: favorites that are priced to hit, not locks
 MAX_SPREAD = 0.05       # a wider quote is not a price
 MIN_VOLUME_PROP = 10.0
 MIN_VOLUME_ML = 50.0
-# Calibration was fit at book main lines, so it is only validated near even money.
-# A wider band let stale-role players through: the market had a new starter at 64% to
-# clear a line, the model only knew his old role, and that read as a 10-point edge.
-MID_RANGE = (0.40, 0.60)
+LEAGUE_PROPS = 3        # featured on the league card
+GAME_PROPS = 3          # kept per game for the game view
+# Featured-prop tiers, strictest first. A later tier only fills slots the earlier
+# ones left empty: "belief" drops the veto, "any" drops the form requirement too.
+FALLBACK = ("belief_no_veto", "belief", "any")
 
 CFG = {
     "nba": {"sport": "basketball", "game_col": "espn_id", "player_col": "espn_id", "days": 1,
@@ -57,7 +62,8 @@ CFG = {
     "nfl": {"sport": "football", "game_col": "ext_id", "player_col": "ext_id", "days": 7,
             "aliases": {"JAX": "JAC", "WSH": "WAS", "LAR": "LA"},
             "out": {"out", "doubtful", "questionable", "injured reserve", "suspension", "pup"},
-            "min_line": {"payds": 100.5, "patd": 0.5, "ruyds": 9.5, "recyds": 9.5, "rec": 0.5}},
+            "min_line": {"payds": 100.5, "patd": 0.5, "ruyds": 9.5, "recyds": 9.5, "rec": 0.5},
+            "refeature": True},
 }
 _MONTHS = {m: i + 1 for i, m in enumerate("JAN FEB MAR APR MAY JUN JUL AUG SEP OCT NOV DEC".split())}
 
@@ -123,33 +129,77 @@ def _injured(league: str) -> set[str]:
     return out
 
 
-def price_prop(league: str, stat: str, raw: float, q: dict) -> Optional[dict]:
-    """Best side of one Kalshi rung, or None if unpriceable or nothing clears the gates."""
+def price_sides(league: str, stat: str, ctx: dict, q: dict, hm: HitModel) -> list[dict]:
+    """Both sides of one Kalshi rung that are priced within BAND, scored by the hit model."""
     bid, ask, vol = q.get("yes_bid"), q.get("yes_ask"), q.get("volume") or 0.0
     if not bid or not ask or ask - bid > MAX_SPREAD or vol < MIN_VOLUME_PROP:
-        return None
-    mid = (bid + ask) / 2
-    if not MID_RANGE[0] <= mid <= MID_RANGE[1]:
-        return None
-    p_over = calibrated_over(league, stat, raw, mid)
-    sides = [("over", p_over, ask), ("under", 1 - p_over, 1 - bid)]
-    best = None
-    for side, p, price in sides:
-        p, price = round(p, 4), round(price, 4)
-        edge = round(p - price, 4)
-        if p <= PROP_MAX_PROB and edge >= PROP_MIN_EDGE and (best is None or edge > best["edge"]):
-            best = {"side": side, "model_prob": p, "implied_prob": price, "edge": edge}
-    return best
+        return []
+    out = []
+    for side, price in (("over", ask), ("under", 1 - bid)):
+        price = round(price, 4)
+        if not BAND[0] <= price <= BAND[1]:
+            continue
+        f = sided(league, ctx, stat, side, price)
+        p = round(hm.prob(f), 4)
+        out.append({"side": side, "model_prob": p, "implied_prob": price, "edge": round(p - price, 4),
+                    "z20_s": round(f["z20_s"], 3), "belief": f["z20_s"] >= BELIEF_Z})
+    return out
 
 
-def price_moneyline(p: float, q: dict) -> Optional[dict]:
-    bid, ask, vol = q.get("yes_bid"), q.get("yes_ask"), q.get("volume") or 0.0
-    if not bid or not ask or ask - bid > MAX_SPREAD or vol < MIN_VOLUME_ML:
-        return None
-    p, ask = round(p, 4), round(ask, 4)
-    edge = round(p - ask, 4)
-    if p < ML_MAX_PROB and edge >= ML_MIN_EDGE:
-        return {"model_prob": p, "implied_prob": ask, "edge": edge}
+def _rank(c: dict) -> tuple:
+    return (c["belief"], c["model_prob"])
+
+
+def _tier_ok(c: dict, tier: str) -> bool:
+    if tier == "belief_no_veto":
+        return c["belief"] and c["edge"] >= 0
+    if tier == "belief":
+        return c["belief"]
+    return True
+
+
+def select_featured(cands: list[dict], n: int = LEAGUE_PROPS, tiers: tuple = FALLBACK) -> list[dict]:
+    """Best n across the league, one per player, strictest tier first. One per game too,
+    unless the slate has too few games (e.g. a lone Thursday NFL game) to fill n."""
+    chosen: list[dict] = []
+    games: set[int] = set()
+    players: set[int] = set()
+    ordered = sorted(cands, key=_rank, reverse=True)
+    for one_per_game in (True, False):
+        for tier in tiers:
+            for c in ordered:
+                if len(chosen) == n:
+                    return chosen
+                if (c["player"]["id"] in players or not _tier_ok(c, tier)
+                        or (one_per_game and c["game"]["id"] in games)):
+                    continue
+                c["tier"] = tier
+                chosen.append(c)
+                games.add(c["game"]["id"])
+                players.add(c["player"]["id"])
+    return chosen
+
+
+def top_per_game(cands: list[dict], k: int = GAME_PROPS) -> list[dict]:
+    """Each game's top k, one per player, ranked like the league card."""
+    by_game: dict[int, list[dict]] = {}
+    for c in sorted(cands, key=_rank, reverse=True):
+        lst = by_game.setdefault(c["game"]["id"], [])
+        if len(lst) < k and all(x["player"]["id"] != c["player"]["id"] for x in lst):
+            c["game_rank"] = len(lst) + 1
+            lst.append(c)
+    return [c for lst in by_game.values() for c in lst]
+
+
+def select_winner(winners: list[dict]) -> Optional[dict]:
+    """In ML_BAND with Elo agreeing, then in ML_BAND, then the surest below the band's top."""
+    tiers = (lambda w: ML_BAND[0] <= w["model_prob"] <= ML_BAND[1] and w["elo_agrees"],
+             lambda w: ML_BAND[0] <= w["model_prob"] <= ML_BAND[1],
+             lambda w: w["model_prob"] < ML_BAND[0])
+    for ok in tiers:
+        pool = [w for w in winners if ok(w)]
+        if pool:
+            return max(pool, key=lambda w: w["model_prob"])
     return None
 
 
@@ -178,6 +228,7 @@ def generate(league: str, dry_run: bool = False) -> list[dict]:
         by_name.setdefault(norm_name(p["name"]), []).append(p)
     injured = _injured(league)
     hist = History(league)
+    hm = HitModel(league)
     print(f"  {len(injured)} injured athletes, {len(hist.df)} history rows")
 
     picks: list[dict] = []
@@ -212,38 +263,46 @@ def generate(league: str, dry_run: bool = False) -> list[dict]:
             if str(pl.get(cfg["player_col"]) or "") in injured or e["line"] < cfg["min_line"].get(stat, 0):
                 continue
             opp = game["away_team_id"] if team_id == game["home_team_id"] else game["home_team_id"]
-            est = hist.raw_over_prob(pl["id"], stat, e["line"], game["game_date"], opp, game["season"])
-            if not est:
+            ctx = context(hist, pl["id"], stat, e["line"], game["game_date"], opp, game["season"])
+            if not ctx:
                 continue
             n_rungs += 1
-            pr = price_prop(league, stat, est["raw"], e)
-            if not pr:
-                continue
+            # One candidate per player-stat-date (the lock key): the best-ranked side and rung.
             key = (pl["id"], stat, game["game_date"])
-            row = {**pr, "line": e["line"], "raw": est["raw"], "n": est["n"], "player": pl, "game": game,
-                   "stat": stat, "ticker": e["ticker"], "opp_factor": est["opp_factor"], "mean": est["mean"],
-                   "team_abbr": team_abbr}
-            if key not in best or row["edge"] > best[key]["edge"]:
-                best[key] = row
+            for c in price_sides(league, stat, ctx, e, hm):
+                row = {**c, "line": e["line"], "player": pl, "game": game, "stat": stat,
+                       "ticker": e["ticker"], "ctx": ctx, "team_abbr": team_abbr}
+                if key not in best or _rank(row) > _rank(best[key]):
+                    best[key] = row
     if unmatched_players:
         print(f"  {len(unmatched_players)} Kalshi name(s) unmatched or ambiguous, e.g. {sorted(unmatched_players)[:6]}")
-    print(f"  Priced {n_rungs} prop rungs; {len(best)} player-stat picks clear the gates")
-    for r in best.values():
+    cands = list(best.values())
+    featured = select_featured(cands)
+    kept = {id(c): c for c in top_per_game(cands)}
+    for c in featured:
+        kept[id(c)] = c
+    print(f"  Priced {n_rungs} prop rungs; {len(cands)} player-stat candidates in band "
+          f"({sum(c['belief'] for c in cands)} with form support); keeping {len(kept)}, featuring "
+          f"{len(featured)} ({', '.join(c['tier'] for c in featured) or 'none'})")
+    featured_ids = {id(c) for c in featured}
+    for c in kept.values():
+        x = c["ctx"]
         picks.append({
-            "league_id": lid, "game_date": r["game"]["game_date"], "game_id": r["game"]["id"],
-            "prop_type": "player", "entity_id": r["player"]["id"], "stat": r["stat"], "pick_type": "project",
-            "recommended_line": r["line"], "hit_rate": r["model_prob"], "model_prob": r["model_prob"],
-            "raw_prob": round(r["raw"] if r["side"] == "over" else 1 - r["raw"], 4),
-            "sample_size": r["n"], "confidence_score": round(r["model_prob"] * 100, 2),
-            "implied_prob": r["implied_prob"], "edge": r["edge"], "market_ticker": r["ticker"],
+            "league_id": lid, "game_date": c["game"]["game_date"], "game_id": c["game"]["id"],
+            "prop_type": "player", "entity_id": c["player"]["id"], "stat": c["stat"], "pick_type": "project",
+            "recommended_line": c["line"], "hit_rate": c["model_prob"], "model_prob": c["model_prob"],
+            "raw_prob": c["model_prob"], "sample_size": x["n"], "confidence_score": round(c["model_prob"] * 100, 2),
+            "implied_prob": c["implied_prob"], "edge": c["edge"], "market_ticker": c["ticker"],
             "price_source": "kalshi",
-            "modifiers": {"side": r["side"], "team_abbr": r["team_abbr"], "opp_factor": r["opp_factor"],
-                          "proj_mean": r["mean"]},
+            "modifiers": {"side": c["side"], "team_abbr": c["team_abbr"], "featured": id(c) in featured_ids,
+                          "tier": c.get("tier"), "game_rank": c.get("game_rank"), "belief": c["belief"],
+                          "z20_s": c["z20_s"], "avg20": x["avg20"], "avg5": x["avg5"], "last": x["last"],
+                          "hit10": round(x["hit10"] if c["side"] == "over" else 1 - x["hit10"], 2),
+                          "opp_factor": round(1 + x["opp"], 3), "b2b": bool(x["b2b"])},
         })
 
-    # Moneylines
+    # Winners: every game, at the book's price; Elo is the agree/disagree check.
     wm = WinModel(league)
-    n_ml = 0
     sides: dict[int, list[dict]] = {}
     for (ek, ptype), entries in gprops.items():
         if ptype != "winner":
@@ -259,49 +318,52 @@ def generate(league: str, dry_run: bool = False) -> list[dict]:
                           "kalshi_price": e["price"], "implied_prob": e["implied_prob"],
                           "market_ticker": e["ticker"], "is_first_half": False, "team_id": team_id})
             sides.setdefault(game["id"], []).append({"e": e, "team_id": team_id, "game": game})
-    for gid, ss in sides.items():
-        game = ss[0]["game"]
+    winners = []
+    for gid, game in ((g["id"], g) for g in slate.values()):
         ext = game.get(cfg["game_col"])
         odds = fetch_espn_odds((cfg["sport"], league, str(ext))) if ext else None
         mkt = devig(odds.get("home_ml"), odds.get("away_ml")) if odds else None
         if mkt is None:
-            print(f"  game {gid}: no ESPN moneyline, skipped (no anchor, no pick)")
+            print(f"  game {gid}: no ESPN moneyline, no winner (no anchor)")
             continue
-        raw_h, p_h = wm.home_prob(game["home_team_id"], game["away_team_id"], game["game_date"], mkt)
-        n_ml += 1
-        cands = []
-        for s in ss:
-            is_home = s["team_id"] == game["home_team_id"]
-            pr = price_moneyline(p_h if is_home else 1 - p_h, s["e"])
-            q = s["e"]
-            print(f"  ML {q['ticker']}: p={(p_h if is_home else 1 - p_h):.3f} bid={q.get('yes_bid')} "
-                  f"ask={q.get('yes_ask')} vol={q.get('volume')} {'PASS' if pr else 'no'}")
-            if pr:
-                cands.append({**pr, **s, "raw": raw_h if is_home else 1 - raw_h,
-                              "book": mkt if is_home else 1 - mkt})
-        if cands:
-            c = max(cands, key=lambda x: x["edge"])
-            picks.append({
-                "league_id": lid, "game_date": game["game_date"], "game_id": gid, "prop_type": "winner",
-                "entity_id": gid, "stat": "winner", "pick_type": "project", "recommended_line": None,
-                "hit_rate": c["model_prob"], "model_prob": c["model_prob"], "raw_prob": round(c["raw"], 4),
-                "sample_size": wm.c["n_train"], "confidence_score": round(c["model_prob"] * 100, 2),
-                "implied_prob": c["implied_prob"], "edge": c["edge"], "market_ticker": c["e"]["ticker"],
-                "price_source": "kalshi",
-                "modifiers": {"side": "win", "team_abbr": id_abbr[c["team_id"]], "team_id": c["team_id"],
-                              "book_prob": round(c["book"], 4), "book": odds.get("provider")},
-            })
-    print(f"  Priced {n_ml} moneyline game(s); total picks {len(picks)}")
+        elo_h, _ = wm.home_prob(game["home_team_id"], game["away_team_id"], game["game_date"], mkt)
+        home_fav = mkt >= 0.5
+        team_id = game["home_team_id"] if home_fav else game["away_team_id"]
+        p, elo_p = (mkt, elo_h) if home_fav else (1 - mkt, 1 - elo_h)
+        q = next((s["e"] for s in sides.get(gid, []) if s["team_id"] == team_id), None)
+        ask = q.get("yes_ask") if q else None
+        quoted = bool(q and ask and q.get("yes_bid") and ask - q["yes_bid"] <= MAX_SPREAD
+                      and (q.get("volume") or 0) >= MIN_VOLUME_ML)
+        winners.append({"game": game, "team_id": team_id, "model_prob": round(p, 4), "elo_prob": round(elo_p, 4),
+                        "elo_agrees": elo_p >= 0.5, "price": round(ask, 4) if quoted else None,
+                        "ticker": q["ticker"] if q else None, "provider": odds.get("provider")})
+    top = select_winner(winners)
+    for w in winners:
+        price = w["price"] if w["price"] is not None else w["model_prob"]
+        picks.append({
+            "league_id": lid, "game_date": w["game"]["game_date"], "game_id": w["game"]["id"], "prop_type": "winner",
+            "entity_id": w["game"]["id"], "stat": "winner", "pick_type": "project", "recommended_line": None,
+            "hit_rate": w["model_prob"], "model_prob": w["model_prob"], "raw_prob": w["elo_prob"],
+            "sample_size": wm.c["n_train"], "confidence_score": round(w["model_prob"] * 100, 2),
+            "implied_prob": price, "edge": round(w["model_prob"] - price, 4), "market_ticker": w["ticker"],
+            "price_source": "kalshi" if w["price"] is not None else "espn",
+            "modifiers": {"side": "win", "team_abbr": id_abbr[w["team_id"]], "team_id": w["team_id"],
+                          "book_prob": w["model_prob"], "book": w["provider"], "elo_prob": w["elo_prob"],
+                          "elo_agrees": w["elo_agrees"], "featured": w is top},
+        })
+    print(f"  Winners for {len(winners)} game(s); featured: "
+          + (f"{id_abbr[top['team_id']]} {top['model_prob']:.3f}" if top else "none") + f"; total rows {len(picks)}")
 
-    for p in sorted(picks, key=lambda x: -x["edge"])[:15]:
-        print(f"   {p['game_date']} {p['prop_type']:6} {p['stat']:7} id={p['entity_id']:<7} "
-              f"{p['modifiers'].get('side'):5} {str(p['recommended_line']):6} "
-              f"p={p['model_prob']:.3f} px={p['implied_prob']:.3f} edge={p['edge']:+.3f} {p['market_ticker']}")
+    for p in sorted(picks, key=lambda x: (not x["modifiers"].get("featured"), -x["model_prob"]))[:15]:
+        m = p["modifiers"]
+        print(f"   {'*' if m.get('featured') else ' '} {p['game_date']} {p['prop_type']:6} {p['stat']:7} "
+              f"id={p['entity_id']:<7} {m.get('side'):5} {str(p['recommended_line']):6} "
+              f"p={p['model_prob']:.3f} px={p['implied_prob']:.3f} z20_s={m.get('z20_s', '')} {p['market_ticker']}")
     if dry_run:
         print("  --dry-run: nothing stored")
         return picks
     _store_lines(lid, lines)
-    _store_picks(lid, picks)
+    _store_picks(lid, picks, cfg.get("refeature", False), frozenset(g["id"] for g in slate.values()), now)
     _void_injured(league, lid, players, injured, now)
     return picks
 
@@ -332,19 +394,88 @@ def _store_lines(lid: int, rows: list[dict]) -> None:
     print(f"  daily_lines: added {len(new)} ({len(rows) - len(new)} already present)")
 
 
-def _store_picks(lid: int, picks: list[dict]) -> None:
-    """Additive lock: (game_date, entity, stat, 'project') is frozen once stored."""
+_REFRESH_COLS = ("recommended_line", "hit_rate", "model_prob", "raw_prob", "sample_size", "confidence_score",
+                 "implied_prob", "edge", "market_ticker", "price_source", "modifiers")
+
+
+def _key(r: dict) -> tuple:
+    return (r["game_date"], r["entity_id"], r["stat"])
+
+
+def _store_picks(lid: int, picks: list[dict], refeature: bool = False,
+                 slate_ids: frozenset = frozenset(), now: Optional[datetime] = None) -> None:
+    """Additive lock: (game_date, entity, stat, 'project') is frozen once stored.
+
+    refeature (NFL): props list days early and injury news lands later in the week, so
+    each run's featured set replaces the earlier one on games that haven't started.
+    A row that was ever shown keeps the price it was shown at (it is graded at that
+    price); a replaced one gets modifiers.replaced_at. Rows never shown are refreshed
+    to the latest price and context, since nothing was published at the old one."""
     if not picks:
         print("  pick_results: nothing new")
         return
     dates = sorted({p["game_date"] for p in picks})
-    existing = (supabase.table("pick_results").select("game_date,entity_id,stat").eq("league_id", lid)
-                .eq("pick_type", "project").in_("game_date", dates).execute().data or [])
-    seen = {(r["game_date"], r["entity_id"], r["stat"]) for r in existing}
-    new = [p for p in picks if (p["game_date"], p["entity_id"], p["stat"]) not in seen]
+    existing = (supabase.table("pick_results")
+                .select("id,game_id,game_date,entity_id,stat,prop_type,modifiers,actual_result")
+                .eq("league_id", lid).eq("pick_type", "project").in_("game_date", dates).execute().data or [])
+    by_key = {_key(r): r for r in existing}
+    new = [p for p in picks if _key(p) not in by_key]
+    if refeature:
+        _refeature(picks, existing, by_key, slate_ids, (now or datetime.now(timezone.utc)).isoformat())
+        for i in range(0, len(new), 500):
+            supabase.table("pick_results").insert(new[i:i + 500]).execute()
+        print(f"  pick_results: added {len(new)}")
+        return
+    # Featured picks are locked too: a later run may not crowd out ones already shown.
+    caps = {"player": LEAGUE_PROPS, "winner": 1}
+    n_feat: dict[tuple[str, str], int] = {}
+    for r in existing:
+        if (r.get("modifiers") or {}).get("featured"):
+            k = (r["game_date"], r["prop_type"])
+            n_feat[k] = n_feat.get(k, 0) + 1
+    for p in new:
+        if p["modifiers"].get("featured"):
+            k = (p["game_date"], p["prop_type"])
+            if n_feat.get(k, 0) >= caps[p["prop_type"]]:
+                p["modifiers"] = {**p["modifiers"], "featured": False}
+            else:
+                n_feat[k] = n_feat.get(k, 0) + 1
     for i in range(0, len(new), 500):
         supabase.table("pick_results").insert(new[i:i + 500]).execute()
     print(f"  pick_results: added {len(new)} ({len(picks) - len(new)} already locked)")
+
+
+def _refeature(picks: list[dict], existing: list[dict], by_key: dict, slate_ids: frozenset, stamp: str) -> None:
+    chosen = {_key(p) for p in picks if p["modifiers"].get("featured")}
+    priced = {_key(p) for p in picks}
+    n_refresh = n_feat = n_unfeat = 0
+
+    def set_featured(r: dict, want: bool) -> None:
+        nonlocal n_feat, n_unfeat
+        m = r.get("modifiers") or {}
+        if want == bool(m.get("featured")):
+            return
+        m = {**m, "featured": want, **({} if want else {"replaced_at": stamp})}
+        supabase.table("pick_results").update({"modifiers": m}).eq("id", r["id"]).execute()
+        n_feat, n_unfeat = n_feat + want, n_unfeat + (not want)
+
+    for p in picks:
+        r = by_key.get(_key(p))
+        if r is None or r.get("actual_result") is not None:
+            continue
+        m = r.get("modifiers") or {}
+        if m.get("featured") or m.get("replaced_at"):
+            set_featured(r, _key(p) in chosen)      # shown: price frozen, only the flag moves
+        else:
+            supabase.table("pick_results").update({c: p[c] for c in _REFRESH_COLS}).eq("id", r["id"]).execute()
+            n_refresh += 1
+            n_feat += bool(p["modifiers"].get("featured"))
+    # Featured rows this run no longer prices at all (player ruled out, market pulled).
+    for r in existing:
+        if (r.get("game_id") in slate_ids and _key(r) not in priced and r.get("actual_result") is None
+                and (r.get("modifiers") or {}).get("featured")):
+            set_featured(r, False)
+    print(f"  re-feature: {n_feat} featured, {n_unfeat} replaced, {n_refresh} unshown rows refreshed")
 
 
 def _void_injured(league: str, lid: int, players: list[dict], injured: set[str], now: datetime) -> None:

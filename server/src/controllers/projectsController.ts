@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabaseAdmin';
 import { league as resolveLeague } from '../config/leagues';
-import { ML_MAX_PROB, PROP_MAX_PROB, selectProjects, type GameState } from '../utils/projects';
+import { ML_BAND, PROP_BAND, selectProjects, type GameState } from '../utils/projects';
 
 /** Calendar date in US Eastern: game_date is local, so UTC would roll over early. */
 function easternDate(d: Date): string {
@@ -11,11 +11,11 @@ function easternDate(d: Date): string {
 export async function getProjects(_req: Request, res: Response) {
   try {
     const lg = resolveLeague(res);
-    const caps = { prop_max_prob: PROP_MAX_PROB, moneyline_max_prob: ML_MAX_PROB };
+    const bands = { prop: PROP_BAND, moneyline: ML_BAND };
     if (lg.projectsWindowDays == null) {
       return res.json({
         success: true,
-        data: { supported: false, caps, props: [], moneyline: null, upcoming_games: 0 },
+        data: { supported: false, bands, props: [], moneyline: null, games: [], upcoming_games: 0 },
       });
     }
 
@@ -47,7 +47,7 @@ export async function getProjects(_req: Request, res: Response) {
 
     const games = (gameRows ?? []) as any[];
     const gameMap = new Map<number, GameState>(games.map((g) => [g.id, g]));
-    const { props, moneyline } = selectProjects((pickRows ?? []) as any[], gameMap, now);
+    const { props, moneyline, byGame } = selectProjects((pickRows ?? []) as any[], gameMap, now);
 
     const { data: teams } = await supabaseAdmin
       .from('teams')
@@ -56,7 +56,7 @@ export async function getProjects(_req: Request, res: Response) {
     const teamById = new Map((teams ?? []).map((t: any) => [t.id, t]));
     const gameById = new Map(games.map((g) => [g.id, g]));
 
-    const playerIds = props.map((p: any) => p.entity_id);
+    const playerIds = [...byGame.values()].flatMap((g) => g.props.map((p: any) => p.entity_id));
     const { data: players } = playerIds.length
       ? await supabaseAdmin.from('players').select('id,name,team').in('id', playerIds)
       : { data: [] as any[] };
@@ -84,6 +84,19 @@ export async function getProjects(_req: Request, res: Response) {
         edge: Number(p.edge),
         price_source: p.price_source,
         book_prob: mods.book_prob ?? null,
+        featured: !!mods.featured,
+        // Why we like it: recent form for props, the Elo check for winners.
+        context:
+          kind === 'prop'
+            ? {
+                avg20: mods.avg20 ?? null,
+                avg5: mods.avg5 ?? null,
+                last: mods.last ?? null,
+                hit10: mods.hit10 ?? null,
+                form_supports: !!mods.belief,
+                b2b: !!mods.b2b,
+              }
+            : { elo_prob: mods.elo_prob ?? null, elo_agrees: mods.elo_agrees ?? null },
         game: {
           id: p.game_id,
           date: g.game_date,
@@ -97,9 +110,15 @@ export async function getProjects(_req: Request, res: Response) {
       success: true,
       data: {
         supported: true,
-        caps,
+        bands,
         props: props.map((p) => shape(p, 'prop')),
         moneyline: moneyline ? shape(moneyline, 'moneyline') : null,
+        // Every upcoming game's predicted winner and top props, for the game view.
+        games: [...byGame.entries()].map(([gameId, g]) => ({
+          game_id: gameId,
+          winner: g.winner ? shape(g.winner, 'moneyline') : null,
+          props: g.props.map((p) => shape(p, 'prop')),
+        })),
         upcoming_games: games.filter((g) => gameMap.has(g.id) && g.status === 0 && g.game_time && new Date(g.game_time) > now).length,
       },
     });

@@ -38,10 +38,12 @@ export default function NewsCard({ league, className = '' }: { league: string; c
   const { data, loading, error } = useEntityData<{ items: NewsItem[] }>(load)
 
   return (
-    <ModuleCard title="NEWS" meta="TRADES · INJURIES" className={className}>
+    <ModuleCard title="NEWS" meta="TRADES · INJURIES" className={`flex flex-col ${className}`}>
       {loading && <EmptyState compact label="LOADING NEWS…" />}
       {!loading && (error || !data) && <EmptyState compact label="NEWS UNAVAILABLE" />}
       {data && data.items.length === 0 && <EmptyState compact label="NO TRADE OR INJURY NEWS RIGHT NOW" />}
+      {/* Scrolls within the card, so a long feed never outgrows the Picks card beside it. */}
+      <div className="min-h-0 flex-1 overflow-y-auto max-h-[460px] lg:max-h-none">
       {data?.items.map((n) => (
         <a
           key={n.id}
@@ -65,6 +67,7 @@ export default function NewsCard({ league, className = '' }: { league: string; c
           </div>
         </a>
       ))}
+      </div>
     </ModuleCard>
   )
 }

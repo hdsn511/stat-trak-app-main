@@ -8,6 +8,7 @@ import {
   rankStreaks,
   rankTrending,
   toStreakRows,
+  toWatchRows,
   toTickerGames,
   toTrendingRows,
 } from './adapters'
@@ -90,6 +91,16 @@ export function useSportData(slugs: LeagueSlug[], opts: Options = {}): SportData
     // Each league streaks on its own headline stat; leagues with no streak
     // pipeline are skipped rather than called and 404'd.
     const streakJobs = active.map((slug) => {
+      // NBA: one cross-stat list at Kalshi rungs. Elsewhere: the league's headline stat.
+      if (slug === 'nba') {
+        return apiFor(slug)
+          .getStreakWatch()
+          .then((res) => toWatchRows(slug, res.rows))
+          .catch((e) => {
+            note(slug, 'streaks', e)
+            return [] as StreakRow[]
+          })
+      }
       const stat = leagueDef(slug)?.streakStats?.[0]
       if (!stat) return Promise.resolve<StreakRow[]>([])
       return apiFor(slug)
@@ -130,8 +141,8 @@ export function useSportData(slugs: LeagueSlug[], opts: Options = {}): SportData
   }, [key])
 
   const trending = useMemo(
-    () => rankTrending(trendingRaw, trendingLimit),
-    [trendingRaw, trendingLimit]
+    () => rankTrending(trendingRaw, trendingLimit, slugs.length === 1),
+    [trendingRaw, trendingLimit, slugs.length]
   )
   const streaks = useMemo(() => rankStreaks(streaksRaw, streakLimit), [streaksRaw, streakLimit])
 

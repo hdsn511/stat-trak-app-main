@@ -1,6 +1,8 @@
 import { Navigate, Outlet, Route, Routes, useParams } from 'react-router-dom'
 import Header from '@/components/Header/Header'
 import EmberHeader from '@/ember/components/EmberHeader'
+import SiteFooter from '@/ember/components/SiteFooter'
+import AboutPage from '@/ember/about/AboutPage'
 import Home from '@/pages/Home/Home'
 import NBA from '@/pages/NBA/NBA'
 import NFL from '@/pages/NFL/NFL'
@@ -29,6 +31,7 @@ function EmberLayout() {
     <div className="min-h-screen bg-[#0D0B0A] text-[#EFEBE9] flex flex-col">
       <EmberHeader />
       <Outlet />
+      <SiteFooter />
     </div>
   )
 }
@@ -59,6 +62,7 @@ export default function App() {
         <Route path="/player/:league/:id" element={<PlayerPage />} />
         <Route path="/game/:league/:id" element={<GamePage />} />
         <Route path="/team/:league/:id" element={<TeamPage />} />
+        <Route path="/about" element={<AboutPage />} />
         <Route path="*" element={<NotFoundState />} />
       </Route>
 

@@ -7,8 +7,8 @@ what was actually shown. Today's lists can't be graded after the fact: nba_trend
 overwritten nightly, and a player whose streak broke yesterday drops off today's list.
 
 It reads the live API, so a snapshot is the cards' own output rather than a second
-implementation of them. The one thing mirrored here is the card's ordering and size
-(client/src/ember/data/adapters.ts rankTrending / rankStreaks, LeaguePage limits).
+implementation of them: both endpoints serve their rows ranked and sized as shown
+(server/src/services/nbaWatch.ts), and the first SHOWN of each are stored.
 
 Rows: pick_type sugg_trending | sugg_streak, prop_type 'player', side over at the
 suggested rung (recommended_line = rung - 0.5). Graded by batch/reconcile_projects.py.
@@ -32,8 +32,7 @@ from analytics.db.connection import supabase
 
 API_BASE = os.getenv("STATTRAK_API_BASE", "https://stattraksports.pages.dev/api")
 LEAGUE_ID = {"nba": 1}
-TRENDING_SHOWN, STREAKS_SHOWN = 8, 6
-STREAK_STAT = {"nba": "pts"}         # the card streaks on the league's headline stat
+SHOWN = 10
 TREND_KEY = {"points": "pts", "rebounds": "reb", "assists": "ast", "threes": "fg3m"}
 
 
@@ -51,17 +50,6 @@ def _get(path: str, **params):
     raise RuntimeError(f"API unavailable: {path}")
 
 
-def _shown_trending(rows: list[dict]) -> list[dict]:
-    return sorted(rows, key=lambda r: -r["zScore"])[:TRENDING_SHOWN]
-
-
-def _shown_streaks(rows: list[dict]) -> list[dict]:
-    run = lambda r: (r.get("streak_count") or 0) > 0
-    return sorted(rows, key=lambda r: (not run(r),
-                                       -(r["streak_count"] if run(r) else r["line_100"]),
-                                       -r["rolling_avg"]))[:STREAKS_SHOWN]
-
-
 def snapshot(league: str) -> int:
     lid = LEAGUE_ID[league]
     today = datetime.now(ZoneInfo("America/New_York")).date().isoformat()
@@ -72,11 +60,11 @@ def snapshot(league: str) -> int:
     game_of = {tid: g["id"] for g in games for tid in (g["home_team_id"], g["away_team_id"])}
 
     picked = []
-    for r in _shown_trending(_get(f"/{league}/trends/top")):
+    for r in _get(f"/{league}/trends/top")[:SHOWN]:
         picked.append(("sugg_trending", r["playerId"], r["team"], TREND_KEY.get(r["stat"]), r.get("suggested")))
-    streaks = _get(f"/{league}/streaks/perfect", type="player", stat=STREAK_STAT[league])
-    for r in _shown_streaks(streaks["rows"]):
-        picked.append(("sugg_streak", r["player_id"], r["team"], streaks["stat"], r.get("suggested")))
+    for r in _get(f"/{league}/streaks/watch")["rows"][:SHOWN]:
+        picked.append(("sugg_streak", r["player_id"], r["team"], r["stat"],
+                       {"rung": r["rung"], "line": r["rung"] - 0.5}))
 
     rows = []
     for ptype, pid, team, stat, sug in picked:

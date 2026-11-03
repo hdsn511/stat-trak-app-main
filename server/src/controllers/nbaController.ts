@@ -3,6 +3,7 @@ import { supabaseAdmin } from '../config/supabaseAdmin';
 import { findNearestConditionsDate, findNearestPickDate, sportsDay } from '../utils/dateQueries';
 import { league as resolveLeague, seasonStartFor, LeagueConfig } from '../config/leagues';
 import { nearestRung } from '../utils/kalshiLadder';
+import { buildStreakWatch, enrichTrending, nextSlate } from '../services/nbaWatch';
 
 /**
  * Rows to return from the player game log. `all` means the whole season; any
@@ -171,7 +172,8 @@ async function buildTrendingPayload(opts: {
   // a table literally named "null" and the client sees a schema-cache error.
   if (!lg.trendsTable) return [];
 
-  const today = new Date().toISOString().slice(0, 10);
+  // The next date with games: on an off-day the list shows the upcoming slate.
+  const today = (await nextSlate(lg)).date ?? sportsDay();
 
   // Step 1: today's slate (DB) + games for availability lookup.
   // NFL/NHL have a trends table but no conditions table (dailyConditionsTable
@@ -384,7 +386,8 @@ export async function getTopTrending(_req: Request, res: Response) {
       limit: 10,
       dedupePerPlayer: true,
     }, lg);
-    res.json({ success: true, data: result });
+    // Kalshi rung + price + opponent matchup, ordered by matchup (ladder leagues only).
+    res.json({ success: true, data: await enrichTrending(lg, result) });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -1099,5 +1102,17 @@ export async function getPlayerPicks(req: Request<{ id: string }>, res: Response
     res.json({ success: true, data: picks });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+// Streak Watch: one list across stats, ranked by streak depth at a Kalshi rung and
+// ordered by matchup (services/nbaWatch.ts). Ladder leagues only.
+export async function getStreakWatch(_req: Request, res: Response) {
+  try {
+    const lg = resolveLeague(res);
+    res.json({ success: true, data: await buildStreakWatch(lg) });
+  } catch (err: any) {
+    console.error('[getStreakWatch]', err);
+    res.status(500).json({ success: false, error: 'Failed to load streaks' });
   }
 }

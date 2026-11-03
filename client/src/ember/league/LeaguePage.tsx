@@ -20,8 +20,8 @@ export default function LeaguePage({ config }: LeaguePageProps) {
 
   const slugs = useMemo(() => [config.slug], [config.slug])
   const { trending, streaks, ticker, loading, errors, tickerScope } = useSportData(slugs, {
-    trendingLimit: 8,
-    streakLimit: 6,
+    trendingLimit: 10,
+    streakLimit: 10,
   })
 
   const loadStandings = useCallback(
@@ -94,9 +94,12 @@ export default function LeaguePage({ config }: LeaguePageProps) {
         />
 
         {hasPicks && (
-          <div className="grid gap-[14px] lg:grid-cols-[1fr_380px] items-start">
+          <div className="grid gap-5 lg:grid-cols-[1fr_380px] items-stretch">
             <PicksCard league={config.slug as 'nba' | 'nfl'} />
-            <NewsCard league={config.slug} />
+            {/* News takes the Picks card's height and scrolls inside it (min 420px). */}
+            <div className="relative lg:min-h-[420px]">
+              <NewsCard league={config.slug} className="lg:absolute lg:inset-0" />
+            </div>
           </div>
         )}
 
@@ -110,11 +113,12 @@ export default function LeaguePage({ config }: LeaguePageProps) {
           </div>
         )}
 
-        <div className="grid gap-[14px] lg:grid-cols-[1fr_380px] items-start">
+        <div className="grid gap-5 xl:grid-cols-2 items-start">
           <TrendingPlayers
             rows={trending}
-            meta="L10 VS SEASON"
+            meta="LAST 10 VS SEASON"
             results={results.data?.trending}
+            record={results.data?.totals.trending}
             emptyLabel={
               loading
                 ? 'LOADING TRENDS…'
@@ -125,10 +129,10 @@ export default function LeaguePage({ config }: LeaguePageProps) {
           />
           <StreakWatch
             rows={streaks}
-            meta="LAST 10"
+            meta="KALSHI LINES"
             results={results.data?.streak}
+            record={results.data?.totals.streak}
             emptyLabel={loading ? 'LOADING STREAKS…' : `NO ACTIVE ${config.name} STREAKS`}
-            footerLink={{ label: 'ALL STREAKS →', to: '/sportquery' }}
           />
         </div>
       </div>

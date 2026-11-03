@@ -1,6 +1,7 @@
 import { useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import ModuleCard from '@/ember/components/ModuleCard'
+import CardRecord from '@/ember/components/CardRecord'
 import { EmptyState } from '@/ember/components/EntityState'
 import PlayerAvatar from '@/ember/components/PlayerAvatar'
 import TeamLogo from '@/ember/components/TeamLogo'
@@ -126,7 +127,11 @@ export default function PicksCard({ league, className = '' }: { league: 'nba' | 
   }
 
   return (
-    <ModuleCard title="PICKS" meta="STRAIGHTS · PRICED BY KALSHI" className={className}>
+    <ModuleCard
+      title="PICKS"
+      headerRight={<CardRecord meta="STRAIGHTS · PRICED BY KALSHI" record={data?.record} />}
+      className={className}
+    >
       {body}
     </ModuleCard>
   )

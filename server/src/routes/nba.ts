@@ -7,6 +7,7 @@ import {
   getTodaysGames,
   getTodaysPicks,
   getPlayerPicks,
+  getStreakWatch,
 } from '../controllers/nbaController';
 import { getGameById } from '../controllers/gameController';
 import { getTeamById } from '../controllers/teamController';
@@ -21,6 +22,7 @@ const router = Router();
 router.get('/standings', getStandings);
 router.get('/projects', getProjects);
 router.get('/news', getNews);
+router.get('/streaks/watch', getStreakWatch);
 router.get('/suggestions/results', getSuggestionResults);
 
 router.get('/trends/top', getTopTrending);

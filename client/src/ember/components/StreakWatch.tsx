@@ -1,10 +1,12 @@
 import { Link } from 'react-router-dom'
 import { playerPath } from '@/lib/paths'
 import { teamAccent } from '@/lib/teamBrand'
-import type { SuggestionResultSet } from '@/services/api'
-import { recordLabel } from '@/ember/data/results'
+import type { Matchup, SuggestionResult, SuggestionResultSet } from '@/services/api'
 import PlayerAvatar from './PlayerAvatar'
 import YesterdayResults from './YesterdayResults'
+import TeamLogo from './TeamLogo'
+import CardRecord from './CardRecord'
+import { ClearStrip, MatchupNote, PropTicket, ResultMark } from './PropVisuals'
 import LeaguePill from './LeaguePill'
 import ModuleCard from './ModuleCard'
 import { EmptyState } from './EntityState'
@@ -26,6 +28,8 @@ export type StreakTier = {
 export type StreakDetail =
   | { kind: 'tiers'; tiers: StreakTier[] }
   | { kind: 'run'; games: number; line: number }
+  /** NBA: a run at a Kalshi rung, with the last 10 games behind it. */
+  | { kind: 'watch'; rung: number; depth: number; last10: number[]; price: number | null; matchup: Matchup | null }
 
 export type StreakRow = {
   playerId: number
@@ -55,6 +59,8 @@ interface StreakWatchProps {
   emptyLabel?: string
   /** Yesterday's graded snapshot of this card. */
   results?: SuggestionResultSet | null
+  /** This card's cumulative record, for the header corner. */
+  record?: { w: number; l: number } | null
 }
 
 /**
@@ -120,73 +126,90 @@ export default function StreakWatch({
   className = '',
   emptyLabel = 'NO ACTIVE STREAKS',
   results,
+  record,
 }: StreakWatchProps) {
-  const record = recordLabel(results)
   return (
-    <ModuleCard title="STREAK WATCH" meta={record ? `${meta} · YESTERDAY ${record}` : meta} className={className}>
+    <ModuleCard title="STREAK WATCH" headerRight={<CardRecord meta={meta} record={record} />} className={className}>
       {rows.length === 0 && <EmptyState label={emptyLabel} compact />}
       {rows.map((row) => {
         const yday = results?.rows.find((r) => r.player_id === row.playerId && r.stat_label === row.label)
+        const key = `${row.league}-${row.playerId}-${row.label}`
+        if (row.detail.kind === 'watch') return <WatchRow key={key} row={row} detail={row.detail} yday={yday} showLeague={showLeague} />
         return (
-        <Link
-          key={`${row.league}-${row.playerId}-${row.label}`}
-          to={playerPath(row.league, row.playerId)}
-          className="flex items-center gap-3 px-[18px] py-[13px] border-b border-[#221D1A] last:border-b-0 hover:bg-[#211C1A]"
-        >
-          {showLeague && <LeaguePill league={row.leagueLabel} />}
-          <PlayerAvatar
-            league={row.league}
-            extId={row.extId}
-            name={row.name}
-            accent={teamAccent(row.league, row.team)}
-            size={32}
-          />
-          <div className="min-w-0 flex-1">
-            <div className="font-schibsted font-bold text-[13px] text-[#EFEBE9] whitespace-nowrap overflow-hidden text-ellipsis">
-              {row.name}
+          <Link
+            key={key}
+            to={playerPath(row.league, row.playerId)}
+            className="flex items-center gap-3 px-5 py-4 border-b border-[#221D1A] last:border-b-0 hover:bg-[#211C1A]"
+          >
+            {showLeague && <LeaguePill league={row.leagueLabel} />}
+            <PlayerAvatar league={row.league} extId={row.extId} name={row.name} accent={teamAccent(row.league, row.team)} size={36} />
+            <div className="min-w-0 flex-1">
+              <div className="font-schibsted font-bold text-[14px] text-[#EFEBE9] truncate">{row.name}</div>
+              <div className="font-martian text-[11px] text-[#C9C2BE] mt-[2px] truncate">
+                {row.team} · {row.label}
+                {row.opponent ? ` · vs ${row.opponent}` : ''}
+              </div>
             </div>
-            <div className="font-martian text-[11px] text-[#C9C2BE] mt-[2px] whitespace-nowrap overflow-hidden text-ellipsis">
-              {row.team} ·{' '}
-              {row.suggested != null ? (
-                <span className="text-[#FF6B3D]">
-                  {row.suggested}+ {row.label}
-                </span>
-              ) : (
-                row.label
-              )}
-              {yday && (
-                <span className={yday.did_hit ? 'text-[#3FBF7F]' : 'text-[#FF6B5C]'}>
-                  {' '}· YDAY {yday.actual} {yday.did_hit ? 'W' : 'L'}
-                </span>
-              )}
-              {row.opponent ? ` · vs ${row.opponent}` : ''}
+            {row.detail.kind === 'tiers' ? (
+              <TierLadder tiers={row.detail.tiers} />
+            ) : (
+              <RunBadge games={row.detail.games} line={row.detail.line} />
+            )}
+            <div className="text-right w-[38px] shrink-0">
+              <div className="font-martian font-bold text-[15px] text-[#EFEBE9] tabular-nums">{row.rollingAvg}</div>
+              <div className="font-martian text-[10px] text-[#A8A09C] mt-[3px] tracking-[0.5px]">L10 AVG</div>
             </div>
-          </div>
-          {row.detail.kind === 'tiers' ? (
-            <TierLadder tiers={row.detail.tiers} />
-          ) : (
-            <RunBadge games={row.detail.games} line={row.detail.line} />
-          )}
-          <div className="text-right w-[38px] shrink-0">
-            <div className="font-martian font-bold text-[15px] text-[#EFEBE9] tabular-nums">
-              {row.rollingAvg}
-            </div>
-            <div className="font-martian text-[10px] text-[#A8A09C] mt-[3px] tracking-[0.5px]">
-              L10 AVG
-            </div>
-          </div>
-        </Link>
+          </Link>
         )
       })}
       <YesterdayResults league={rows[0]?.league ?? 'nba'} set={results} />
       {footerLink && rows.length > 0 && (
         <Link
           to={footerLink.to}
-          className="block font-martian font-bold text-[12px] text-[#FF6B3D] tracking-[1px] px-[18px] py-3 border-t border-[#221D1A]"
+          className="block font-martian font-bold text-[12px] text-[#FF6B3D] tracking-[1px] px-5 py-3 border-t border-[#221D1A]"
         >
           {footerLink.label}
         </Link>
       )}
     </ModuleCard>
+  )
+}
+
+/** NBA: a run at a Kalshi rung. Identity, the prop ticket, then the last ten games against the line. */
+function WatchRow({ row, detail, yday, showLeague }: {
+  row: StreakRow
+  detail: Extract<StreakDetail, { kind: 'watch' }>
+  yday?: SuggestionResult
+  showLeague: boolean
+}) {
+  return (
+    <Link
+      to={playerPath(row.league, row.playerId)}
+      className="grid grid-cols-[minmax(0,1fr)_92px_30px] sm:grid-cols-[minmax(0,1fr)_92px_150px_30px] items-center gap-[18px] px-5 py-4 border-b border-[#221D1A] last:border-b-0 hover:bg-[#211C1A]"
+    >
+      <div className="min-w-0 flex items-center gap-3">
+        {showLeague && <LeaguePill league={row.leagueLabel} />}
+        <PlayerAvatar league={row.league} extId={row.extId} name={row.name} accent={teamAccent(row.league, row.team)} size={42} />
+        <div className="min-w-0">
+          <div className="font-schibsted font-bold text-[15px] text-[#EFEBE9] truncate">{row.name}</div>
+          <div className="mt-[3px] flex items-center gap-[5px] font-martian text-[11px] text-[#C9C2BE]">
+            <TeamLogo league={row.league} abbr={row.team} size={13} />
+            {row.team}
+          </div>
+          <div className="mt-[3px] truncate">
+            <MatchupNote league={row.league} opponent={row.opponent} matchup={detail.matchup} label={row.label} />
+          </div>
+        </div>
+      </div>
+      <PropTicket rung={detail.rung} label={row.label} price={detail.price} />
+      <div className="hidden sm:block">
+        <ClearStrip values={detail.last10} rung={detail.rung} />
+        <div className="flex justify-between font-martian text-[10px] text-[#A8A09C] mt-[4px] tabular-nums whitespace-nowrap">
+          <span className="text-[#FF6B3D]">{detail.depth} straight</span>
+          <span>L10 avg {row.rollingAvg}</span>
+        </div>
+      </div>
+      <ResultMark hit={yday?.did_hit} actual={yday?.actual} />
+    </Link>
   )
 }

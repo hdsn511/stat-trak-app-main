@@ -25,7 +25,7 @@ export interface Suggestion {
   side: 'over';
 }
 
-function ladder(league: string, stat: string): number[] | null {
+export function ladder(league: string, stat: string): number[] | null {
   return LADDERS[league]?.[TREND_KEY[stat] ?? stat] ?? null;
 }
 

@@ -2,12 +2,14 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { playerPath } from '@/lib/paths'
 import { teamAccent } from '@/lib/teamBrand'
-import type { SuggestionResultSet } from '@/services/api'
-import { recordLabel } from '@/ember/data/results'
+import type { Matchup, SuggestionResultSet } from '@/services/api'
 import PlayerAvatar from './PlayerAvatar'
+import TeamLogo from './TeamLogo'
 import YesterdayResults from './YesterdayResults'
 import LeaguePill from './LeaguePill'
 import ModuleCard from './ModuleCard'
+import CardRecord from './CardRecord'
+import { AvgTrack, MatchupNote, PropTicket, ResultMark } from './PropVisuals'
 import { EmptyState } from './EntityState'
 
 export type TrendingRow = {
@@ -31,6 +33,10 @@ export type TrendingRow = {
   extId?: string | null
   /** Kalshi rung nearest the L10 average, e.g. 10 for "10+". */
   suggested?: number | null
+  /** Kalshi YES price for that rung, 0-1. */
+  price?: number | null
+  opponent?: string | null
+  matchup?: Matchup | null
 }
 
 interface TrendingPlayersProps {
@@ -41,6 +47,8 @@ interface TrendingPlayersProps {
   emptyLabel?: string
   /** Yesterday's graded snapshot of this card. */
   results?: SuggestionResultSet | null
+  /** This card's cumulative record, for the header corner. */
+  record?: { w: number; l: number } | null
 }
 
 export default function TrendingPlayers({
@@ -50,15 +58,14 @@ export default function TrendingPlayers({
   className = '',
   emptyLabel = 'NO TRENDS AVAILABLE',
   results,
+  record,
 }: TrendingPlayersProps) {
-  const record = recordLabel(results)
   // One open explanation at a time, keyed by row + chip.
   const [openKey, setOpenKey] = useState<string | null>(null)
   return (
-    <ModuleCard title="TRENDING PLAYERS" meta={record ? `${meta} · YESTERDAY ${record}` : meta} className={className}>
+    <ModuleCard title="TRENDING PLAYERS" headerRight={<CardRecord meta={meta} record={record} />} className={className}>
       {rows.length === 0 && <EmptyState label={emptyLabel} compact />}
       {rows.map((row) => {
-        const max = Math.max(row.seasonVal, row.l10Val) || 1
         const rowKey = `${row.league}-${row.playerId}-${row.stat}`
         const openDetail = row.chipDetails?.find((d) => openKey === `${rowKey}:${d.label}`)
         const yday = results?.rows.find((r) => r.player_id === row.playerId && r.stat_label === row.stat)
@@ -66,109 +73,73 @@ export default function TrendingPlayers({
           <div key={rowKey} className="border-b border-[#221D1A] last:border-b-0">
             <Link
               to={playerPath(row.league, row.playerId)}
-              className={`grid items-center gap-[14px] px-[18px] py-[14px] hover:bg-[#211C1A] ${
-                showLeague
-                  ? 'grid-cols-[26px_38px_1fr_auto_150px_52px]'
-                  : 'grid-cols-[26px_1fr_auto_150px_52px]'
-              }`}
+              className="grid grid-cols-[minmax(0,1fr)_92px_30px] sm:grid-cols-[minmax(0,1fr)_92px_150px_30px] items-center gap-[18px] px-5 py-4 hover:bg-[#211C1A]"
             >
-              <span className="font-martian font-bold text-[14px] text-[#A8A09C]">
-                {String(row.rank).padStart(2, '0')}
-              </span>
-              {showLeague && <LeaguePill league={row.leagueLabel} />}
-              <div className="min-w-0 flex items-center gap-[10px]">
+              <div className="min-w-0 flex items-center gap-3">
+                {showLeague && <LeaguePill league={row.leagueLabel} />}
                 <PlayerAvatar
                   league={row.league}
                   extId={row.extId}
                   name={row.name}
                   accent={teamAccent(row.league, row.team)}
-                  size={34}
+                  size={42}
                 />
                 <div className="min-w-0">
-                  <div className="font-schibsted font-bold text-[14px] text-[#EFEBE9] whitespace-nowrap overflow-hidden text-ellipsis">
-                    {row.name}
+                  <div className="font-schibsted font-bold text-[15px] text-[#EFEBE9] truncate">{row.name}</div>
+                  <div className="mt-[3px] flex items-center gap-[5px] font-martian text-[11px] text-[#C9C2BE]">
+                    <TeamLogo league={row.league} abbr={row.team} size={13} />
+                    {row.team}
                   </div>
-                  <div className="font-martian text-[11px] text-[#C9C2BE] mt-[2px] whitespace-nowrap overflow-hidden text-ellipsis">
-                    {row.team} · {row.stat}
-                    {row.suggested != null && (
-                      <span className="text-[#FF6B3D]">
-                        {' '}· {row.suggested}+ {row.stat}
-                      </span>
-                    )}
-                    {yday && (
-                      <span className={yday.did_hit ? 'text-[#3FBF7F]' : 'text-[#FF6B5C]'}>
-                        {' '}· YDAY {yday.actual} {yday.did_hit ? 'W' : 'L'}
-                      </span>
-                    )}
+                  <div className="mt-[3px] truncate">
+                    <MatchupNote league={row.league} opponent={row.opponent} matchup={row.matchup} label={row.stat} />
                   </div>
+                  {row.chips.length > 0 && (
+                    <div className="flex flex-wrap gap-[6px] mt-[6px]">
+                      {row.chips.slice(0, 2).map((chip) => {
+                        const has = row.chipDetails?.some((d) => d.label === chip)
+                        const isOpen = openKey === `${rowKey}:${chip}`
+                        return (
+                          <span
+                            key={chip}
+                            role={has ? 'button' : undefined}
+                            tabIndex={has ? 0 : undefined}
+                            aria-expanded={has ? isOpen : undefined}
+                            title={has ? 'Click for the numbers behind this' : undefined}
+                            onClick={(e) => {
+                              if (!has) return
+                              e.preventDefault()
+                              setOpenKey(isOpen ? null : `${rowKey}:${chip}`)
+                            }}
+                            onKeyDown={(e) => {
+                              if (has && (e.key === 'Enter' || e.key === ' ')) {
+                                e.preventDefault()
+                                setOpenKey(isOpen ? null : `${rowKey}:${chip}`)
+                              }
+                            }}
+                            className={`font-martian text-[10px] uppercase border rounded-[3px] px-[6px] py-[2px] whitespace-nowrap ${
+                              has ? 'cursor-pointer hover:bg-[rgba(255,107,61,0.18)]' : ''
+                            } ${
+                              isOpen
+                                ? 'bg-[#FF6B3D] text-[#14100F] border-[#FF6B3D]'
+                                : 'text-[#FF6B3D] border-[rgba(255,107,61,0.4)]'
+                            }`}
+                          >
+                            {chip}
+                          </span>
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
-              <div className="flex gap-[6px]">
-                {row.chips.slice(0, 2).map((chip) => {
-                  const has = row.chipDetails?.some((d) => d.label === chip)
-                  const isOpen = openKey === `${rowKey}:${chip}`
-                  return (
-                    <span
-                      key={chip}
-                      role={has ? 'button' : undefined}
-                      tabIndex={has ? 0 : undefined}
-                      aria-expanded={has ? isOpen : undefined}
-                      title={has ? 'Click for the numbers behind this' : undefined}
-                      onClick={(e) => {
-                        if (!has) return
-                        e.preventDefault()
-                        setOpenKey(isOpen ? null : `${rowKey}:${chip}`)
-                      }}
-                      onKeyDown={(e) => {
-                        if (has && (e.key === 'Enter' || e.key === ' ')) {
-                          e.preventDefault()
-                          setOpenKey(isOpen ? null : `${rowKey}:${chip}`)
-                        }
-                      }}
-                      className={`font-martian font-medium text-[11px] uppercase border rounded-[3px] px-[7px] py-[3px] whitespace-nowrap ${
-                        has ? 'cursor-pointer hover:bg-[rgba(255,107,61,0.18)]' : ''
-                      } ${
-                        isOpen
-                          ? 'bg-[#FF6B3D] text-[#14100F] border-[#FF6B3D]'
-                          : 'text-[#FF6B3D] border-[rgba(255,107,61,0.5)] bg-[rgba(255,107,61,0.08)]'
-                      }`}
-                    >
-                      {chip}
-                      {has ? ' ⓘ' : ''}
-                    </span>
-                  )
-                })}
+              <PropTicket rung={row.suggested} label={row.stat} price={row.price} />
+              <div className="hidden sm:block">
+                <AvgTrack season={row.seasonVal} recent={row.l10Val} rung={row.suggested} />
               </div>
-              <div className="flex flex-col gap-[5px] w-[150px]">
-                <div className="flex items-center gap-[6px]">
-                  <div className="flex-1 h-1 rounded-[2px] bg-[#2C2624] overflow-hidden">
-                    <div
-                      className="h-full rounded-[2px] bg-[#665F5D]"
-                      style={{ width: `${(row.seasonVal / max) * 100}%` }}
-                    />
-                  </div>
-                  <span className="font-martian text-[11px] text-[#C9C2BE] w-[32px] text-right shrink-0">
-                    {row.seasonVal}
-                  </span>
-                </div>
-                <div className="flex items-center gap-[6px]">
-                  <div className="flex-1 h-1 rounded-[2px] bg-[#2C2624] overflow-hidden">
-                    <div
-                      className="h-full rounded-[2px] bg-[#FF6B3D]"
-                      style={{ width: `${(row.l10Val / max) * 100}%` }}
-                    />
-                  </div>
-                  <span className="font-martian font-bold text-[12px] text-[#FF6B3D] w-[32px] text-right shrink-0">
-                    {row.l10Val}
-                  </span>
-                </div>
-              </div>
-              <span className="font-martian font-bold text-[13px] text-[#FF6B3D] text-right">
-                {row.delta}
-              </span>
+              <ResultMark hit={yday?.did_hit} actual={yday?.actual} />
             </Link>
             {openDetail && (
-              <div className="mx-[18px] mb-[14px] rounded-md border border-[rgba(255,107,61,0.35)] bg-[#17120F] px-[14px] py-[12px]">
+              <div className="mx-5 mb-4 rounded-md border border-[rgba(255,107,61,0.35)] bg-[#17120F] px-[14px] py-[12px]">
                 <div className="font-martian font-bold text-[12px] text-[#FF6B3D] tracking-[0.5px]">
                   {openDetail.label} · {openDetail.summary}
                 </div>

@@ -88,11 +88,13 @@ function hotSignal(row: TrendingRow, kind: 'hot' | 'rising'): StatSignal {
 
 function streakSignal(row: StreakRow): StatSignal | null {
   const { detail } = row
-  const run = detail.kind === 'run'
-  const line = run ? detail.line : detail.tiers[0]?.line
+  // A watch row (NBA, a run at a Kalshi rung) reads like a run at its rung.
+  const run = detail.kind !== 'tiers'
+  const line = detail.kind === 'run' ? detail.line : detail.kind === 'watch' ? detail.rung : detail.tiers[0]?.line
   if (line == null || (!run && line <= 0)) return null
-  const top = !run ? detail.tiers[0] : undefined
-  const games = run ? detail.games : (top?.of ?? 0)
+  const top = detail.kind === 'tiers' ? detail.tiers[0] : undefined
+  const runGames = detail.kind === 'run' ? detail.games : detail.kind === 'watch' ? detail.depth : 0
+  const games = run ? runGames : (top?.of ?? 0)
   return {
     id: `streak-${row.league}-${row.playerId}-${row.label}`,
     kind: 'streak',
@@ -101,13 +103,13 @@ function streakSignal(row: StreakRow): StatSignal | null {
     statLabel: row.label,
     name: row.name,
     context: run
-      ? `${row.team} · ${detail.games} straight games`
+      ? `${row.team} · ${runGames} straight games`
       : `${row.team} · cleared in ${top?.cleared ?? games} of last ${games}`,
     to: playerPath(row.league, row.playerId),
     viz: {
       kind: 'pips',
-      filled: Math.min(run ? detail.games : (top?.cleared ?? games), 12),
-      total: Math.min(Math.max(games, run ? detail.games : 0), 12),
+      filled: Math.min(run ? runGames : (top?.cleared ?? games), 12),
+      total: Math.min(Math.max(games, run ? runGames : 0), 12),
     },
   }
 }

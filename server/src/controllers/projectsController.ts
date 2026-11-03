@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabaseAdmin';
 import { league as resolveLeague } from '../config/leagues';
 import { ML_BAND, PROP_BAND, selectProjects, type GameState } from '../utils/projects';
+import { gradedRecord } from '../utils/record';
 
 /** Calendar date in US Eastern: game_date is local, so UTC would roll over early. */
 function easternDate(d: Date): string {
@@ -115,6 +116,8 @@ export async function getProjects(_req: Request, res: Response) {
       data: {
         supported: true,
         bands,
+        // Graded picks that were on the card (from TRACK_START; launch night is untracked).
+        record: await gradedRecord(lg.leagueId, ['project'], true),
         props: props.map((p) => shape(p, 'prop')),
         moneyline: moneyline ? shape(moneyline, 'moneyline') : null,
         // Every upcoming game's predicted winner and top props, for the game view.

@@ -1,5 +1,5 @@
 import type { LeagueSlug } from '@/config/leagues'
-import type { PlayerStreakRow, TodaysGame, TrendingPlayer } from '@/services/api'
+import type { PlayerStreakRow, StreakWatchRow, TodaysGame, TrendingPlayer } from '@/services/api'
 import type { TickerGame } from '@/ember/components/LiveTicker'
 import type { StreakRow, StreakTier } from '@/ember/components/StreakWatch'
 import type { TrendingRow } from '@/ember/components/TrendingPlayers'
@@ -64,6 +64,9 @@ export function toTrendingRows(
       chipDetails: p.trendDriverDetails ?? [],
       extId: p.extId ?? null,
       suggested: p.suggested?.rung ?? null,
+      price: p.price ?? null,
+      opponent: p.opponent ?? null,
+      matchup: p.matchup ?? null,
       seasonVal: season,
       l10Val: recent,
       delta: `${diff > 0 ? '+' : ''}${diff.toFixed(1)}`,
@@ -125,6 +128,25 @@ export function toStreakRows(
   }))
 }
 
+/** Streak Watch rows from the cross-stat NBA list, kept in the order served (by matchup). */
+export function toWatchRows(league: LeagueSlug, rows: StreakWatchRow[]): StreakRow[] {
+  return rows.map((r) => ({
+    playerId: r.player_id,
+    league,
+    leagueLabel: league.toUpperCase(),
+    name: r.name,
+    team: r.team,
+    label: STREAK_LABEL[r.stat] ?? r.stat.toUpperCase(),
+    rollingAvg: r.l10_avg,
+    opponent: r.opponent,
+    extId: r.ext_id,
+    suggested: r.rung,
+    detail: { kind: 'watch' as const, rung: r.rung, depth: r.depth, last10: r.last10, price: r.price, matchup: r.matchup },
+  }))
+}
+
+const STREAK_LABEL: Record<string, string> = { pts: 'PTS', reb: 'REB', ast: 'AST', fg3m: '3PM' }
+
 export function toTickerGames(league: LeagueSlug, games: TodaysGame[]): TickerGame[] {
   return games.map((g) => ({
     id: `${league}-${g.gameId}`,
@@ -147,10 +169,12 @@ export function toTickerGames(league: LeagueSlug, games: TodaysGame[]): TickerGa
 /** Strongest trends first, then numbered for display. */
 export function rankTrending(
   rows: Omit<TrendingRow, 'rank'>[],
-  limit: number
+  limit: number,
+  /** One league: keep the server's order (by matchup). Several: merge by z-score. */
+  keepOrder = false
 ): TrendingRow[] {
   return [...rows]
-    .sort((a, b) => b.zScore - a.zScore)
+    .sort((a, b) => (keepOrder ? 0 : b.zScore - a.zScore))
     .slice(0, limit)
     .map((r, i) => ({ ...r, rank: i + 1 }))
 }
@@ -167,10 +191,13 @@ export function rankTrending(
  * group break on the L10 average.
  */
 function streakWeight(row: StreakRow): number {
-  return row.detail.kind === 'run' ? row.detail.games : (row.detail.tiers[0]?.line ?? 0)
+  const d = row.detail
+  return d.kind === 'run' ? d.games : d.kind === 'watch' ? d.depth : (d.tiers[0]?.line ?? 0)
 }
 
 export function rankStreaks(rows: StreakRow[], limit: number): StreakRow[] {
+  // Watch rows arrive ranked by the server; keep that order.
+  if (rows.length > 0 && rows.every((r) => r.detail.kind === 'watch')) return rows.slice(0, limit)
   const rank = (r: StreakRow) => (r.detail.kind === 'run' ? 0 : 1)
   return [...rows]
     .sort(

@@ -20,6 +20,10 @@ export interface TrendingPlayer {
   extId?: string | null
   /** The Kalshi rung nearest the recent average (null: no ladder for this stat). */
   suggested?: KalshiSuggestion | null
+  /** Kalshi YES price for the suggested rung, 0-1 (null until listed). */
+  price?: number | null
+  opponent?: string | null
+  matchup?: Matchup | null
   /**
    * Driver chips explaining WHY the player is trending — derived from
    * daily_conditions (usage spike, minutes bump, pace) + player_availability
@@ -28,6 +32,31 @@ export interface TrendingPlayer {
   trendDrivers?: string[]
   /** Quantified drill-down behind each driver chip. */
   trendDriverDetails?: { label: string; summary: string; lines: string[] }[]
+}
+
+/** How much an opponent allows in a stat vs the league (factor 1.07 = 7% more; rank 1 = most). */
+export interface Matchup {
+  factor: number
+  rank: number
+  of: number
+}
+
+/** One Streak Watch row: a run at a Kalshi rung (server/src/services/nbaWatch.ts). */
+export interface StreakWatchRow {
+  player_id: number
+  name: string
+  team: string
+  ext_id: string | null
+  opponent: string | null
+  stat: string
+  rung: number
+  depth: number
+  margin: number
+  l10_avg: number
+  /** Last 10 values, oldest first. */
+  last10: number[]
+  price: number | null
+  matchup: Matchup | null
 }
 
 /** A Kalshi "X+" market: rung 10 = over 9.5. */
@@ -521,6 +550,8 @@ export interface SuggestionResultSet {
 /** Yesterday's graded Trending Players / Streak Watch suggestions. */
 export interface SuggestionResults {
   date: string | null
+  /** Cumulative record per card. */
+  totals: { trending: { w: number; l: number }; streak: { w: number; l: number } }
   trending: SuggestionResultSet
   streak: SuggestionResultSet
 }
@@ -534,6 +565,8 @@ export interface ProjectGame {
 export interface ProjectsResponse {
   supported: boolean
   bands: { prop: { min: number; max: number }; moneyline: { min: number; max: number } }
+  /** Cumulative record of picks that were on the card. */
+  record: { w: number; l: number }
   props: ProjectPick[]
   moneyline: ProjectPick | null
   games: ProjectGame[]
@@ -755,6 +788,9 @@ export function createLeagueApi(slug: string) {
 
     getNews: (): Promise<{ items: NewsItem[] }> =>
       get(`${BASE}/${slug}/news`),
+
+    getStreakWatch: (): Promise<{ date: string | null; rows: StreakWatchRow[] }> =>
+      get(`${BASE}/${slug}/streaks/watch`),
 
     getSuggestionResults: (): Promise<SuggestionResults> =>
       get(`${BASE}/${slug}/suggestions/results`),

@@ -7,6 +7,10 @@ Sweeps all past ungraded rows and only grades a truly final game (status 2 with
 points on the board; a 0-0 row is a pre-game snapshot). Nothing is deleted: a
 player with no stat line on a final game gets modifiers.void='dnp'.
 
+Tracking starts at TRACK_START: earlier rows (the 2026-11-02 launch-night slate,
+tagged modifiers.untracked='pre-launch') were shown but are never graded. Any
+public track record should read graded rows only, so it starts there too.
+
 CLI: python -m analytics.batch.reconcile_projects
 """
 from __future__ import annotations
@@ -16,6 +20,8 @@ import sys
 from analytics.db.connection import supabase
 from analytics.engine.prop_model import SPEC
 
+TRACK_START = "2026-11-03"
+
 
 def grade(side: str, actual: float, line: float) -> bool:
     return actual > line if side == "over" else actual < line
@@ -24,8 +30,10 @@ def grade(side: str, actual: float, line: float) -> bool:
 def run() -> None:
     for league, s in SPEC.items():
         rows = (supabase.table("pick_results").select("*").eq("league_id", s["league_id"])
-                .eq("pick_type", "project").is_("actual_result", "null").execute().data or [])
-        rows = [r for r in rows if not (r.get("modifiers") or {}).get("void")]
+                .eq("pick_type", "project").is_("actual_result", "null")
+                .gte("game_date", TRACK_START).execute().data or [])
+        rows = [r for r in rows if not (r.get("modifiers") or {}).get("void")
+                and not (r.get("modifiers") or {}).get("untracked")]
         done = 0
         for r in rows:
             g = (supabase.table("games").select("status,home_score,away_score,home_team_id,away_team_id")

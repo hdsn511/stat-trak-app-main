@@ -972,6 +972,7 @@ export async function getTodaysPicks(_req: Request, res: Response) {
       .eq('game_date', pickDate)
       .eq('prop_type', 'player')
       .eq('league_id', lg.leagueId)
+      .neq('pick_type', 'project')
       .order('confidence_score', { ascending: false });
 
     if (error) throw error;
@@ -1062,6 +1063,7 @@ export async function getPlayerPicks(req: Request<{ id: string }>, res: Response
       .eq('entity_id', parseInt(id))
       .eq('prop_type', 'player')
       .eq('league_id', lg.leagueId)
+      .neq('pick_type', 'project')
       .gte('game_date', fromDate)
       .order('game_date', { ascending: false });
 

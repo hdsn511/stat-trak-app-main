@@ -48,6 +48,11 @@ from analytics.batch.injury_check import run_injury_check
 
 MIN_CONFIDENCE = 55
 
+# backtest_winner returns the model's self-accuracy over the home team's last 8
+# games, not P(win), and gives both sides the same number. Settled record: 0-3.
+# Moneylines now come from engine/win_model.py via picks/generate_projects.py.
+ENABLE_WINNER_PICKS = False
+
 # Market-calibration weight for the NBA scorer. The raw condition-matched
 # backtest hit rate is overconfident and selection-biased (we keep the best of N
 # alt-lines per stat), so we shrink the model probability toward the market
@@ -151,10 +156,29 @@ def _store_daily_lines(
             })
 
     if rows:
+        # Additive: first-seen price per (date, ticker). This was a plain insert, so
+        # each of the 4 daily runs re-stored every open market.
+        seen: set[tuple[str, str]] = set()
+        for d in sorted({r["game_date"] for r in rows}):
+            page = 0
+            while True:
+                b = (supabase.table("daily_lines").select("market_ticker")
+                     .eq("league_id", NBA_LEAGUE_ID).eq("game_date", d).order("id")
+                     .range(page, page + 999).execute().data or [])
+                seen |= {(d, x["market_ticker"]) for x in b}
+                if len(b) < 1000:
+                    break
+                page += 1000
+        new_rows = []
+        for r in rows:
+            k = (r["game_date"], r["market_ticker"])
+            if k not in seen:
+                seen.add(k)
+                new_rows.append(r)
         BATCH = 500
-        for i in range(0, len(rows), BATCH):
-            supabase.table("daily_lines").insert(rows[i : i + BATCH]).execute()
-        print(f"  Stored {len(rows)} daily_lines rows.")
+        for i in range(0, len(new_rows), BATCH):
+            supabase.table("daily_lines").insert(new_rows[i : i + BATCH]).execute()
+        print(f"  Added {len(new_rows)} daily_lines rows ({len(rows) - len(new_rows)} already present).")
     else:
         print("  No daily_lines to store.")
 
@@ -221,14 +245,22 @@ def _store_picks(game_date: date, picks: list[dict]) -> None:
             "alt_lines_tested": p.get("alt_lines_tested"),
         })
 
+    # Additive lock, as MLB: a stored pick is frozen. The old upsert rewrote locked
+    # picks against moved lines on each run and could overwrite a graded row's inputs.
+    existing = (supabase.table("pick_results").select("entity_id,stat,pick_type")
+                .eq("game_date", date_str).eq("league_id", NBA_LEAGUE_ID).execute()).data or []
+    seen = {(r["entity_id"], r["stat"], r["pick_type"]) for r in existing}
+    new_rows = []
+    for r in rows:
+        k = (r["entity_id"], r["stat"], r["pick_type"])
+        if k not in seen:
+            seen.add(k)
+            new_rows.append(r)
     BATCH = 500
-    for i in range(0, len(rows), BATCH):
-        supabase.table("pick_results").upsert(
-            rows[i : i + BATCH],
-            on_conflict="game_date,entity_id,stat,pick_type",
-        ).execute()
+    for i in range(0, len(new_rows), BATCH):
+        supabase.table("pick_results").insert(new_rows[i : i + BATCH]).execute()
 
-    print(f"  Stored {len(rows)} pick_results rows.")
+    print(f"  Added {len(new_rows)} pick_results rows ({len(rows) - len(new_rows)} already locked).")
 
 
 # ── Step 8: Print summary ───────────────────────────────────────────────────
@@ -275,7 +307,7 @@ def _print_summary(picks: list[dict]) -> None:
 
 # ── Main pipeline ────────────────────────────────────────────────────────────
 
-def generate_picks(game_date: date, mock_kalshi: bool = False) -> list[dict]:
+def generate_picks(game_date: date, mock_kalshi: bool = False, skip_injury_check: bool = False) -> list[dict]:
     """
     Run the full pick generation pipeline for the given game date.
 
@@ -345,7 +377,10 @@ def generate_picks(game_date: date, mock_kalshi: bool = False) -> list[dict]:
         for candidate in game_candidates:
             home_abbr = team_id_to_abbr.get(candidate["home_team_id"], "")
             away_abbr = team_id_to_abbr.get(candidate["away_team_id"], "")
-            if home_abbr and away_abbr and home_abbr in ek_upper and away_abbr in ek_upper:
+            # The date must match too: Kalshi lists future meetings of the same two
+            # teams, whose prices were being applied to today's game.
+            if (home_abbr and away_abbr and home_abbr in ek_upper and away_abbr in ek_upper
+                    and _parse_ticker_game_date(ek_upper, "") == date_str):
                 event_key_to_game_id[event_key] = candidate["game_id"]
                 break
 
@@ -382,7 +417,8 @@ def generate_picks(game_date: date, mock_kalshi: bool = False) -> list[dict]:
 
         for stat in stats_to_check:
             # Find matching Kalshi lines for this player + stat
-            lines = player_props.get((player_name_lower, stat), [])
+            lines = [l for l in player_props.get((player_name_lower, stat), [])
+                     if _parse_ticker_game_date(l.get("ticker", ""), date_str) == date_str]
 
             # If no matching lines and mock mode, generate mock lines
             if not lines and mock_kalshi:
@@ -513,6 +549,8 @@ def generate_picks(game_date: date, mock_kalshi: bool = False) -> list[dict]:
                     continue
 
                 if prop_type == "winner":
+                    if not ENABLE_WINNER_PICKS:
+                        continue
                     bt = backtest_winner(game_id, date_str)
                 else:
                     bt = backtest_game_prop(game_id, prop_type, line_val, date_str,
@@ -586,7 +624,10 @@ def generate_picks(game_date: date, mock_kalshi: bool = False) -> list[dict]:
     # ── Step 7b: Remove picks for injured/out players ────────────────────────
     print("\n[Step 7b] Running injury check ...")
     try:
-        run_injury_check(game_date)
+        if skip_injury_check:
+            print("  Skipped (--skip-injury-check).")
+        else:
+            run_injury_check(game_date)
     except Exception as exc:
         print(f"  WARNING: injury check failed: {exc}")
 
@@ -626,6 +667,12 @@ Examples:
         help="Target today's date (shortcut for --date $(date +%%Y-%%m-%%d))",
     )
 
+    parser.add_argument(
+        "--skip-injury-check",
+        action="store_true",
+        help="Do not run the injury check, which deletes today's picks for out players",
+    )
+
     args = parser.parse_args()
 
     if args.date:
@@ -641,7 +688,7 @@ Examples:
         print(f"  NOTE: no --date given; defaulting to tomorrow ({game_date.strftime('%Y-%m-%d')}).")
         print(f"  Use --today for today's games or --date YYYY-MM-DD to be explicit.")
 
-    generate_picks(game_date, mock_kalshi=args.mock)
+    generate_picks(game_date, mock_kalshi=args.mock, skip_injury_check=args.skip_injury_check)
     return 0
 
 

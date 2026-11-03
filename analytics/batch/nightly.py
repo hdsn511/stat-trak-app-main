@@ -187,6 +187,7 @@ def reconcile_picks(yesterday: date) -> None:
         .select("*")
         .eq("game_date", yest_str)
         .is_("actual_result", "null")
+        .neq("pick_type", "project")   # graded by batch/reconcile_projects.py
         .execute()
     )
     picks = result.data or []

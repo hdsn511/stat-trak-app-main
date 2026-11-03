@@ -24,6 +24,10 @@ DEFAULT_SEASON = 2026
 # Season start year -> (first game date, last game date incl. playoffs).
 # 2025: kickoff 2025-09-04 through Super Bowl LX on 2026-02-08 (buffer to 02-09).
 SEASON_RANGES = {
+    # 2023: kickoff 2023-09-07 through Super Bowl LVIII 2024-02-11.
+    2023: ("2023-09-07", "2024-02-12"),
+    # 2024: kickoff 2024-09-05 through Super Bowl LIX 2025-02-09.
+    2024: ("2024-09-05", "2025-02-10"),
     2025: ("2025-09-04", "2026-02-09"),
     # 2026 = the 2026 season (buffered window through the Super Bowl).
     2026: ("2026-09-01", "2027-02-15"),

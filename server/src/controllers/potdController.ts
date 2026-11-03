@@ -162,6 +162,7 @@ export async function getPotd(_req: Request, res: Response) {
       .eq('game_date', pickDate)
       .eq('league_id', lg.leagueId)
       .eq('prop_type', 'player')
+      .neq('pick_type', 'project')
       .order('confidence_score', { ascending: false })
       .limit(1)
       .maybeSingle();

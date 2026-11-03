@@ -19,6 +19,7 @@ export async function getTopPicks(req: Request<{}, {}, {}, { limit?: string }>, 
       )
       .eq('game_date', pickDate)
       .eq('league_id', lg.leagueId)
+      .neq('pick_type', 'project')
       .order('confidence_score', { ascending: false });
 
     if (error) throw error;

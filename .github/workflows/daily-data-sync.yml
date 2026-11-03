@@ -267,3 +267,17 @@ jobs:
       - name: Generate NBA picks
         if: ${{ !cancelled() && needs.data.outputs.nba_ok == 'true' && (env.LEAGUE == 'all' || env.LEAGUE == 'nba') }}
         run: python -m analytics.picks.generate --date "$(date -u +%Y-%m-%d)"
+
+      # Projects card: grade settled rows, then price unstarted NBA/NFL games.
+      # Additive-lock + started-game gate make repeat passes safe.
+      - name: Reconcile Projects picks
+        if: ${{ !cancelled() }}
+        run: python -m analytics.batch.reconcile_projects
+
+      - name: Generate NBA Projects
+        if: ${{ !cancelled() && needs.data.outputs.nba_ok == 'true' && (env.LEAGUE == 'all' || env.LEAGUE == 'nba') }}
+        run: python -m analytics.picks.generate_projects --league nba
+
+      - name: Generate NFL Projects
+        if: ${{ !cancelled() && (env.LEAGUE == 'all' || env.LEAGUE == 'nfl') }}
+        run: python -m analytics.picks.generate_projects --league nfl

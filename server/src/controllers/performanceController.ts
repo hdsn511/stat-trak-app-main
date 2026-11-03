@@ -55,6 +55,7 @@ export async function getPerformanceSummary(req: Request<{}, {}, {}, { days?: st
         'did_hit,actual_result,modifiers'
       )
       .eq('league_id', lg.leagueId)
+      .neq('pick_type', 'project')
       .gte('game_date', cutoff)
       .lte('game_date', today)
       .order('game_date', { ascending: false });

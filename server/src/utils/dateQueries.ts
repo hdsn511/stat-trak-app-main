@@ -5,7 +5,11 @@ import { supabaseAdmin } from '../config/supabaseAdmin'
 // daily_lines); pass undefined for tables without one (the conditions tables,
 // which are already per-sport).
 async function findNearest(table: string, today: string, leagueId?: number): Promise<string> {
-  const applyLeague = (q: any) => (leagueId != null ? q.eq('league_id', leagueId) : q)
+  const applyLeague = (q: any) => {
+    const scoped = leagueId != null ? q.eq('league_id', leagueId) : q
+    // Projects rows have their own endpoint; they must not move the legacy slate date.
+    return table === 'pick_results' ? scoped.neq('pick_type', 'project') : scoped
+  }
 
   const { data: upcoming } = await applyLeague(
     supabaseAdmin.from(table).select('game_date').gte('game_date', today)

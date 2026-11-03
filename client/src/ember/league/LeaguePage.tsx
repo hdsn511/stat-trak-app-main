@@ -2,6 +2,7 @@ import { useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AskBar, LiveTicker, QueryChips, StreakWatch, TrendingPlayers } from '@/ember/components'
 import StandingsCard from '@/ember/nba/StandingsCard'
+import ProjectsCard from '@/ember/league/ProjectsCard'
 import { useEntityData } from '@/ember/useEntityData'
 import { useSportData } from '@/ember/data/useSportData'
 import { createLeagueApi, type StandingsResponse } from '@/services/api'
@@ -79,6 +80,8 @@ export default function LeaguePage({ config }: LeaguePageProps) {
           standings={standings.data?.standings ?? []}
           loading={standings.loading}
         />
+
+        {(config.slug === 'nba' || config.slug === 'nfl') && <ProjectsCard league={config.slug} />}
 
         {(errors.length > 0 || standings.error) && (
           <div className="font-martian text-[11px] text-[#FF6B5C] tracking-[1px]">

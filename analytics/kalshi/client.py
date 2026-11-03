@@ -35,6 +35,7 @@ PLAYER_PROP_SERIES = [
     "KXNBAAST",        # assists props
     "KXNBASTL",        # steals props
     "KXNBABLK",        # blocks props
+    "KXNBA3PT",        # threes props (the fg3m stat was screened but never priced)
     "KXNBAPLAYOFFPTS", # playoff player points
 ]
 
@@ -96,6 +97,20 @@ MLB_GAME_SERIES_TYPE = {
     "KXMLBTOTAL":  "total",
     "KXMLBSPREAD": "spread",
 }
+
+
+# ── NFL series ──────────────────────────────────────────────────────────────────
+# "Protected", ladder and escalator variants are excluded: different payoffs.
+NFL_SERIES_STAT_MAP = {
+    "KXNFLPASSYDS": "payds",
+    "KXNFLPASSTDS": "patd",
+    "KXNFLRSHYDS":  "ruyds",
+    "KXNFLRECYDS":  "recyds",
+    "KXNFLREC":     "rec",
+}
+NFL_PLAYER_PROP_SERIES = list(NFL_SERIES_STAT_MAP)
+NFL_GAME_SERIES_TYPE = {"KXNFLGAME": "winner"}
+NFL_GAME_PROP_SERIES = list(NFL_GAME_SERIES_TYPE)
 
 
 def _extract_team_abbr_mlb(ticker: str) -> Optional[str]:
@@ -189,6 +204,12 @@ class KalshiClient:
             self.target_series        = TARGET_MLB_SERIES
             self.series_stat_map      = MLB_SERIES_STAT_MAP   # prefix -> stat
             self.game_series_type_map = MLB_GAME_SERIES_TYPE  # prefix -> prop type
+        elif sport == "nfl":
+            self.player_prop_series   = NFL_PLAYER_PROP_SERIES
+            self.game_prop_series     = NFL_GAME_PROP_SERIES
+            self.target_series        = NFL_PLAYER_PROP_SERIES + NFL_GAME_PROP_SERIES
+            self.series_stat_map      = NFL_SERIES_STAT_MAP
+            self.game_series_type_map = NFL_GAME_SERIES_TYPE
         else:
             self.player_prop_series   = PLAYER_PROP_SERIES
             self.game_prop_series     = GAME_PROP_SERIES
@@ -500,6 +521,18 @@ class KalshiClient:
         return None
 
     @staticmethod
+    def _quote(market: dict) -> dict:
+        """Executable quote fields. `price` is a midpoint and can't be bought; edge
+        claims that matter should be measured against the ask."""
+        def num(k):
+            try:
+                return float(market.get(k))
+            except (TypeError, ValueError):
+                return None
+        return {"yes_bid": num("yes_bid_dollars"), "yes_ask": num("yes_ask_dollars"),
+                "volume": num("volume_fp")}
+
+    @staticmethod
     def _series_prefix(ticker: str) -> str:
         """Extract series prefix from a ticker like 'KXNBAPTS-26APR22PHXOKC-...'."""
         return ticker.split("-")[0] if "-" in ticker else ticker
@@ -561,6 +594,7 @@ class KalshiClient:
                 "implied_prob": price,
                 "ticker":       ticker,
                 "title":        title,
+                **self._quote(market),
             }
             result.setdefault(key, []).append(entry)
 
@@ -673,6 +707,7 @@ class KalshiClient:
                 "ticker":        ticker,
                 "title":         title,
                 "team_abbr":     team_abbr,
+                **self._quote(market),
             }
             result.setdefault(key, []).append(entry)
 

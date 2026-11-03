@@ -26,6 +26,10 @@ DEFAULT_SEASON = 2026
 # 2025 = the 2025-26 season: opening night 2025-10-07 through the latest
 # possible Stanley Cup Final date (buffer to 2026-06-20).
 SEASON_RANGES = {
+    # 2023 = 2023-24: opening night 2023-10-10 through the Cup Final (ended 2024-06-24).
+    2023: ("2023-10-10", "2024-06-30"),
+    # 2024 = 2024-25: opening 2024-10-04 through the Cup Final (ended 2025-06-17).
+    2024: ("2024-10-04", "2025-06-20"),
     2025: ("2025-10-07", "2026-06-20"),
     # 2026 = the 2026-27 season (buffered window through the latest Cup Final).
     2026: ("2026-10-01", "2027-06-30"),

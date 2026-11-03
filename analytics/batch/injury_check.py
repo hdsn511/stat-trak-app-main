@@ -220,6 +220,7 @@ def run_injury_check(target_date: date, league: str = "nba") -> None:
         .select("id,entity_id,stat")
         .eq("game_date", date_str)
         .eq("league_id", cfg.league_id)
+        .neq("pick_type", "project")   # voided by generate_projects, not deleted
         .in_("entity_id", affected_ids)
         .execute()
     )

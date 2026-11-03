@@ -1,0 +1,51 @@
+name: NFL Projects Re-pick
+
+# PICKS-ONLY companion to Daily Data Sync, which surfaces NFL Projects early in the
+# week. NFL props list days ahead and injury news lands later, so this re-runs
+# generate_projects at the moments that news changes: after each weekday injury
+# report and after inactives (~90 min before kickoff) for each kickoff window.
+# generate_projects re-features NFL (CFG refeature): a run's featured set replaces
+# the earlier one on unstarted games; shown picks keep their price and are flagged
+# replaced_at. Started games are never priced, so a delayed run is harmless.
+#
+# Times are UTC. ET in Nov-Mar (EST); an hour later in ET during EDT.
+on:
+  schedule:
+    - cron: '30 21 * * 3,4,5'  # Wed/Thu/Fri 4:30pm ET: after the daily injury report (Fri = final game statuses)
+    - cron: '0 0 * * 5,1,2'    # Thu/Sun/Mon 7:00pm ET: after TNF/SNF/MNF inactives
+    - cron: '45 16 * * 0'      # Sun 11:45am ET: after 1pm inactives
+    - cron: '45 19 * * 0'      # Sun 2:45pm ET: after 4:05/4:25 inactives
+  workflow_dispatch:
+
+jobs:
+  repick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: nfl-projects
+      cancel-in-progress: false
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      KALSHI_API_KEY: ${{ secrets.KALSHI_API_KEY }}
+      KALSHI_PRIVATE_KEY_PATH: ./kalshi_key.pem
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: analytics/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r analytics/requirements.txt
+
+      - name: Write Kalshi PEM key
+        run: printf '%s' "$KEY" > server/kalshi_key.pem
+        env:
+          KEY: ${{ secrets.KALSHI_PRIVATE_KEY }}
+
+      - name: Re-pick NFL Projects
+        run: python -m analytics.picks.generate_projects --league nfl

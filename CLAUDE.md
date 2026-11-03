@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**StatTrak** is a full-stack sports statistics and trends analysis app focused on identifying betting-relevant player performance trends. NBA, MLB, NFL and NHL all have real data pipelines and league pages (see `server/src/config/leagues.ts`'s per-league registry); only NBA and MLB have a betting/picks pipeline (`hasMarkets: true`) — NFL and NHL have game and player stat data but no `daily_lines`/`pick_results` rows.
+**StatTrak** is a full-stack sports statistics and trends analysis app focused on identifying betting-relevant player performance trends. NBA, MLB, NFL and NHL all have real data pipelines and league pages (see `server/src/config/leagues.ts`'s per-league registry); only NBA and MLB have a betting/picks pipeline (`hasMarkets: true`) — NFL and NHL have game and player stat data but no legacy picks pipeline. Separately, NBA and NFL have a Projects pipeline (`analytics/picks/generate_projects.py`, `pick_type='project'`, `GET /api/{league}/projects`), so `daily_lines`/`pick_results` do hold NFL rows even though NFL stays `hasMarkets: false`.
 
 ## Architecture
 

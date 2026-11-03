@@ -442,6 +442,51 @@ export interface Standing {
   division: string | null
 }
 
+export interface ProjectPick {
+  id: number
+  kind: 'prop' | 'moneyline'
+  entity_id: number
+  name: string
+  team: string | null
+  stat: string | null
+  stat_label: string | null
+  side: 'over' | 'under' | 'win'
+  line: number | null
+  model_prob: number
+  implied_prob: number
+  edge: number
+  price_source: string | null
+  book_prob: number | null
+  featured: boolean
+  /** Why the pick is on the card: recent form for props, the Elo check for winners. */
+  context: {
+    avg20?: number | null
+    avg5?: number | null
+    last?: number | null
+    hit10?: number | null
+    form_supports?: boolean
+    b2b?: boolean
+    elo_prob?: number | null
+    elo_agrees?: boolean | null
+  }
+  game: { id: number; date: string; time: string | null; matchup: string }
+}
+
+export interface ProjectGame {
+  game_id: number
+  winner: ProjectPick | null
+  props: ProjectPick[]
+}
+
+export interface ProjectsResponse {
+  supported: boolean
+  bands: { prop: { min: number; max: number }; moneyline: { min: number; max: number } }
+  props: ProjectPick[]
+  moneyline: ProjectPick | null
+  games: ProjectGame[]
+  upcoming_games: number
+}
+
 export interface StandingsResponse {
   league: string
   /**
@@ -651,6 +696,9 @@ export function createLeagueApi(slug: string) {
 
     getStandings: (): Promise<StandingsResponse> =>
       get(`${BASE}/${slug}/standings`),
+
+    getProjects: (): Promise<ProjectsResponse> =>
+      get(`${BASE}/${slug}/projects`),
   }
 }
 

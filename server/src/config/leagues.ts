@@ -77,6 +77,10 @@ export interface LeagueConfig {
   // Whether this league has a betting pipeline (daily_lines / pick_results).
   // NHL and NFL have game and stat data but no lines or picks.
   hasMarkets: boolean;
+  // Projects card (analytics/picks/generate_projects.py). Days ahead to look for
+  // unstarted games; null = the league has no Projects pipeline. NFL is deliberately
+  // still hasMarkets:false, since the legacy props/picks views aren't built for it.
+  projectsWindowDays: number | null;
 }
 
 // ── NBA (unchanged behavior) ────────────────────────────────────────────────────
@@ -125,6 +129,7 @@ const NBA: LeagueConfig = {
     ],
   },
   hasMarkets: true,
+  projectsWindowDays: 1,
 };
 
 // ── MLB ─────────────────────────────────────────────────────────────────────────
@@ -197,6 +202,7 @@ const MLB: LeagueConfig = {
     ],
   },
   hasMarkets: true,
+  projectsWindowDays: null,
 };
 
 // ── NHL ─────────────────────────────────────────────────────────────────────────
@@ -280,6 +286,7 @@ const NHL: LeagueConfig = {
     ],
   },
   hasMarkets: false,
+  projectsWindowDays: null,
 };
 
 // ── NFL ─────────────────────────────────────────────────────────────────────────
@@ -405,6 +412,7 @@ const NFL: LeagueConfig = {
     ],
   },
   hasMarkets: false,
+  projectsWindowDays: 7,
 };
 
 export const LEAGUES: Record<LeagueSlug, LeagueConfig> = { nba: NBA, mlb: MLB, nfl: NFL, nhl: NHL };

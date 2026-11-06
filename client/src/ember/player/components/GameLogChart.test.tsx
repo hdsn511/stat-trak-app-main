@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react'
 import GameLogChart from './GameLogChart'
 import { getPlayerStatConfig } from '@/config/playerStats'
 import type { GameRow } from '../types'
+import { usageFor } from '../usage'
 
 const def = getPlayerStatConfig('nba').statsFor('player')[0]
 const games: GameRow[] = [
@@ -80,5 +81,47 @@ describe('GameLogChart', () => {
     expect(barPx).toBeCloseTo(120, 5)
     expect(linePx).toBeCloseTo((27 / 37) * 120, 5)
     expect(linePx).toBeLessThan(barPx)
+  })
+
+  describe('usage strip', () => {
+    const withMin: GameRow[] = games.map((g, i) => ({ ...g, minutes: [36, 30, 18][i] }))
+    const min = usageFor('nba', 'player', 'points')
+
+    it('draws one usage bar per main bar, in the same order', () => {
+      render(<GameLogChart games={withMin} def={def} line={25} usage={min} />)
+      const bars = screen.getAllByTestId('chart-bar')
+      const usage = screen.getAllByTestId('usage-bar')
+      expect(usage).toHaveLength(bars.length)
+      expect(usage.map((b) => b.getAttribute('data-value'))).toEqual(['18', '30', '36'])
+    })
+
+    it('labels the strip with the metric and its average', () => {
+      render(<GameLogChart games={withMin} def={def} line={25} usage={min} />)
+      expect(screen.getByText('MINUTES · AVG 28.0')).toBeInTheDocument()
+      expect(screen.getAllByTestId('usage-value').map((v) => v.textContent)).toEqual([
+        '18',
+        '30',
+        '36',
+      ])
+    })
+
+    it('keeps the usage strip shorter than the main chart', () => {
+      render(<GameLogChart games={withMin} def={def} line={25} usage={min} />)
+      const tallMain = Math.max(
+        ...screen.getAllByTestId('chart-bar').map((b) => parseFloat(b.style.height))
+      )
+      const tallUsage = Math.max(
+        ...screen.getAllByTestId('usage-bar').map((b) => parseFloat(b.style.height))
+      )
+      expect(tallUsage).toBeLessThan(tallMain)
+    })
+
+    it('omits the strip without a metric or without usage data', () => {
+      const { unmount } = render(<GameLogChart games={withMin} def={def} line={25} />)
+      expect(screen.queryByTestId('usage-strip')).not.toBeInTheDocument()
+      unmount()
+      render(<GameLogChart games={games} def={def} line={25} usage={min} />)
+      expect(screen.queryByTestId('usage-strip')).not.toBeInTheDocument()
+    })
   })
 })

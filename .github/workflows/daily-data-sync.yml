@@ -294,3 +294,14 @@ jobs:
       - name: Generate NFL Projects
         if: ${{ !cancelled() && (env.LEAGUE == 'all' || env.LEAGUE == 'nfl') }}
         run: python -m analytics.picks.generate_projects --league nfl
+
+      # NFL card snapshot for the Trending / Streak Watch W-L. Only on a day with NFL
+      # games (the snapshot keys rows to today's games and skips everyone else).
+      - name: Snapshot NFL card suggestions
+        if: ${{ !cancelled() && (env.LEAGUE == 'all' || env.LEAGUE == 'nfl') }}
+        run: |
+          if [ "$(date -u +%H)" -ge 11 ]; then
+            python -m analytics.batch.snapshot_suggestions --league nfl
+          else
+            echo "Before 11:00 UTC: skipping the snapshot."
+          fi

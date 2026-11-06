@@ -846,3 +846,129 @@ async function getSignal<T>(url: string, signal?: AbortSignal): Promise<T> {
   if (!json.success) throw new Error(json.error || 'Request failed')
   return json.data as T
 }
+
+// ── Game insights (GET /api/{league}/games/:id/insights) ──────────────────────
+// The game view's matchup panel: tale of the tape, streaks at Kalshi rungs,
+// L10-vs-season trends, ESPN injuries and team news, and outdoor-NFL weather.
+
+export interface GameTapeSide {
+  value: number
+  /** 1 = best in the league for this row (stingiest defense, most productive offense). */
+  rank: number
+  /** Team average / league average - 1. */
+  vs_league: number
+}
+
+export interface GameTapeRow {
+  key: string
+  label: string
+  better: 'higher' | 'lower'
+  away: GameTapeSide | null
+  home: GameTapeSide | null
+}
+
+export interface GameInsightStreak {
+  player_id: number
+  name: string
+  team: string
+  ext_id: string | null
+  position: string | null
+  stat: string
+  stat_label: string
+  rung: number
+  depth: number
+  games: number
+  l10_avg: number
+  /** Oldest first. */
+  last10: number[]
+  price: number | null
+  /** True when Kalshi lists this rung for the game. */
+  listed: boolean
+  /** Opponent allows this stat vs league; rank 1 = allows the most. */
+  matchup: Matchup | null
+}
+
+export interface GameInsightTrend {
+  player_id: number
+  name: string
+  team: string
+  ext_id: string | null
+  position: string | null
+  stat: string
+  stat_label: string
+  window: number
+  recent_avg: number
+  season_avg: number | null
+  z: number
+  rung: number | null
+  price: number | null
+  matchup: Matchup | null
+}
+
+export interface GameInsightInjury {
+  name: string
+  player_id: number | null
+  ext_id: string | null
+  position: string | null
+  status: string
+  status_label: string
+  injury: string | null
+  updated: string | null
+}
+
+export interface GameInsightNews {
+  id: string
+  kind: 'injury' | 'trade' | 'news'
+  headline: string
+  published: string
+  url: string | null
+}
+
+export interface GameInsightTeam {
+  team_id: number
+  abbr: string
+  record: { w: number; l: number; t: number } | null
+  injuries: GameInsightInjury[]
+  injury_source: 'espn' | 'availability' | null
+  news: GameInsightNews[]
+  streaks: GameInsightStreak[]
+  trends: GameInsightTrend[]
+}
+
+export interface GameWeather {
+  source: 'open-meteo' | 'espn'
+  at: string | null
+  temp_f: number | null
+  wind_mph: number | null
+  gust_mph: number | null
+  precip_prob: number | null
+  condition: string | null
+  flags: { label: string; tone: 'bad' | 'warn' }[]
+}
+
+export interface GameVenue {
+  name: string
+  city: string | null
+  state: string | null
+  indoor: boolean
+  roof: 'dome' | 'retractable' | 'open'
+  grass: boolean | null
+}
+
+export interface GameInsights {
+  league: string
+  game_id: number
+  season_since: string
+  games_sampled: { away: number; home: number }
+  team_count: number
+  defense: GameTapeRow[]
+  offense: GameTapeRow[]
+  away: GameInsightTeam
+  home: GameInsightTeam
+  venue: GameVenue | null
+  weather: GameWeather | null
+  weather_note: string | null
+}
+
+export const getGameInsights = (league: string, id: number): Promise<GameInsights> =>
+  get(`${BASE}/${league}/games/${id}/insights`)

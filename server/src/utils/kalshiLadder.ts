@@ -1,4 +1,4 @@
-// Kalshi lists NBA player props as "X+" rungs on a fixed ladder (checked against
+// Kalshi lists NBA (and NFL, below) player props as "X+" rungs on a fixed ladder (checked against
 // daily_lines, Oct-Nov 2026): points step by 5 from 10, rebounds and assists by 2,
 // threes/steals/blocks by 1. A suggestion is only useful at a rung that exists,
 // so averages and streak floors snap onto this ladder. Leagues without a ladder
@@ -12,10 +12,29 @@ const NBA: Record<string, number[]> = {
   stl: [1, 2, 3],
   blk: [1, 2, 3],
 };
-const LADDERS: Record<string, Record<string, number[]>> = { nba: NBA };
+// NFL rungs as KXNFLPASS / KXNFLREC / KXNFLRSH list them (daily_lines, Nov 2026):
+// yardage steps by 5 up to 60, then 10s (with a 75); receptions and TDs by 1.
+const yards = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 90, 100, 110, 120, 130, 140, 150];
+const NFL: Record<string, number[]> = {
+  payds: [100, 125, 150, 175, 200, 225, 250, 275, 300, 325, 350, 375, 400],
+  patd: [1, 2, 3, 4],
+  ruyds: yards,
+  recyds: yards.filter((y) => y >= 10),
+  rec: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+};
+const LADDERS: Record<string, Record<string, number[]>> = { nba: NBA, nfl: NFL };
 
 // Trends name stats in full; streaks and pick_results use the short keys.
-const TREND_KEY: Record<string, string> = { points: 'pts', rebounds: 'reb', assists: 'ast', threes: 'fg3m' };
+const TREND_KEY: Record<string, string> = {
+  points: 'pts', rebounds: 'reb', assists: 'ast', threes: 'fg3m',
+  passing_yards: 'payds', passing_tds: 'patd', rushing_yards: 'ruyds',
+  receiving_yards: 'recyds', receptions: 'rec',
+};
+
+/** Whether Kalshi lists player props for this league at all. */
+export function hasLadder(league: string): boolean {
+  return league in LADDERS;
+}
 
 export interface Suggestion {
   /** The Kalshi rung, e.g. 10 for "10+". */

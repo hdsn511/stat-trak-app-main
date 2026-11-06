@@ -64,11 +64,11 @@ export function toTrendingRows(
       chipDetails: p.trendDriverDetails ?? [],
       extId: p.extId ?? null,
       suggested: p.suggested?.rung ?? null,
-      price: p.price ?? null,
       opponent: p.opponent ?? null,
       matchup: p.matchup ?? null,
       seasonVal: season,
       l10Val: recent,
+      window: p.windowSize ?? 10,
       delta: `${diff > 0 ? '+' : ''}${diff.toFixed(1)}`,
       zScore: p.zScore,
     }
@@ -145,7 +145,10 @@ export function toWatchRows(league: LeagueSlug, rows: StreakWatchRow[]): StreakR
   }))
 }
 
-const STREAK_LABEL: Record<string, string> = { pts: 'PTS', reb: 'REB', ast: 'AST', fg3m: '3PM' }
+const STREAK_LABEL: Record<string, string> = {
+  pts: 'PTS', reb: 'REB', ast: 'AST', fg3m: '3PM',
+  payds: 'PASS YDS', patd: 'PASS TD', ruyds: 'RUSH YDS', recyds: 'REC YDS', rec: 'REC',
+}
 
 export function toTickerGames(league: LeagueSlug, games: TodaysGame[]): TickerGame[] {
   return games.map((g) => ({

@@ -34,10 +34,10 @@ export default function LeaguePage({ config }: LeaguePageProps) {
   const hasPicks = config.slug === 'nba' || config.slug === 'nfl'
   const loadResults = useCallback(
     () =>
-      config.slug === 'nba'
+      hasPicks
         ? createLeagueApi(config.slug).getSuggestionResults()
         : Promise.resolve<SuggestionResults | null>(null),
-    [config.slug]
+    [config.slug, hasPicks]
   )
   const results = useEntityData<SuggestionResults | null>(loadResults)
 
@@ -116,7 +116,7 @@ export default function LeaguePage({ config }: LeaguePageProps) {
         <div className="grid gap-5 xl:grid-cols-2 items-start">
           <TrendingPlayers
             rows={trending}
-            meta="LAST 10 VS SEASON"
+            meta={config.slug === 'nfl' ? 'RECENT VS SEASON' : 'LAST 10 VS SEASON'}
             results={results.data?.trending}
             record={results.data?.totals.trending}
             emptyLabel={

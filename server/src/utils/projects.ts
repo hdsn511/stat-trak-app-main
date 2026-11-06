@@ -91,3 +91,24 @@ export function selectProjects<T extends ProjectRow>(
   }
   return { props, moneyline, byGame };
 }
+
+/**
+ * The on_card flags to write after serving the card: every row of an unstarted game
+ * whose flag differs from whether it is on the card now. Rows of started games are
+ * left alone, so the flag freezes at kickoff to what the card showed then; the card's
+ * record counts only those (see utils/record.ts).
+ */
+export function onCardChanges<T extends ProjectRow & { on_card?: boolean | null }>(
+  rows: T[],
+  shown: Set<number>,
+  games: Map<number, GameState>,
+  now: Date,
+): { id: number; on_card: boolean }[] {
+  const out: { id: number; on_card: boolean }[] = [];
+  for (const r of rows) {
+    if (r.game_id == null || !isUpcoming(games.get(r.game_id), now)) continue;
+    const want = shown.has(r.id);
+    if (!!r.on_card !== want) out.push({ id: r.id, on_card: want });
+  }
+  return out;
+}

@@ -1,4 +1,4 @@
-// Streak Watch and Trending enrichment for leagues with a Kalshi ladder (NBA).
+// Streak Watch and Trending enrichment for leagues with a Kalshi ladder (NBA, NFL).
 //
 // Streak Watch is one list across stats rather than ten points streaks: for each
 // player and stat, the streak is measured at the rungs Kalshi actually lists for him
@@ -8,7 +8,7 @@
 // keeps his strongest stat; at most PER_STAT per stat; the ten that make it are
 // ordered by matchup for that stat.
 //
-// Matchup = what the opponent has allowed in that stat over the last MATCHUP_DAYS,
+// Matchup = what the opponent has allowed in that stat over the last matchupDays,
 // relative to the league, shrunk toward even when the sample is small. It is computed
 // from box scores because opponent_position_defense is a season snapshot that goes
 // stale.
@@ -16,16 +16,62 @@
 import { supabaseAdmin } from '../config/supabaseAdmin';
 import type { LeagueConfig } from '../config/leagues';
 import { sportsDay } from '../utils/dateQueries';
-import { ladder } from '../utils/kalshiLadder';
+import { hasLadder, ladder, statKey } from '../utils/kalshiLadder';
 
 export const STAT_COL: Record<string, string> = {
   pts: 'points', reb: 'rebounds', ast: 'assists', fg3m: 'three_points_made',
 };
 const WATCH_SIZE = 10;
 const PER_STAT = 3;
-const MIN_DEPTH = 5;          // a run shorter than this is not a streak
-const HISTORY = 15;           // games looked back for depth
-const MATCHUP_DAYS = 45;
+
+/**
+ * Per-league streak rules. NFL plays once a week, so its runs are shorter and its
+ * look-back longer; and a yardage ladder starts at 5 yards, where an every-week
+ * "streak" says nothing (15+ receiving yards for a 40-yard receiver). So NFL rungs
+ * must be a real share of the player's level (minRelative) and clear a floor that
+ * matters for the stat (minRung).
+ */
+export interface WatchConfig {
+  /** stat key -> stats-table column */
+  cols: Record<string, string>;
+  /** extra columns needed for `played` */
+  playedCols: string[];
+  /** Whether a stat row is a game he actually played in. */
+  played: (r: any) => boolean;
+  minDepth: number;          // a run shorter than this is not a streak
+  history: number;           // games looked back for depth
+  lookbackDays: number;      // calendar window for that history
+  matchupDays: number;
+  /** Matchup shrinkage: games of evidence worth as much as the league prior. */
+  shrink: number;
+  /** Lowest rung that counts per stat (absent = any). */
+  minRung: Record<string, number>;
+  /** Rung must be at least this share of the L10 average. */
+  minRelative: number;
+}
+
+const NBA_WATCH: WatchConfig = {
+  cols: STAT_COL,
+  playedCols: ['minutes_played'],
+  played: (r) => Number(r.minutes_played) > 0,
+  minDepth: 5, history: 15, lookbackDays: 75, matchupDays: 45, shrink: 8,
+  minRung: {}, minRelative: 0,
+};
+
+const NFL_WATCH: WatchConfig = {
+  cols: { payds: 'passing_yards', patd: 'passing_tds', ruyds: 'rushing_yards', recyds: 'receiving_yards', rec: 'receptions' },
+  playedCols: ['attempts', 'carries', 'targets'],
+  played: (r) => Number(r.attempts ?? 0) + Number(r.carries ?? 0) + Number(r.targets ?? 0) > 0,
+  minDepth: 4, history: 12, lookbackDays: 150, matchupDays: 120, shrink: 3,
+  minRung: { payds: 175, patd: 1, ruyds: 30, recyds: 30, rec: 3 },
+  minRelative: 0.5,
+};
+
+const WATCH: Record<string, WatchConfig> = { nba: NBA_WATCH, nfl: NFL_WATCH };
+
+export function watchConfig(lg: LeagueConfig): WatchConfig | null {
+  return WATCH[lg.slug] ?? null;
+}
 // A rung priced above this is a near-lock, not a pick (2+ rebounds at 98%). Unpriced
 // ladder rungs pass, since there is no price to judge them by.
 const MAX_PRICE = 0.9;
@@ -60,14 +106,18 @@ async function paged<T>(build: (from: number) => PromiseLike<{ data: T[] | null;
 }
 
 const matchupCache = new Map<string, { at: number; value: Map<number, Record<string, Matchup>> }>();
+const zeroes = (cols: Record<string, string>) => Object.fromEntries(Object.keys(cols).map((k) => [k, 0])) as Record<string, number>;
 
 /** teamId -> stat -> how much this opponent allows vs the league (rank 1 = allows most). */
 export async function matchupFactors(lg: LeagueConfig): Promise<Map<number, Record<string, Matchup>>> {
   const key = `${lg.slug}:${sportsDay()}`;
   const hit = matchupCache.get(key);
   if (hit && Date.now() - hit.at < 6 * 3600_000) return hit.value;
+  const cfg = watchConfig(lg);
+  if (!cfg) return new Map();
+  const cols = cfg.cols;
 
-  const since = day(sportsDay(), -MATCHUP_DAYS);
+  const since = day(sportsDay(), -cfg.matchupDays);
   const games = await paged<any>((from) =>
     supabaseAdmin.from('games').select('id,home_team_id,away_team_id').eq('league_id', lg.leagueId)
       .eq('status', 2).gte('game_date', since).order('id').range(from, from + 999));
@@ -77,7 +127,7 @@ export async function matchupFactors(lg: LeagueConfig): Promise<Map<number, Reco
     oppOf.set(`${g.id}:${g.away_team_id}`, g.home_team_id);
   }
   const rows = await paged<any>((from) =>
-    supabaseAdmin.from(lg.statsTable).select('game_id,player_id,team_id,' + Object.values(STAT_COL).join(','))
+    supabaseAdmin.from(lg.statsTable).select('game_id,player_id,team_id,' + Object.values(cols).join(','))
       .gte('game_date', since).order('game_id').order('player_id').range(from, from + 999));
 
   // Allowed per (opponent, game), then per opponent.
@@ -86,26 +136,26 @@ export async function matchupFactors(lg: LeagueConfig): Promise<Map<number, Reco
     const opp = oppOf.get(`${r.game_id}:${r.team_id}`);
     if (opp == null) continue;
     const k = `${opp}:${r.game_id}`;
-    const a = allowed.get(k) ?? { pts: 0, reb: 0, ast: 0, fg3m: 0 };
-    for (const [s, col] of Object.entries(STAT_COL)) a[s] += Number(r[col] ?? 0);
+    const a = allowed.get(k) ?? zeroes(cols);
+    for (const [s, col] of Object.entries(cols)) a[s]! += Number(r[col] ?? 0);
     allowed.set(k, a);
   }
   const byTeam = new Map<number, { n: number; sum: Record<string, number> }>();
   for (const [k, a] of allowed) {
     const team = Number(k.split(':')[0]);
-    const t = byTeam.get(team) ?? { n: 0, sum: { pts: 0, reb: 0, ast: 0, fg3m: 0 } };
+    const t = byTeam.get(team) ?? { n: 0, sum: zeroes(cols) };
     t.n++;
-    for (const s of Object.keys(STAT_COL)) t.sum[s] += a[s];
+    for (const s of Object.keys(cols)) t.sum[s]! += a[s]!;
     byTeam.set(team, t);
   }
   const value = new Map<number, Record<string, Matchup>>();
-  for (const s of Object.keys(STAT_COL)) {
+  for (const s of Object.keys(cols)) {
     const teams = [...byTeam.entries()];
     const games_ = teams.reduce((x, [, t]) => x + t.n, 0);
-    const league = games_ ? teams.reduce((x, [, t]) => x + t.sum[s], 0) / games_ : 0;
+    const league = games_ ? teams.reduce((x, [, t]) => x + t.sum[s]!, 0) / games_ : 0;
     const scored = teams.map(([id, t]) => {
-      const raw = league > 0 ? t.sum[s] / t.n / league : 1;
-      return { id, factor: 1 + (raw - 1) * (t.n / (t.n + 8)) };
+      const raw = league > 0 ? t.sum[s]! / t.n / league : 1;
+      return { id, factor: 1 + (raw - 1) * (t.n / (t.n + cfg.shrink)) };
     }).sort((a, b) => b.factor - a.factor);
     scored.forEach((t, i) => {
       const rec = value.get(t.id) ?? {};
@@ -120,13 +170,14 @@ export async function matchupFactors(lg: LeagueConfig): Promise<Map<number, Reco
 /** `${playerId}:${stat}` -> the Kalshi rungs listed for that slate, with their YES price. */
 export async function listedRungs(lg: LeagueConfig, date: string, playerIds: number[]): Promise<Map<string, Rung[]>> {
   const out = new Map<string, Rung[]>();
+  const cols = watchConfig(lg)?.cols ?? STAT_COL;
   for (let i = 0; i < playerIds.length; i += 150) {
     const rows = await paged<any>((from) =>
       supabaseAdmin.from('daily_lines').select('entity_id,stat,line,implied_prob,market_ticker')
         .eq('league_id', lg.leagueId).eq('game_date', date).eq('prop_type', 'player')
         .in('entity_id', playerIds.slice(i, i + 150)).order('id').range(from, from + 999));
     for (const r of rows) {
-      if (r.line == null || !STAT_COL[r.stat]) continue;
+      if (r.line == null || !cols[r.stat]) continue;
       const k = `${r.entity_id}:${r.stat}`;
       const list = out.get(k) ?? [];
       const rung = Number(r.line) + 0.5;
@@ -174,20 +225,27 @@ export function strength(c: Pick<Candidate, 'depth' | 'rung' | 'l10_avg'>): numb
   return Math.min(c.depth, 10) * Math.min(c.rung / Math.max(c.l10_avg, 0.1), 1);
 }
 
-export function bestStreak(stat: string, values: number[], rungs: Rung[], listed: boolean): Candidate | null {
-  // values: most recent first. The strongest rung with a run of at least MIN_DEPTH.
+export type StreakRules = Pick<WatchConfig, 'minDepth' | 'minRung' | 'minRelative'>;
+
+export function bestStreak(
+  stat: string, values: number[], rungs: Rung[], listed: boolean, rules: StreakRules = NBA_WATCH,
+): Candidate | null {
+  // values: most recent first. The strongest rung with a run of at least minDepth.
   let best: Candidate | null = null;
+  const last10 = values.slice(0, 10);
+  const l10 = last10.length ? last10.reduce((a, b) => a + b, 0) / last10.length : 0;
   for (const r of rungs) {
     if (r.price != null && r.price > MAX_PRICE) continue;
+    if (r.rung < (rules.minRung[stat] ?? -Infinity)) continue;
+    if (r.rung < rules.minRelative * l10) continue;
     let depth = 0;
     while (depth < values.length && values[depth]! >= r.rung) depth++;
-    if (depth < MIN_DEPTH) continue;
+    if (depth < rules.minDepth) continue;
     const run = values.slice(0, depth);
-    const last10 = values.slice(0, 10);
     const c: Candidate = {
       player_id: 0, stat, rung: r.rung, depth, listed,
       margin: Math.min(...run) - r.rung,
-      l10_avg: Math.round((last10.reduce((a, b) => a + b, 0) / last10.length) * 10) / 10,
+      l10_avg: Math.round(l10 * 10) / 10,
       last10: [...last10].reverse(),
       price: r.price,
     };
@@ -218,6 +276,9 @@ export function selectWatch<T extends Candidate>(cands: T[], size = WATCH_SIZE, 
 }
 
 export async function buildStreakWatch(lg: LeagueConfig): Promise<{ date: string | null; rows: WatchRow[] }> {
+  const cfg = watchConfig(lg);
+  if (!cfg) return { date: null, rows: [] };
+  const cols = cfg.cols;
   const { date, games } = await nextSlate(lg);
   if (!date || games.length === 0) return { date, rows: [] };
   const { data: teams } = await supabaseAdmin.from('teams').select('id,abbreviation').eq('league_id', lg.leagueId);
@@ -238,18 +299,18 @@ export async function buildStreakWatch(lg: LeagueConfig): Promise<{ date: string
   const ids = roster.map((p: any) => p.id);
 
   const values = new Map<number, Record<string, number[]>>();
-  const since = day(date, -75);
+  const since = day(date, -cfg.lookbackDays);
   for (let i = 0; i < ids.length; i += 100) {
     const rows = await paged<any>((from) =>
       supabaseAdmin.from(lg.statsTable)
-        .select('player_id,game_date,game_id,minutes_played,' + Object.values(STAT_COL).join(','))
+        .select('player_id,game_date,game_id,' + [...cfg.playedCols, ...Object.values(cols)].join(','))
         .in('player_id', ids.slice(i, i + 100)).gte('game_date', since).lt('game_date', date)
         .order('game_date', { ascending: false }).order('game_id').order('player_id').range(from, from + 999));
     for (const r of rows) {
-      if (!(Number(r.minutes_played) > 0)) continue;
-      const v = values.get(r.player_id) ?? { pts: [], reb: [], ast: [], fg3m: [] };
-      if (v.pts!.length >= HISTORY) continue;
-      for (const [s, col] of Object.entries(STAT_COL)) v[s]!.push(Number(r[col] ?? 0));
+      if (!cfg.played(r)) continue;
+      const v = values.get(r.player_id) ?? Object.fromEntries(Object.keys(cols).map((k) => [k, [] as number[]]));
+      if (Object.values(v)[0]!.length >= cfg.history) continue;
+      for (const [s, col] of Object.entries(cols)) v[s]!.push(Number(r[col] ?? 0));
       values.set(r.player_id, v);
     }
   }
@@ -258,10 +319,10 @@ export async function buildStreakWatch(lg: LeagueConfig): Promise<{ date: string
   const cands: Candidate[] = [];
   for (const [pid, byStat] of values) {
     let best: Candidate | null = null;
-    for (const s of Object.keys(STAT_COL)) {
+    for (const s of Object.keys(cols)) {
       const l = listed.get(`${pid}:${s}`);
       const rungs = l?.length ? l : (ladder(lg.slug, s) ?? []).map((rung) => ({ rung, price: null }));
-      const c = bestStreak(s, byStat[s]!, rungs, !!l?.length);
+      const c = bestStreak(s, byStat[s]!, rungs, !!l?.length, cfg);
       if (c && (!best || byStreakStrength(c, best) < 0)) best = { ...c, player_id: pid };
     }
     if (best) cands.push(best);
@@ -295,8 +356,8 @@ export async function buildStreakWatch(lg: LeagueConfig): Promise<{ date: string
 export async function enrichTrending<T extends { playerId: number; team: string; stat: string; rollingAvg: number }>(
   lg: LeagueConfig, rows: T[],
 ): Promise<(T & { suggested: { rung: number; line: number; side: 'over' } | null; price: number | null; opponent: string | null; matchup: Matchup | null })[]> {
-  const key = (s: string) => ({ points: 'pts', rebounds: 'reb', assists: 'ast', threes: 'fg3m' } as Record<string, string>)[s] ?? s;
-  if (!ladder(lg.slug, 'pts')) {
+  const key = statKey;
+  if (!hasLadder(lg.slug)) {
     return rows.map((r) => ({ ...r, suggested: null, price: null, opponent: null, matchup: null }));
   }
   const { date, games } = await nextSlate(lg);

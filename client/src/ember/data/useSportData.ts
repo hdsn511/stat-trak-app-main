@@ -91,8 +91,8 @@ export function useSportData(slugs: LeagueSlug[], opts: Options = {}): SportData
     // Each league streaks on its own headline stat; leagues with no streak
     // pipeline are skipped rather than called and 404'd.
     const streakJobs = active.map((slug) => {
-      // NBA: one cross-stat list at Kalshi rungs. Elsewhere: the league's headline stat.
-      if (slug === 'nba') {
+      // NBA/NFL: one cross-stat list at Kalshi rungs. Elsewhere: the league's headline stat.
+      if (slug === 'nba' || slug === 'nfl') {
         return apiFor(slug)
           .getStreakWatch()
           .then((res) => toWatchRows(slug, res.rows))

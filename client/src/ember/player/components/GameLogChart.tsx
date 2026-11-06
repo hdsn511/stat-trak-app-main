@@ -6,6 +6,8 @@ interface GameLogChartProps {
   games: GameRow[]
   def: StatDef
   line: number
+  /** Usage metric (minutes, targets…) drawn as a quiet strip under the bars. */
+  usage?: (StatDef & { title?: string }) | null
 }
 
 // Height of the tallest possible bar; bars and the threshold share this scale.
@@ -19,13 +21,23 @@ const VALUE_ROOM = 14
 const BAR_MIN = 26
 const GAP = 6
 
-export default function GameLogChart({ games, def, line }: GameLogChartProps) {
+// The usage strip is deliberately small: context for the main bars, not a rival.
+const UH = 34
+const U_VALUE_ROOM = 12
+
+const fmt = (d: StatDef, v: number) => (d.format ? d.format(v) : String(v))
+
+export default function GameLogChart({ games, def, line, usage = null }: GameLogChartProps) {
   const scroller = useRef<HTMLDivElement>(null)
 
   // The API returns newest first; a chart reads left-to-right chronologically.
   const points = games
-    .map((g) => ({ v: def.get(g), opp: typeof g.opponent === 'string' ? g.opponent : '' }))
-    .filter((p): p is { v: number; opp: string } => p.v != null)
+    .map((g) => ({
+      v: def.get(g),
+      u: usage ? usage.get(g) : null,
+      opp: typeof g.opponent === 'string' ? g.opponent : '',
+    }))
+    .filter((p): p is { v: number; u: number | null; opp: string } => p.v != null)
     .reverse()
 
   // Open on the most recent games; earlier ones are a scroll to the left.
@@ -45,6 +57,10 @@ export default function GameLogChart({ games, def, line }: GameLogChartProps) {
   const max = Math.max(...points.map((p) => p.v), line, 1)
   const lineBottom = (line / max) * H
   const contentWidth = points.length * (BAR_MIN + GAP) - GAP
+  const usageVals = points.map((p) => p.u).filter((u): u is number => u != null)
+  const showUsage = usage != null && usageVals.length > 0
+  const uMax = Math.max(...usageVals, 1)
+  const uAvg = usageVals.reduce((a, b) => a + b, 0) / (usageVals.length || 1)
 
   return (
     <div className="px-[18px] pt-[18px] pb-3">
@@ -112,6 +128,45 @@ export default function GameLogChart({ games, def, line }: GameLogChartProps) {
               </span>
             ))}
           </div>
+
+          {showUsage && (
+            <div data-testid="usage-strip" className="mt-[10px] pt-[8px] border-t border-dashed border-[#2C2624]">
+              <div className="sticky left-0 w-fit font-martian text-[9px] tracking-[1px] text-[#8A817D] mb-[2px]">
+                {`${usage.title ?? usage.label} · AVG ${uAvg.toFixed(1)}`}
+              </div>
+              <div className="relative" style={{ height: `${UH + U_VALUE_ROOM}px` }}>
+                <div className="absolute inset-0 flex items-end" style={{ gap: `${GAP}px` }}>
+                  {points.map((p, i) => {
+                    const over = p.v > line
+                    return (
+                      <div
+                        key={i}
+                        className="flex-1 flex flex-col items-center justify-end gap-[2px] min-w-0"
+                        style={{ minWidth: `${BAR_MIN}px` }}
+                      >
+                        <span
+                          data-testid="usage-value"
+                          className="font-martian text-[9px] text-[#8A817D] leading-[9px]"
+                        >
+                          {p.u == null ? '—' : fmt(usage, p.u)}
+                        </span>
+                        <div
+                          data-testid="usage-bar"
+                          data-value={p.u ?? ''}
+                          title={`${p.opp || '—'}: ${p.u == null ? '—' : fmt(usage, p.u)} ${usage.label}`}
+                          className="w-[70%] rounded-t-[2px]"
+                          style={{
+                            height: `${p.u == null ? 0 : Math.max(2, (p.u / uMax) * UH)}px`,
+                            background: over ? 'rgba(63,191,127,0.32)' : '#3A322F',
+                          }}
+                        />
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

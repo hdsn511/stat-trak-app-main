@@ -36,17 +36,44 @@ export interface MatchupTarget {
 }
 
 /**
- * Window first, then opponent and venue. Order matters: "last 10 vs BOS" means
- * BOS games within the last 10 played, not the last 10 BOS games.
+ * Window first, then opponent, venue and usage. Order matters: "last 10 vs BOS"
+ * means BOS games within the last 10 played, not the last 10 BOS games — and
+ * "last 10, MIN ≥ 28" means the 28-minute games among the last 10.
+ *
+ * The usage floor only applies when a usage metric is given; a game with no
+ * usage value can't prove it cleared the floor, so it drops out.
  */
-export function filterGames(games: GameRow[], filters: PlayerFilters): GameRow[] {
+export function filterGames(
+  games: GameRow[],
+  filters: PlayerFilters,
+  usage?: StatDef | null
+): GameRow[] {
   const windowed = filters.window > 0 ? games.slice(0, filters.window) : games
+  const floor = usage && filters.usageMin != null ? filters.usageMin : null
   return windowed.filter((g) => {
     if (filters.vsTeam && g.opponent !== filters.vsTeam) return false
     if (filters.homeAway === 'home' && g.isHome !== true) return false
     if (filters.homeAway === 'away' && g.isHome !== false) return false
+    if (floor != null) {
+      const u = usage!.get(g)
+      if (u == null || u < floor) return false
+    }
     return true
   })
+}
+
+/** Floored per-game usage values, for seeding the usage control. */
+export function usageRange(games: GameRow[], usage: StatDef | null): { min: number; max: number } | null {
+  if (!usage) return null
+  let min = Infinity
+  let max = -Infinity
+  for (const g of games) {
+    const v = usage.get(g)
+    if (v == null) continue
+    if (v < min) min = v
+    if (v > max) max = v
+  }
+  return min === Infinity ? null : { min: Math.floor(min), max: Math.ceil(max) }
 }
 
 export function averageOf(games: GameRow[], def: StatDef): number | null {

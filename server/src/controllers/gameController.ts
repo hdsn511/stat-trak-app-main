@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabaseAdmin';
 import { BoxScoreGroup, LeagueConfig, league } from '../config/leagues';
+import { buildGameInsights } from '../services/gameInsights';
 
 // League-agnostic game detail. Every sport-specific decision — which stats
 // table to read, which columns make up a box score, whether a betting market
@@ -8,11 +9,6 @@ import { BoxScoreGroup, LeagueConfig, league } from '../config/leagues';
 
 function daysDiff(from: string, to: string): number {
   return Math.round((new Date(to).getTime() - new Date(from).getTime()) / 86_400_000);
-}
-
-function avg(arr: number[]): number | null {
-  if (!arr.length) return null;
-  return +(arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(1);
 }
 
 function num(v: unknown): number | null {
@@ -36,53 +32,6 @@ function groupRows(rows: any[], group: BoxScoreGroup) {
       position: r.players?.position ?? null,
       values: Object.fromEntries(group.columns.map((c) => [c.key, num(r[c.key])])),
     }));
-}
-
-/**
- * Season averages for the top players on a team, used as the pre-game preview
- * when no box score exists yet. Uses the league's primary box-score group so
- * the preview columns match what the completed game will eventually show.
- */
-function buildPreview(seasonRows: any[], vsOppRows: any[], group: BoxScoreGroup, top = 6) {
-  const collect = (rows: any[]) => {
-    const map = new Map<number, { name: string; position: string; vals: Record<string, number[]> }>();
-    for (const r of rows) {
-      if (!inGroup(r, group)) continue;
-      let p = map.get(r.player_id);
-      if (!p) {
-        p = { name: r.players?.name ?? '?', position: r.players?.position ?? '?', vals: {} };
-        map.set(r.player_id, p);
-      }
-      for (const c of group.columns) {
-        const v = num(r[c.key]);
-        if (v == null) continue;
-        (p.vals[c.key] ??= []).push(v);
-      }
-    }
-    return map;
-  };
-
-  const season = collect(seasonRows);
-  const vsOpp = collect(vsOppRows);
-
-  return Array.from(season.entries())
-    .map(([id, p]) => {
-      const vs = vsOpp.get(id);
-      const averages = (src: typeof p) =>
-        Object.fromEntries(group.columns.map((c) => [c.key, avg(src.vals[c.key] ?? [])]));
-      return {
-        player_id: id,
-        name: p.name,
-        position: p.position,
-        // Averages vs this opponent when head-to-head games exist, else season.
-        values: vs ? averages(vs) : averages(p),
-        season_values: averages(p),
-        vs_opp_games: vs ? (vs.vals[group.sortBy]?.length ?? 0) : 0,
-        games_played: p.vals[group.sortBy]?.length ?? 0,
-      };
-    })
-    .sort((a, b) => (b.season_values[group.sortBy] ?? 0) - (a.season_values[group.sortBy] ?? 0))
-    .slice(0, top);
 }
 
 /** Betting lines and system picks. Only NBA and MLB have these pipelines. */
@@ -147,8 +96,8 @@ export async function getGameById(req: Request<{ id: string }>, res: Response) {
     const primaryGroup = lg.boxScore.groups[0]!;
     const statSelect = `player_id, team_id, game_date, ${lg.boxScore.select}`;
 
-    // The pre-game preview averages a team's season to date. A finished game
-    // has a real box score, so those two 600-row scans are pure waste there.
+    // Before tipoff the participants come from each team's season rows (used to
+    // match props to this game). A finished game has a real box score instead.
     const seasonRowsFor = (teamId: number) => {
       if (isCompleted) return Promise.resolve({ data: [] as any[] });
       let q = supabaseAdmin
@@ -318,27 +267,6 @@ export async function getGameById(req: Request<{ id: string }>, res: Response) {
     const homeLast = homeLastGameResult.data?.[0]?.game_date;
     const awayLast = awayLastGameResult.data?.[0]?.game_date;
 
-    // ── pre-game preview ─────────────────────────────────────────────────────
-    const h2hGameIds = head_to_head.map((m) => m.game_id);
-    let homeVsOpp: any[] = [];
-    let awayVsOpp: any[] = [];
-    if (h2hGameIds.length > 0 && !isCompleted) {
-      const [hvs, avs] = await Promise.all([
-        supabaseAdmin
-          .from(lg.statsTable)
-          .select(`${statSelect}, players!inner(name, position)`)
-          .eq('team_id', homeTeamId)
-          .in('game_id', h2hGameIds),
-        supabaseAdmin
-          .from(lg.statsTable)
-          .select(`${statSelect}, players!inner(name, position)`)
-          .eq('team_id', awayTeamId)
-          .in('game_id', h2hGameIds),
-      ]);
-      homeVsOpp = hvs.data ?? [];
-      awayVsOpp = avs.data ?? [];
-    }
-
     res.json({
       success: true,
       data: {
@@ -364,20 +292,55 @@ export async function getGameById(req: Request<{ id: string }>, res: Response) {
           home_days: homeLast ? daysDiff(homeLast, g.game_date) : null,
           away_days: awayLast ? daysDiff(awayLast, g.game_date) : null,
         },
-        // Only meaningful before tipoff; a finished game shows its box score.
-        preview: isCompleted
-          ? null
-          : {
-              label: primaryGroup.label,
-              columns: primaryGroup.columns,
-              home: buildPreview(homeSeasonStatsResult.data ?? [], homeVsOpp, primaryGroup),
-              away: buildPreview(awaySeasonStatsResult.data ?? [], awayVsOpp, primaryGroup),
-              stat_context:
-                h2hGameIds.length > 0 ? `vs opp avg (${h2hGameIds.length}G)` : 'season avg',
-            },
+        // The projected box score was retired from the game view; the field stays
+        // (always null) so older clients keep parsing the payload.
+        preview: null,
       },
     });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+/**
+ * GET /games/:id/insights — the game view's matchup panel: tale of the tape,
+ * streaks, trends, injuries, team news and (outdoor NFL) kickoff weather for
+ * the two teams in this game.
+ */
+export async function getGameInsights(req: Request<{ id: string }>, res: Response) {
+  try {
+    const lg = league(res);
+    const gameId = parseInt(req.params.id, 10);
+    if (isNaN(gameId)) {
+      return res.status(400).json({ success: false, error: 'Invalid game ID' });
+    }
+    const { data: game, error } = await supabaseAdmin
+      .from('games')
+      .select(`
+        id, league_id, game_date, game_time, home_score, ext_id, espn_id,
+        home_team:teams!games_home_team_id_fkey(id, abbreviation, name),
+        away_team:teams!games_away_team_id_fkey(id, abbreviation, name)
+      `)
+      .eq('id', gameId)
+      .single();
+    const g = game as any;
+    if (error || !g || g.league_id !== lg.leagueId) {
+      return res.status(404).json({ success: false, error: 'Game not found' });
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    const data = await buildGameInsights(lg, {
+      id: g.id,
+      game_date: g.game_date,
+      game_time: g.game_time ?? null,
+      ext_id: g.ext_id ?? null,
+      espn_id: g.espn_id ?? null,
+      home_team: g.home_team,
+      away_team: g.away_team,
+      is_completed: g.home_score != null || g.game_date < today,
+    });
+    res.json({ success: true, data });
+  } catch (err: any) {
+    console.error('[getGameInsights]', err);
+    res.status(500).json({ success: false, error: err?.message ?? 'Failed to load game insights' });
   }
 }

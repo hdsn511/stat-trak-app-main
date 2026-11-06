@@ -3,6 +3,7 @@ import { act, renderHook } from '@testing-library/react'
 import { usePlayerFilters } from './usePlayerFilters'
 import { getPlayerStatConfig, allStatsFor } from '@/config/playerStats'
 import type { GameRow, PlayerFilters } from './types'
+import { usageFor } from './usage'
 
 const statDefs = allStatsFor(getPlayerStatConfig('nba'), 'player')
 const games: GameRow[] = [
@@ -77,5 +78,61 @@ describe('usePlayerFilters', () => {
     const { result } = setup()
     act(() => result.current.setHomeAway('away'))
     expect(result.current.filters.homeAway).toBe('away')
+  })
+
+  describe('usage floor', () => {
+    const usageGames: GameRow[] = [
+      { opponent: 'BOS', isHome: true, points: 30, minutes: 36 },
+      { opponent: 'LAL', isHome: false, points: 20, minutes: 34 },
+      { opponent: 'BOS', isHome: false, points: 10, minutes: 12 },
+    ]
+    const nflDefs = allStatsFor(getPlayerStatConfig('nfl'), 'rb')
+    // Stable reference: a fresh [] per render would re-fire the line effect forever.
+    const noGames: GameRow[] = []
+    const usageOf = (s: string) => usageFor('nba', 'player', s)
+
+    it('starts with no floor', () => {
+      const { result } = renderHook(() => usePlayerFilters({ games: usageGames, statDefs, usageOf }))
+      expect(result.current.filters.usageMin).toBeNull()
+    })
+
+    it('recomputes the untouched line from games that clear the floor', () => {
+      const { result } = renderHook(() => usePlayerFilters({ games: usageGames, statDefs, usageOf }))
+      expect(result.current.filters.line).toBe(20)
+      act(() => result.current.setUsageMin(30))
+      // 36- and 34-minute games: 30 and 20 points → 25
+      expect(result.current.filters.usageMin).toBe(30)
+      expect(result.current.filters.line).toBe(25)
+    })
+
+    it('clamps a negative floor to zero', () => {
+      const { result } = renderHook(() => usePlayerFilters({ games: usageGames, statDefs, usageOf }))
+      act(() => result.current.setUsageMin(-3))
+      expect(result.current.filters.usageMin).toBe(0)
+    })
+
+    it('keeps the floor across stats that share a usage metric', () => {
+      const { result } = renderHook(() => usePlayerFilters({ games: usageGames, statDefs, usageOf }))
+      act(() => result.current.setUsageMin(30))
+      act(() => result.current.setStat('rebounds'))
+      expect(result.current.filters.usageMin).toBe(30)
+    })
+
+    it('drops the floor when the usage metric changes', () => {
+      // An RB's rushing yards ride on carries; receiving yards on targets.
+      const { result } = renderHook(() =>
+        usePlayerFilters({
+          games: noGames,
+          statDefs: nflDefs,
+          usageOf: (s) => usageFor('nfl', 'rb', s),
+        })
+      )
+      expect(result.current.filters.stat).toBe('rushingYards')
+      act(() => result.current.setUsageMin(15))
+      act(() => result.current.setStat('rushingTds'))
+      expect(result.current.filters.usageMin).toBe(15)
+      act(() => result.current.setStat('receivingYards'))
+      expect(result.current.filters.usageMin).toBeNull()
+    })
   })
 })

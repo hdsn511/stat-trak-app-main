@@ -165,7 +165,6 @@ export default function Home() {
             meta={`${leagueFilter === 'all' ? 'IN-SEASON SPORTS' : leagueFilter.toUpperCase()} · LAST 10`}
             showLeague
             emptyLabel={loading ? 'LOADING STREAKS…' : 'NO ACTIVE STREAKS RIGHT NOW'}
-            footerLink={{ label: 'ALL STREAKS →', to: '/sportquery' }}
           />
         </div>
       </main>

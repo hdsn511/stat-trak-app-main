@@ -1,11 +1,12 @@
 """
 analytics/batch/injury_check.py
 
-Injury validation for StatTrak. League-agnostic: pass --league nba|mlb.
+Injury validation for StatTrak. League-agnostic: pass --league nba|mlb|nfl.
 
 Steps:
   1. Load today's games from local DB — this is the source of truth for which
-     teams are playing.
+     teams are playing. NFL plays weekly, so it looks `window_days` ahead and
+     maps each team to its next game.
   2. Fetch injury reports from the league's ESPN injuries endpoint.
   3. Identify "out" players (league-specific rule) whose team plays today.
   4. Upsert player_availability rows for affected players.
@@ -21,12 +22,12 @@ from __future__ import annotations
 
 import argparse
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Callable, Optional
 
 import requests
 
-from analytics.db.connection import MLB_LEAGUE_ID, NBA_LEAGUE_ID, supabase
+from analytics.db.connection import MLB_LEAGUE_ID, NBA_LEAGUE_ID, NFL_LEAGUE_ID, supabase
 
 REQUEST_TIMEOUT = 10
 
@@ -47,9 +48,16 @@ def _mlb_is_out(status: str) -> bool:
     return "IL" in status
 
 
+def _nfl_is_out(status: str) -> bool:
+    # NFL "Questionable" usually plays; IR, PUP and suspensions do not.
+    s = status.lower()
+    return s in {"out", "doubtful", "suspension"} or "reserve" in s or "pup" in s
+
+
 class LeagueConfig:
     def __init__(self, slug: str, league_id: int, league_tag: str,
-                 espn_url: str, is_out: Callable[[str], bool]):
+                 espn_url: str, is_out: Callable[[str], bool], window_days: int = 1):
+        self.window_days = window_days
         self.slug = slug
         self.league_id = league_id
         self.league_tag = league_tag
@@ -67,6 +75,12 @@ LEAGUES: dict[str, LeagueConfig] = {
         "mlb", MLB_LEAGUE_ID, "mlb",
         "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/injuries",
         _mlb_is_out,
+    ),
+    "nfl": LeagueConfig(
+        "nfl", NFL_LEAGUE_ID, "nfl",
+        "https://site.api.espn.com/apis/site/v2/sports/football/nfl/injuries",
+        _nfl_is_out,
+        window_days=7,
     ),
 }
 
@@ -110,14 +124,28 @@ def run_injury_check(target_date: date, league: str = "nba") -> None:
     print(f"[injury_check] {cfg.slug.upper()} {date_str}")
 
     # Step 1: Load today's games — source of truth for which teams are playing
+    end_str = (target_date + timedelta(days=cfg.window_days - 1)).strftime("%Y-%m-%d")
     game_rows = (
         supabase.table("games")
-        .select("id,home_team_id,away_team_id,status,home_score,away_score")
-        .eq("game_date", date_str)
+        .select("id,home_team_id,away_team_id,status,home_score,away_score,game_date")
+        .gte("game_date", date_str)
+        .lte("game_date", end_str)
         .eq("league_id", cfg.league_id)
+        .order("game_date")
         .execute()
     )
     today_games = game_rows.data or []
+    if cfg.window_days > 1:
+        # Each team's next unfinished game in the window.
+        today_games = [g for g in today_games if g.get("status") != 2]
+        seen: set[int] = set()
+        nxt = []
+        for g in today_games:
+            if g["home_team_id"] in seen or g["away_team_id"] in seen:
+                continue
+            seen.update((g["home_team_id"], g["away_team_id"]))
+            nxt.append(g)
+        today_games = nxt
     if not today_games:
         print("  No games scheduled today. Skipping.")
         return
@@ -162,16 +190,14 @@ def run_injury_check(target_date: date, league: str = "nba") -> None:
         return
 
     # Step 3: Collect "out" player names from all teams in today's games
-    player_rows = (
-        supabase.table("players")
-        .select("id,name,team")
-        .eq("league", cfg.league_tag)
-        .eq("is_active", True)
-        .execute()
-    )
-    name_to_player: dict[str, dict] = {
-        r["name"].lower(): r for r in (player_rows.data or [])
-    }
+    players: list[dict] = []
+    for start in range(0, 20000, 1000):   # NFL rosters run past the 1000-row page
+        page = (supabase.table("players").select("id,name,team").eq("league", cfg.league_tag)
+                .eq("is_active", True).order("id").range(start, start + 999).execute().data or [])
+        players += page
+        if len(page) < 1000:
+            break
+    name_to_player: dict[str, dict] = {r["name"].lower(): r for r in players}
 
     affected: list[dict] = []
     for team_entry in injury_entries:
@@ -218,7 +244,7 @@ def run_injury_check(target_date: date, league: str = "nba") -> None:
     picks_res = (
         supabase.table("pick_results")
         .select("id,entity_id,stat")
-        .eq("game_date", date_str)
+        .in_("game_id", list({r["game_id"] for r in avail_rows}) or [-1])
         .eq("league_id", cfg.league_id)
         .neq("pick_type", "project")   # voided by generate_projects, not deleted
         .in_("entity_id", affected_ids)

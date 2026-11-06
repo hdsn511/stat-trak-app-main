@@ -39,3 +39,9 @@ jobs:
       - name: Run injury check (MLB)
         if: always()
         run: python -m analytics.batch.injury_check --league mlb --date "$(date -u +%Y-%m-%d)"
+
+      # NFL plays weekly: marks each team's next game (7-day window), which feeds the
+      # Trending "INJURY BOOST" chip and the game view injury lists.
+      - name: Run injury check (NFL)
+        if: always()
+        run: python -m analytics.batch.injury_check --league nfl --date "$(date -u +%Y-%m-%d)"

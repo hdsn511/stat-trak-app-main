@@ -76,3 +76,23 @@ describe('selectProjects', () => {
     expect(r.byGame.size).toBe(0);
   });
 });
+
+import { onCardChanges } from '../src/utils/projects';
+
+describe('onCardChanges', () => {
+  const now = new Date('2026-11-06T12:00:00Z');
+  const games = new Map([
+    [1, { status: 0, game_time: '2026-11-08T18:00:00Z' }],   // upcoming
+    [2, { status: 2, game_time: '2026-11-06T01:15:00Z' }],   // started
+  ]);
+  const row = (id: number, game_id: number, on_card: boolean | null) =>
+    ({ id, prop_type: 'player', entity_id: id, model_prob: 0.55, game_id, on_card });
+
+  it('marks shown rows and clears displaced ones on unstarted games', () => {
+    const out = onCardChanges([row(1, 1, null), row(2, 1, true), row(3, 1, true)], new Set([1, 3]), games, now);
+    expect(out).toEqual([{ id: 1, on_card: true }, { id: 2, on_card: false }]);
+  });
+  it('never touches a started game, so the flag freezes at kickoff', () => {
+    expect(onCardChanges([row(4, 2, true), row(5, 2, null)], new Set(), games, now)).toEqual([]);
+  });
+});

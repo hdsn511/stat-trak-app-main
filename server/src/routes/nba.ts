@@ -9,7 +9,7 @@ import {
   getPlayerPicks,
   getStreakWatch,
 } from '../controllers/nbaController';
-import { getGameById } from '../controllers/gameController';
+import { getGameById, getGameInsights } from '../controllers/gameController';
 import { getTeamById } from '../controllers/teamController';
 import { getTeamDefense } from '../controllers/defenseController';
 import { getStandings } from '../controllers/standingsController';
@@ -30,6 +30,7 @@ router.get('/trends', getTrends);
 router.get('/players/search', searchPlayers);
 router.get('/players/:id/games', getPlayerGames);
 router.get('/games/today', getTodaysGames);
+router.get('/games/:id/insights', getGameInsights);
 router.get('/games/:id', getGameById);
 // Declared before /teams/:id so the more specific path wins.
 router.get('/teams/:id/defense', getTeamDefense);

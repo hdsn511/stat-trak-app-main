@@ -41,3 +41,16 @@ describe('selectWatch', () => {
     expect(out[0]!.player_id).toBe(2);
   });
 });
+
+describe('bestStreak with NFL rules', () => {
+  const nfl = { minDepth: 4, minRung: { recyds: 30 }, minRelative: 0.5 };
+  const yards = (...r: number[]) => r.map((rung) => ({ rung, price: null }));
+  it('skips trivial yardage rungs far below the player level', () => {
+    // A 45-yard receiver clears 15+ every week; that is not a streak worth showing.
+    const c = bestStreak('recyds', [48, 41, 52, 38, 44], yards(5, 10, 15, 20, 25, 30, 35), false, nfl)!;
+    expect(c.rung).toBe(35);
+  });
+  it('returns nothing when only sub-floor rungs hold', () => {
+    expect(bestStreak('recyds', [18, 22, 19, 25, 21], yards(5, 10, 15, 20), false, nfl)).toBeNull();
+  });
+});

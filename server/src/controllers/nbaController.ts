@@ -2,8 +2,8 @@ import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabaseAdmin';
 import { findNearestConditionsDate, findNearestPickDate, sportsDay } from '../utils/dateQueries';
 import { league as resolveLeague, seasonStartFor, LeagueConfig } from '../config/leagues';
-import { nearestRung } from '../utils/kalshiLadder';
-import { buildStreakWatch, enrichTrending, nextSlate } from '../services/nbaWatch';
+import { hasLadder, ladder, nearestRung, statKey } from '../utils/kalshiLadder';
+import { buildStreakWatch, enrichTrending, nextSlate, watchConfig } from '../services/nbaWatch';
 
 /**
  * Rows to return from the player game log. `all` means the whole season; any
@@ -91,6 +91,7 @@ const sign = (v: number) => (v > 0 ? '+' : '') + f1(v);
 function buildDriverDetails(
   cond: any,
   outs: { name: string; ppg: number | null }[],
+  unit = 'PPG',
 ): DriverDetail[] {
   const d: DriverDetail[] = [];
   if (cond) {
@@ -118,9 +119,11 @@ function buildDriverDetails(
   }
   if (outs.length > 0) {
     const vacated = outs.reduce((a, o) => a + (o.ppg ?? 0), 0);
-    d.push({ label: 'INJURY BOOST', summary: `${outs.length} teammate${outs.length > 1 ? 's' : ''} out, ${f1(vacated)} PPG vacated`, lines: [
-      ...outs.map((o) => `${o.name} OUT${o.ppg != null ? ` (${f1(o.ppg)} PPG)` : ''}`),
-      'Their shots and minutes get redistributed among the players still active.',
+    d.push({ label: 'INJURY BOOST', summary: `${outs.length} teammate${outs.length > 1 ? 's' : ''} out, ${f1(vacated)} ${unit} vacated`, lines: [
+      ...outs.map((o) => `${o.name} OUT${o.ppg != null ? ` (${f1(o.ppg)} ${unit})` : ''}`),
+      unit === 'PPG'
+        ? 'Their shots and minutes get redistributed among the players still active.'
+        : 'Their targets and touches get redistributed among the players still active.',
     ]});
   }
   return d;
@@ -157,6 +160,50 @@ function buildMLBTrendDrivers(cond: any): string[] {
   if (pf != null && pf > 1.05) drivers.push('HITTER PARK');
   else if (pf != null && pf < 0.95) drivers.push('PITCHER PARK');
   return drivers;
+}
+
+// NFL has no daily conditions table, so its chips come from the box scores: the
+// opportunity behind a stat (targets for receiving, carries for rushing, attempts
+// for passing) over the last 3 games vs the season.
+const NFL_USAGE: Record<string, { col: string; label: string; noun: string }> = {
+  receiving_yards: { col: 'targets', label: 'TGT ↑', noun: 'targets' },
+  receptions: { col: 'targets', label: 'TGT ↑', noun: 'targets' },
+  rushing_yards: { col: 'carries', label: 'CAR ↑', noun: 'carries' },
+  passing_yards: { col: 'attempts', label: 'ATT ↑', noun: 'pass attempts' },
+  passing_tds: { col: 'attempts', label: 'ATT ↑', noun: 'pass attempts' },
+};
+
+async function nflUsage(playerIds: number[], since: string): Promise<Map<number, Record<string, number[]>>> {
+  const out = new Map<number, Record<string, number[]>>();
+  if (playerIds.length === 0) return out;
+  const { data } = await supabaseAdmin
+    .from('nfl_player_stats')
+    .select('player_id, game_date, targets, carries, attempts')
+    .in('player_id', playerIds)
+    .gte('game_date', since)
+    .order('game_date', { ascending: false });
+  for (const r of (data || []) as any[]) {
+    const u = out.get(r.player_id) ?? { targets: [], carries: [], attempts: [] };
+    for (const c of ['targets', 'carries', 'attempts']) u[c]!.push(Number(r[c] ?? 0));
+    out.set(r.player_id, u);
+  }
+  return out;
+}
+
+/** "TGT ↑" when the last 3 games' opportunity runs 20%+ over the season rate. */
+function nflUsageDriver(stat: string, usage: Record<string, number[]> | undefined): DriverDetail | null {
+  const u = NFL_USAGE[stat];
+  const v = u && usage?.[u.col];
+  if (!u || !v || v.length < 4) return null;
+  const avg = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+  const recent = avg(v.slice(0, 3));
+  const season = avg(v);
+  if (season <= 0 || recent < season * 1.2 || recent - season < 1) return null;
+  return { label: u.label, summary: `${f1(recent)} ${u.noun} a game lately, up ${f1(((recent - season) / season) * 100)}%`, lines: [
+    `Last 3 games: ${v.slice(0, 3).join(', ')} ${u.noun}`,
+    `Season: ${f1(season)} per game over ${v.length} games`,
+    'More opportunities is the most reliable driver of a yardage or catch trend.',
+  ]};
 }
 
 // Shared core: build the trending-player list with drivers, locked to window=10,
@@ -196,13 +243,19 @@ async function buildTrendingPayload(opts: {
   }
 
   const todayTeams = new Set<string>();
+  // Team abbreviation -> its game on the slate, for the injury lookup.
+  const gameByTeam = new Map<string, number>();
   if (slateTeamIds.size > 0) {
     const { data: slateTeamRows } = await supabaseAdmin
       .from('teams')
       .select('id, abbreviation')
       .in('id', [...slateTeamIds]);
     for (const t of (slateTeamRows || [])) {
-      if (t.abbreviation) todayTeams.add(t.abbreviation.toUpperCase());
+      if (!t.abbreviation) continue;
+      const abbr = t.abbreviation.toUpperCase();
+      todayTeams.add(abbr);
+      const g = todayGamesRaw.find((x: any) => x.home_team_id === t.id || x.away_team_id === t.id);
+      if (g) gameByTeam.set(abbr, g.id);
     }
   }
 
@@ -256,7 +309,16 @@ async function buildTrendingPayload(opts: {
     const cur = best.get(k);
     if (!cur || r.window_size > cur.window_size) best.set(k, r);
   }
-  const rows = [...best.values()].sort((a, b) => b.trend_val - a.trend_val);
+  // Ladder leagues: only stats Kalshi lists, at a level its watch rules count as
+  // meaningful (NFL: no tackles, no 12-yard receivers). NBA's minRung is empty.
+  const minRung = watchConfig(lg)?.minRung ?? {};
+  const bettable = (row: any) => {
+    if (!hasLadder(lg.slug)) return true;
+    const name = lg.trendStatNames[row.stat];
+    if (!name || !ladder(lg.slug, name)) return false;
+    return Number(row.rolling_avg) >= (minRung[statKey(name)] ?? 0);
+  };
+  const rows = [...best.values()].filter(bettable).sort((a, b) => b.trend_val - a.trend_val);
   let filtered = rows.filter(row => !outIds.has(row.player_id));
 
   // Optional dedupe: keep one entry per player (their highest trend_val)
@@ -297,19 +359,28 @@ async function buildTrendingPayload(opts: {
   // injured teammates; arm quality of the opposing MLB starter).
   const outIdSet = new Set<number>();
   for (const set of outByGameId.values()) for (const id of set) outIdSet.add(id);
-  const outInfo = new Map<number, { name: string; ppg: number | null }>();
+  const outInfo = new Map<number, { name: string; team: string | null; avg: Map<number, number> }>();
   const starterInfo = new Map<number, { name: string; rank: number; total: number }>();
   if (lg.slug !== 'mlb' && outIdSet.size > 0) {
     const ids = [...outIdSet];
     const [{ data: pl }, { data: tr }] = await Promise.all([
-      supabaseAdmin.from('players').select('id, name').in('id', ids),
-      lg.trendsTable
-        ? supabaseAdmin.from(lg.trendsTable).select('player_id, season_avg').in('player_id', ids).eq('stat', 0).eq('window_size', 10)
-        : Promise.resolve({ data: [] as any[] }),
+      supabaseAdmin.from('players').select('id, name, team').in('id', ids),
+      // Season averages per stat, largest window available (NFL tops out below 10 early on).
+      supabaseAdmin.from(lg.trendsTable).select('player_id, stat, season_avg, window_size').in('player_id', ids).in('stat', lg.validStatIds),
     ]);
-    const ppg = new Map<number, number>();
-    for (const t of (tr || []) as any[]) if (t.season_avg != null) ppg.set(t.player_id, Number(t.season_avg));
-    for (const p of (pl || []) as any[]) outInfo.set(p.id, { name: p.name, ppg: ppg.get(p.id) ?? null });
+    const avgs = new Map<number, Map<number, { v: number; w: number }>>();
+    for (const t of (tr || []) as any[]) {
+      if (t.season_avg == null) continue;
+      const m = avgs.get(t.player_id) ?? new Map();
+      const cur = m.get(t.stat);
+      if (!cur || t.window_size > cur.w) m.set(t.stat, { v: Number(t.season_avg), w: t.window_size });
+      avgs.set(t.player_id, m);
+    }
+    for (const p of (pl || []) as any[]) {
+      const m = new Map<number, number>();
+      for (const [k, x] of avgs.get(p.id) ?? []) m.set(k, x.v);
+      outInfo.set(p.id, { name: p.name, team: p.team ? String(p.team).toUpperCase() : null, avg: m });
+    }
   }
   if (lg.slug === 'mlb') {
     const starterIds = [...new Set([...condByPlayerId.values()].map((c) => c.opp_starter_id).filter((x) => x != null))];
@@ -329,33 +400,38 @@ async function buildTrendingPayload(opts: {
     }
   }
 
+  const usage = lg.slug === 'nfl'
+    ? await nflUsage(playerIds, seasonStartFor(lg, new Date(today + "T12:00:00Z")))
+    : new Map<number, Record<string, number[]>>();
+
   // Step 4: build final payload with trend_drivers
   const result = top.map((row: any) => {
     const cond = condByPlayerId.get(row.player_id);
-    // Injury boost = any teammate marked 'out' on this player's game today.
-    // We only have game_id from daily_conditions, so use that to check teammates.
-    let injuryBoost = false;
-    if (cond?.game_id) {
-      const teammatesOut = outByGameId.get(cond.game_id);
-      if (teammatesOut && teammatesOut.size > 0) {
-        // any teammate (someone other than self) is out
-        const others = Array.from(teammatesOut).filter((id) => id !== row.player_id);
-        injuryBoost = others.length > 0;
-      }
-    }
-    const drivers = lg.slug === 'mlb'
-      ? buildMLBTrendDrivers(cond)
-      : buildTrendDrivers(cond, injuryBoost);
-    const outsForPlayer = cond?.game_id
-      ? [...(outByGameId.get(cond.game_id) ?? [])]
+    const team = String(row.players?.team ?? '').toUpperCase();
+    // Injury boost = a TEAMMATE (same team, not the opponent) out for this game. NBA
+    // counts vacated points; NFL counts teammates who produce in this same stat, so
+    // an injured lineman or the other side's receiver never shows up.
+    const gameId = cond?.game_id ?? gameByTeam.get(team);
+    const vacStat = lg.slug === 'nba' ? 0 : row.stat;
+    const minVacated = lg.slug === 'nba' ? 0 : Math.max(1, 0.25 * Number(row.season_avg ?? 0));
+    const outsForPlayer = gameId != null
+      ? [...(outByGameId.get(gameId) ?? [])]
           .filter((id) => id !== row.player_id)
           .map((id) => outInfo.get(id))
-          .filter((o): o is { name: string; ppg: number | null } => !!o)
+          .filter((o): o is NonNullable<typeof o> => !!o && o.team === team)
+          .map((o) => ({ name: o.name, ppg: o.avg.get(vacStat) ?? null }))
+          .filter((o) => lg.slug === 'nba' || (o.ppg ?? 0) >= minVacated)
           .sort((a, b) => (b.ppg ?? 0) - (a.ppg ?? 0))
       : [];
+    const injuryBoost = outsForPlayer.length > 0;
+    const unit = lg.slug === 'nba' ? 'PPG' : `${lg.statLabels[statKey(lg.trendStatNames[row.stat] ?? '')] ?? ''} per game`.trim();
+    const usageDriver = lg.slug === 'nfl' ? nflUsageDriver(lg.trendStatNames[row.stat], usage.get(row.player_id)) : null;
+    const drivers = lg.slug === 'mlb'
+      ? buildMLBTrendDrivers(cond)
+      : [...(usageDriver ? [usageDriver.label] : []), ...buildTrendDrivers(cond, injuryBoost)];
     const trendDriverDetails = lg.slug === 'mlb'
       ? buildMLBDriverDetails(cond, null, cond?.opp_starter_id != null ? starterInfo.get(cond.opp_starter_id) : null)
-      : buildDriverDetails(cond, injuryBoost ? outsForPlayer : []);
+      : [...(usageDriver ? [usageDriver] : []), ...buildDriverDetails(cond, outsForPlayer, unit)];
 
     return {
       playerId: row.player_id,

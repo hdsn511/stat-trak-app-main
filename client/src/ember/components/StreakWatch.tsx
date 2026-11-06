@@ -6,7 +6,7 @@ import PlayerAvatar from './PlayerAvatar'
 import YesterdayResults from './YesterdayResults'
 import TeamLogo from './TeamLogo'
 import CardRecord from './CardRecord'
-import { ClearStrip, MatchupNote, PropTicket, ResultMark } from './PropVisuals'
+import { ClearStrip, MatchupNote, PropTicket, ResultMark, StatTag } from './PropVisuals'
 import LeaguePill from './LeaguePill'
 import ModuleCard from './ModuleCard'
 import { EmptyState } from './EntityState'
@@ -54,7 +54,6 @@ interface StreakWatchProps {
   rows: StreakRow[]
   meta: string
   showLeague?: boolean
-  footerLink?: { label: string; to: string }
   className?: string
   emptyLabel?: string
   /** Yesterday's graded snapshot of this card. */
@@ -122,7 +121,6 @@ export default function StreakWatch({
   rows,
   meta,
   showLeague = false,
-  footerLink,
   className = '',
   emptyLabel = 'NO ACTIVE STREAKS',
   results,
@@ -163,14 +161,6 @@ export default function StreakWatch({
         )
       })}
       <YesterdayResults league={rows[0]?.league ?? 'nba'} set={results} />
-      {footerLink && rows.length > 0 && (
-        <Link
-          to={footerLink.to}
-          className="block font-martian font-bold text-[12px] text-[#FF6B3D] tracking-[1px] px-5 py-3 border-t border-[#221D1A]"
-        >
-          {footerLink.label}
-        </Link>
-      )}
     </ModuleCard>
   )
 }
@@ -185,13 +175,16 @@ function WatchRow({ row, detail, yday, showLeague }: {
   return (
     <Link
       to={playerPath(row.league, row.playerId)}
-      className="grid grid-cols-[minmax(0,1fr)_92px_30px] sm:grid-cols-[minmax(0,1fr)_92px_150px_30px] items-center gap-[18px] px-5 py-4 border-b border-[#221D1A] last:border-b-0 hover:bg-[#211C1A]"
+      className="grid grid-cols-[minmax(0,1fr)_112px_30px] sm:grid-cols-[minmax(0,1fr)_112px_150px_30px] items-center gap-[18px] px-5 py-4 border-b border-[#221D1A] last:border-b-0 hover:bg-[#211C1A]"
     >
       <div className="min-w-0 flex items-center gap-3">
         {showLeague && <LeaguePill league={row.leagueLabel} />}
         <PlayerAvatar league={row.league} extId={row.extId} name={row.name} accent={teamAccent(row.league, row.team)} size={42} />
         <div className="min-w-0">
-          <div className="font-schibsted font-bold text-[15px] text-[#EFEBE9] truncate">{row.name}</div>
+          <div className="flex items-center gap-[6px] min-w-0">
+            <span className="font-schibsted font-bold text-[15px] text-[#EFEBE9] truncate">{row.name}</span>
+            <StatTag label={row.label} />
+          </div>
           <div className="mt-[3px] flex items-center gap-[5px] font-martian text-[11px] text-[#C9C2BE]">
             <TeamLogo league={row.league} abbr={row.team} size={13} />
             {row.team}

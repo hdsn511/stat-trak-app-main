@@ -15,7 +15,7 @@ suggested rung (recommended_line = rung - 0.5). Graded by batch/reconcile_projec
 Idempotent: the (game_date, entity_id, stat, pick_type) key ignores repeats.
 
 CLI:
-    python -m analytics.batch.snapshot_suggestions --league nba
+    python -m analytics.batch.snapshot_suggestions --league nba|nfl
 """
 from __future__ import annotations
 
@@ -31,9 +31,11 @@ import requests
 from analytics.db.connection import supabase
 
 API_BASE = os.getenv("STATTRAK_API_BASE", "https://stattraksports.pages.dev/api")
-LEAGUE_ID = {"nba": 1}
+LEAGUE_ID = {"nba": 1, "nfl": 3}
 SHOWN = 10
-TREND_KEY = {"points": "pts", "rebounds": "reb", "assists": "ast", "threes": "fg3m"}
+TREND_KEY = {"points": "pts", "rebounds": "reb", "assists": "ast", "threes": "fg3m",
+             "passing_yards": "payds", "passing_tds": "patd", "rushing_yards": "ruyds",
+             "receiving_yards": "recyds", "receptions": "rec"}
 
 
 def _get(path: str, **params):

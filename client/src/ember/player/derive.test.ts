@@ -9,7 +9,9 @@ import {
   gamesVersus,
   matchupSignal,
   resolveMatchupOpponent,
+  usageRange,
 } from './derive'
+import { usageFor } from './usage'
 import { getPlayerStatConfig } from '@/config/playerStats'
 import type { GameRow, PlayerFilters } from './types'
 
@@ -238,5 +240,81 @@ describe('resolveMatchupOpponent', () => {
 
   it('returns null when there is neither', () => {
     expect(resolveMatchupOpponent(null, null)).toBeNull()
+  })
+})
+
+describe('filterGames usage floor', () => {
+  const min = usageFor('nba', 'player', 'points')
+
+  it('drops games under the usage floor', () => {
+    const out = filterGames(GAMES, { ...base, usageMin: 31 }, min)
+    expect(out.map((g) => g.minutes)).toEqual([36, 33, 31, 38])
+  })
+
+  it('ignores the floor when no usage metric is given', () => {
+    expect(filterGames(GAMES, { ...base, usageMin: 31 })).toHaveLength(5)
+  })
+
+  it('ignores a null floor', () => {
+    expect(filterGames(GAMES, { ...base, usageMin: null }, min)).toHaveLength(5)
+  })
+
+  it('applies the window before the usage floor', () => {
+    // Last 3 are 36/33/31 minutes; only two clear 32.
+    expect(filterGames(GAMES, { ...base, window: 3, usageMin: 32 }, min)).toHaveLength(2)
+  })
+
+  it('drops games with no usage value under a floor', () => {
+    const games: GameRow[] = [{ points: 10 }, { points: 20, minutes: 30 }]
+    expect(filterGames(games, { ...base, usageMin: 0 }, min)).toHaveLength(1)
+  })
+
+  it('feeds hit rate the usage-filtered slice', () => {
+    // 30+ minute games: 30, 20, 25, 40 points → 2 over 25, 1 under, 1 push.
+    const out = filterGames(GAMES, { ...base, usageMin: 30 }, min)
+    expect(hitRate(out, pts, 25)).toMatchObject({ over: 2, under: 1, push: 1 })
+  })
+})
+
+describe('usageRange', () => {
+  it('spans the observed usage values', () => {
+    expect(usageRange(GAMES, usageFor('nba', 'player', 'points'))).toEqual({ min: 22, max: 38 })
+  })
+
+  it('is null without a metric or values', () => {
+    expect(usageRange(GAMES, null)).toBeNull()
+    expect(usageRange([{ points: 3 }], usageFor('nba', 'player', 'points'))).toBeNull()
+  })
+})
+
+describe('usageFor', () => {
+  it('uses minutes for every NBA stat', () => {
+    expect(usageFor('nba', 'player', 'points')?.label).toBe('MIN')
+    expect(usageFor('nba', 'player', 'pra')?.label).toBe('MIN')
+  })
+
+  it('follows the NFL stat, not the role', () => {
+    expect(usageFor('nfl', 'rb', 'rushingYards')?.label).toBe('CAR')
+    expect(usageFor('nfl', 'rb', 'receivingYards')?.label).toBe('TGT')
+    expect(usageFor('nfl', 'receiver', 'receptions')?.label).toBe('TGT')
+    expect(usageFor('nfl', 'qb', 'passingYards')?.label).toBe('ATT')
+    expect(usageFor('nfl', 'qb', 'rushingYards')?.label).toBe('CAR')
+    expect(usageFor('nfl', 'rb', 'scrimmageYards')?.label).toBe('CAR+TGT')
+    expect(usageFor('nfl', 'defense', 'tacklesTotal')).toBeNull()
+  })
+
+  it('reads a missing NFL count as zero on a logged game', () => {
+    expect(usageFor('nfl', 'receiver', 'receptions')!.get({ targets: null })).toBe(0)
+    expect(usageFor('nfl', 'rb', 'scrimmageYards')!.get({ carries: 12, targets: null })).toBe(12)
+  })
+
+  it('converts NHL time on ice to minutes', () => {
+    expect(usageFor('nhl', 'skater', 'goals')!.get({ toiSeconds: 1110 })).toBe(18.5)
+    expect(usageFor('nhl', 'goalie', 'saves')!.get({ goalieToiSeconds: 3600 })).toBe(60)
+  })
+
+  it('uses plate appearances for hitters and outs for pitchers', () => {
+    expect(usageFor('mlb', 'batter', 'hits')?.label).toBe('PA')
+    expect(usageFor('mlb', 'pitcher', 'strikeoutsPitched')?.label).toBe('OUTS')
   })
 })

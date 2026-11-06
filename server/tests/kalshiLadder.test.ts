@@ -35,3 +35,12 @@ describe('rungAtOrBelow', () => {
     expect(rungAtOrBelow('nba', 'pts', 8)).toBeNull();
   });
 });
+
+describe('NFL ladder', () => {
+  it('snaps NFL trend averages onto Kalshi rungs', () => {
+    expect(nearestRung('nfl', 'receiving_yards', 39)?.rung).toBe(40);
+    expect(nearestRung('nfl', 'receptions', 4.4)?.rung).toBe(4);
+    expect(nearestRung('nfl', 'passing_yards', 239)?.rung).toBe(250);
+    expect(nearestRung('nfl', 'tackles', 6)).toBeNull();
+  });
+});

@@ -51,4 +51,9 @@ export interface PlayerFilters {
   line: number
   /** True once the user has moved the line off the computed average. */
   lineTouched: boolean
+  /**
+   * Minimum usage (minutes, targets, carries…) a game needs to count, or
+   * null/absent for no usage filter. Which metric depends on the stat.
+   */
+  usageMin?: number | null
 }

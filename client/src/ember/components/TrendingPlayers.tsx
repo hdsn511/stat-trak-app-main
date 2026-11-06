@@ -9,7 +9,7 @@ import YesterdayResults from './YesterdayResults'
 import LeaguePill from './LeaguePill'
 import ModuleCard from './ModuleCard'
 import CardRecord from './CardRecord'
-import { AvgTrack, MatchupNote, PropTicket, ResultMark } from './PropVisuals'
+import { MatchupNote, PropTicket, ResultMark, StatTag, TrendBars } from './PropVisuals'
 import { EmptyState } from './EntityState'
 
 export type TrendingRow = {
@@ -26,6 +26,8 @@ export type TrendingRow = {
   chipDetails?: { label: string; summary: string; lines: string[] }[]
   seasonVal: number
   l10Val: number
+  /** Games in the recent sample (10, or fewer early in an NFL season). */
+  window?: number
   delta: string
   /** Sort key; not rendered. */
   zScore: number
@@ -33,8 +35,6 @@ export type TrendingRow = {
   extId?: string | null
   /** Kalshi rung nearest the L10 average, e.g. 10 for "10+". */
   suggested?: number | null
-  /** Kalshi YES price for that rung, 0-1. */
-  price?: number | null
   opponent?: string | null
   matchup?: Matchup | null
 }
@@ -73,7 +73,7 @@ export default function TrendingPlayers({
           <div key={rowKey} className="border-b border-[#221D1A] last:border-b-0">
             <Link
               to={playerPath(row.league, row.playerId)}
-              className="grid grid-cols-[minmax(0,1fr)_92px_30px] sm:grid-cols-[minmax(0,1fr)_92px_150px_30px] items-center gap-[18px] px-5 py-4 hover:bg-[#211C1A]"
+              className="grid grid-cols-[minmax(0,1fr)_112px_30px] sm:grid-cols-[minmax(0,1fr)_112px_170px_30px] items-center gap-[18px] px-5 py-4 hover:bg-[#211C1A]"
             >
               <div className="min-w-0 flex items-center gap-3">
                 {showLeague && <LeaguePill league={row.leagueLabel} />}
@@ -85,7 +85,10 @@ export default function TrendingPlayers({
                   size={42}
                 />
                 <div className="min-w-0">
-                  <div className="font-schibsted font-bold text-[15px] text-[#EFEBE9] truncate">{row.name}</div>
+                  <div className="flex items-center gap-[6px] min-w-0">
+                    <span className="font-schibsted font-bold text-[15px] text-[#EFEBE9] truncate">{row.name}</span>
+                    <StatTag label={row.stat} />
+                  </div>
                   <div className="mt-[3px] flex items-center gap-[5px] font-martian text-[11px] text-[#C9C2BE]">
                     <TeamLogo league={row.league} abbr={row.team} size={13} />
                     {row.team}
@@ -132,9 +135,9 @@ export default function TrendingPlayers({
                   )}
                 </div>
               </div>
-              <PropTicket rung={row.suggested} label={row.stat} price={row.price} />
+              <PropTicket rung={row.suggested} label={row.stat} />
               <div className="hidden sm:block">
-                <AvgTrack season={row.seasonVal} recent={row.l10Val} rung={row.suggested} />
+                <TrendBars season={row.seasonVal} recent={row.l10Val} window={row.window} rung={row.suggested} />
               </div>
               <ResultMark hit={yday?.did_hit} actual={yday?.actual} />
             </Link>

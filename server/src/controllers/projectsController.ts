@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabaseAdmin';
 import { league as resolveLeague } from '../config/leagues';
-import { ML_BAND, PROP_BAND, selectProjects, type GameState } from '../utils/projects';
+import { ML_BAND, PROP_BAND, onCardChanges, selectProjects, type GameState } from '../utils/projects';
 import { gradedRecord } from '../utils/record';
 
 /** Calendar date in US Eastern: game_date is local, so UTC would roll over early. */
@@ -35,7 +35,7 @@ export async function getProjects(_req: Request, res: Response) {
         .from('pick_results')
         .select(
           'id,prop_type,entity_id,stat,recommended_line,model_prob,implied_prob,edge,' +
-            'game_id,game_date,modifiers,price_source',
+            'game_id,game_date,modifiers,price_source,on_card',
         )
         .eq('league_id', lg.leagueId)
         .eq('pick_type', 'project')
@@ -49,6 +49,16 @@ export async function getProjects(_req: Request, res: Response) {
     const games = (gameRows ?? []) as any[];
     const gameMap = new Map<number, GameState>(games.map((g) => [g.id, g]));
     const { props, moneyline, byGame } = selectProjects((pickRows ?? []) as any[], gameMap, now);
+
+    // Stamp what the card shows now; frozen at each game's kickoff, it is what gets graded.
+    const shownIds = new Set([...props, ...(moneyline ? [moneyline] : [])].map((r: any) => r.id));
+    const changes = onCardChanges((pickRows ?? []) as any[], shownIds, gameMap, now);
+    await Promise.all(
+      [true, false].map((v) => {
+        const ids = changes.filter((c) => c.on_card === v).map((c) => c.id);
+        return ids.length ? supabaseAdmin.from('pick_results').update({ on_card: v }).in('id', ids) : null;
+      }),
+    ).catch((e) => console.error('[getProjects] on_card stamp failed', e));
 
     const { data: teams } = await supabaseAdmin
       .from('teams')
@@ -116,7 +126,7 @@ export async function getProjects(_req: Request, res: Response) {
       data: {
         supported: true,
         bands,
-        // Graded picks that were on the card (from TRACK_START; launch night is untracked).
+        // Graded picks that were on the card when their game started (on_card).
         record: await gradedRecord(lg.leagueId, ['project'], true),
         props: props.map((p) => shape(p, 'prop')),
         moneyline: moneyline ? shape(moneyline, 'moneyline') : null,

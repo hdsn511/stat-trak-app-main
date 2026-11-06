@@ -14,6 +14,11 @@ interface FilterBarProps {
   seasons?: number[]
   season?: number
   onSeason?: (s: number) => void
+  /** Usage metric for the selected stat; omit (or null) to hide the control. */
+  usage?: StatDef | null
+  /** Observed per-game usage range, used to seed and cap the stepper. */
+  usageBounds?: { min: number; max: number } | null
+  onUsageMin?: (v: number | null) => void
 }
 
 const windowLabel = (w: number) => (w === 0 ? 'ALL' : `L${w}`)
@@ -64,6 +69,9 @@ export default function FilterBar({
   seasons = [],
   season = 0,
   onSeason,
+  usage = null,
+  usageBounds = null,
+  onUsageMin,
 }: FilterBarProps) {
   // "ANY" rather than "ALL" so it never collides with the window group's ALL.
   const venues: [string, HomeAway][] = [
@@ -71,7 +79,26 @@ export default function FilterBar({
     ['HOME', 'home'],
     ['AWAY', 'away'],
   ]
-  const hasActive = filters.vsTeam != null || filters.homeAway !== 'all' || filters.window !== 0
+  const usageMin = usage && onUsageMin ? (filters.usageMin ?? null) : null
+  const hasActive =
+    filters.vsTeam != null ||
+    filters.homeAway !== 'all' ||
+    filters.window !== 0 ||
+    usageMin != null
+  // First "+" from no floor jumps to the middle of the player's range, so a
+  // 2–40 minute log doesn't take 26 clicks to reach a meaningful floor.
+  const stepUp = () => {
+    if (!onUsageMin) return
+    if (usageMin == null) {
+      onUsageMin(usageBounds ? Math.round((usageBounds.min + usageBounds.max) / 2) : 1)
+      return
+    }
+    onUsageMin(usageBounds ? Math.min(usageBounds.max, usageMin + 1) : usageMin + 1)
+  }
+  const stepDown = () => {
+    if (!onUsageMin || usageMin == null) return
+    onUsageMin(usageMin - 1 < 0 ? null : usageMin - 1)
+  }
 
   return (
     <div className="flex flex-col gap-[10px] px-[18px] py-[13px] border-b border-[#27221F]">
@@ -155,6 +182,45 @@ export default function FilterBar({
             </button>
           ))}
         </Group>
+
+        {usage && onUsageMin && (
+          <>
+            <Label>{`${usage.label} ≥`}</Label>
+            <Group>
+              <button
+                type="button"
+                aria-label={`Lower minimum ${usage.label}`}
+                disabled={usageMin == null}
+                onClick={stepDown}
+                className={`${BTN} ${OFF} disabled:opacity-40 disabled:cursor-default`}
+              >
+                −
+              </button>
+              <input
+                type="number"
+                inputMode="numeric"
+                min={0}
+                aria-label={`Minimum ${usage.label}`}
+                placeholder="ANY"
+                value={usageMin ?? ''}
+                onChange={(e) => {
+                  const raw = e.target.value
+                  const n = Number(raw)
+                  onUsageMin(raw === '' || !Number.isFinite(n) ? null : n)
+                }}
+                className="w-[52px] font-martian font-medium text-[11px] text-center bg-[#221D1A] text-[#EFEBE9] placeholder:text-[#8A817D] border-x border-[#2C2624] outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+              />
+              <button
+                type="button"
+                aria-label={`Raise minimum ${usage.label}`}
+                onClick={stepUp}
+                className={`${BTN} ${OFF}`}
+              >
+                +
+              </button>
+            </Group>
+          </>
+        )}
       </div>
 
       {hasActive && (
@@ -166,6 +232,9 @@ export default function FilterBar({
           {filters.vsTeam && <Chip text={`VS ${filters.vsTeam}`} onClear={() => onVsTeam(null)} />}
           {filters.homeAway !== 'all' && (
             <Chip text={filters.homeAway.toUpperCase()} onClear={() => onHomeAway('all')} />
+          )}
+          {usage && usageMin != null && onUsageMin && (
+            <Chip text={`${usage.label} ≥ ${usageMin}`} onClear={() => onUsageMin(null)} />
           )}
         </div>
       )}

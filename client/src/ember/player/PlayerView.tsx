@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { LeagueSlug } from '@/config/leagues'
 import { allStatsFor, getPlayerStatConfig } from '@/config/playerStats'
 import { createLeagueApi } from '@/services/api'
@@ -10,7 +10,9 @@ import {
   opponentsOf,
   resolveMatchupOpponent,
   splitsFor,
+  usageRange,
 } from './derive'
+import { usageFor } from './usage'
 import { usePlayerFilters } from './usePlayerFilters'
 import PlayerAvatar from '@/ember/components/PlayerAvatar'
 import TeamLogo from '@/ember/components/TeamLogo'
@@ -47,13 +49,25 @@ export default function PlayerView({ slug, data, mode, initialFilters }: PlayerV
   )
   const role = cfg.roleOf(data.player, allGames[0])
   const statDefs = useMemo(() => allStatsFor(cfg, role), [cfg, role])
-  const volumeDef = useMemo(() => cfg.volumeFor(role), [cfg, role])
+  // A receiver's TGT is both his volume column and a pickable stat; when the
+  // stat list already carries it, don't show it twice.
+  const volumeDef = useMemo(() => {
+    const v = cfg.volumeFor(role)
+    return v && !statDefs.some((d) => d.key === v.key) ? v : null
+  }, [cfg, role, statDefs])
 
-  const { filters, setWindow, setVsTeam, setHomeAway, setStat, setLine, resetLine } =
-    usePlayerFilters({ games, statDefs, initial: initialFilters })
+  const usageOf = useCallback((stat: string) => usageFor(slug, role, stat), [slug, role])
+
+  const { filters, setWindow, setVsTeam, setHomeAway, setStat, setLine, resetLine, setUsageMin } =
+    usePlayerFilters({ games, statDefs, initial: initialFilters, usageOf })
 
   const activeDef = statDefs.find((s) => s.key === filters.stat) ?? statDefs[0]
-  const filtered = useMemo(() => filterGames(games, filters), [games, filters])
+  const usageDef = usageOf(filters.stat)
+  const filtered = useMemo(
+    () => filterGames(games, filters, usageDef),
+    [games, filters, usageDef]
+  )
+  const usageBounds = useMemo(() => usageRange(games, usageDef), [games, usageDef])
   const opponents = useMemo(() => opponentsOf(allGames), [allGames])
 
   const target = resolveMatchupOpponent(data.upcoming, filters.vsTeam)
@@ -141,6 +155,9 @@ export default function PlayerView({ slug, data, mode, initialFilters }: PlayerV
           seasons={data.seasons}
           season={season}
           onSeason={setSeason}
+          usage={usageDef}
+          usageBounds={usageBounds}
+          onUsageMin={setUsageMin}
         />
         <LineControl
           label={activeDef?.label ?? ''}
@@ -158,7 +175,7 @@ export default function PlayerView({ slug, data, mode, initialFilters }: PlayerV
           volumeDef={volumeDef}
           activeStat={filters.stat}
         />
-        <GameLogChart games={filtered} def={activeDef} line={filters.line} />
+        <GameLogChart games={filtered} def={activeDef} line={filters.line} usage={usageDef} />
       </div>
 
       <MatchupPanel

@@ -2,7 +2,8 @@ import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabaseAdmin';
 import { league as resolveLeague } from '../config/leagues';
 import { ML_BAND, PROP_BAND, onCardChanges, selectProjects, type GameState } from '../utils/projects';
-import { gradedRecord } from '../utils/record';
+import { gradedStraights, straightUnits, tallyStraights } from '../utils/record';
+import { sportsDay } from '../utils/dateQueries';
 
 /** Calendar date in US Eastern: game_date is local, so UTC would roll over early. */
 function easternDate(d: Date): string {
@@ -67,7 +68,20 @@ export async function getProjects(_req: Request, res: Response) {
     const teamById = new Map((teams ?? []).map((t: any) => [t.id, t]));
     const gameById = new Map(games.map((g) => [g.id, g]));
 
-    const playerIds = [...byGame.values()].flatMap((g) => g.props.map((p: any) => p.entity_id));
+    // Graded straights: the all-time record and net units, plus the latest graded slate
+    // before today for the card's "yesterday" dropdown.
+    const graded = await gradedStraights(lg.leagueId);
+    const today = sportsDay(now);
+    const lastDate = graded.reduce<string | null>(
+      (d, r: any) => (r.game_date < today && (d == null || r.game_date > d) ? r.game_date : d),
+      null,
+    );
+    const ydayRows = lastDate ? graded.filter((r: any) => r.game_date === lastDate) : [];
+
+    const playerIds = [
+      ...[...byGame.values()].flatMap((g) => g.props.map((p: any) => p.entity_id)),
+      ...ydayRows.filter((r: any) => r.prop_type === 'player').map((r: any) => r.entity_id),
+    ];
     const { data: players } = playerIds.length
       ? await supabaseAdmin.from('players').select('id,name,team,ext_id').in('id', playerIds)
       : { data: [] as any[] };
@@ -121,13 +135,39 @@ export async function getProjects(_req: Request, res: Response) {
       };
     };
 
+    const ydayShape = (r: any) => {
+      const mods = r.modifiers ?? {};
+      const isProp = r.prop_type === 'player';
+      const player: any = isProp ? playerById.get(r.entity_id) : null;
+      const team: any = isProp ? null : teamById.get(mods.team_id);
+      const price = Number(r.implied_prob);
+      return {
+        id: r.id,
+        kind: isProp ? 'prop' : 'moneyline',
+        entity_id: isProp ? r.entity_id : r.game_id,
+        name: isProp ? (player?.name ?? 'Unknown') : (team?.name ?? mods.team_abbr ?? 'Unknown'),
+        team: mods.team_abbr ?? null,
+        ext_id: isProp ? (player?.ext_id ?? null) : null,
+        stat_label: isProp ? (lg.statLabels[r.stat] ?? r.stat) : null,
+        side: mods.side ?? null,
+        line: r.recommended_line == null ? null : Number(r.recommended_line),
+        price,
+        actual: r.actual_result == null ? null : Number(r.actual_result),
+        did_hit: !!r.did_hit,
+        units: Math.round(straightUnits(price, !!r.did_hit) * 100) / 100,
+      };
+    };
+
     return res.json({
       success: true,
       data: {
         supported: true,
         bands,
         // Graded picks that were on the card when their game started (on_card).
-        record: await gradedRecord(lg.leagueId, ['project'], true),
+        record: tallyStraights(graded),
+        yesterday: lastDate
+          ? { date: lastDate, record: tallyStraights(ydayRows), rows: ydayRows.map(ydayShape) }
+          : null,
         props: props.map((p) => shape(p, 'prop')),
         moneyline: moneyline ? shape(moneyline, 'moneyline') : null,
         // Every upcoming game's predicted winner and top props, for the game view.

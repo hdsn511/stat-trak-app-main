@@ -5,7 +5,6 @@ import ModuleCard from '@/ember/components/ModuleCard'
 import { useEntityData } from '@/ember/useEntityData'
 import ScoreHeader from './components/ScoreHeader'
 import BoxScoreTable from './components/BoxScoreTable'
-import MarketPanel from './components/MarketPanel'
 import { HeadToHead, InjuryList } from './components/SidePanels'
 import BestProps from './components/BestProps'
 import Conditions from './components/Conditions'
@@ -102,10 +101,6 @@ export default function GameView({ data }: GameViewProps) {
 
       {upcoming && ins && (
         <TeamColumns league={league} away={away} home={home} awayInfo={ins.away} homeInfo={ins.home} />
-      )}
-
-      {data.has_markets && (
-        <MarketPanel league={league} props={data.props} picks={data.picks} home={home} away={away} />
       )}
 
       {(showLegacyInjuries || data.head_to_head.length > 0) && (

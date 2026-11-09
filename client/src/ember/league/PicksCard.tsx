@@ -6,7 +6,9 @@ import { EmptyState } from '@/ember/components/EntityState'
 import PlayerAvatar from '@/ember/components/PlayerAvatar'
 import TeamLogo from '@/ember/components/TeamLogo'
 import { useEntityData } from '@/ember/useEntityData'
-import { createLeagueApi, type ProjectPick, type ProjectsResponse } from '@/services/api'
+import { createLeagueApi, type GradedStraight, type ProjectPick, type ProjectsResponse } from '@/services/api'
+import { YesterdayDropdown, WinLoss } from '@/ember/components/YesterdayResults'
+import { formatUnits } from '@/ember/data/results'
 import { formatGameDate, formatGameTime } from '@/ember/game/format'
 import { gamePath, playerPath } from '@/lib/paths'
 import { teamAccent } from '@/lib/teamBrand'
@@ -92,6 +94,51 @@ function Section({ label, children }: { label: string; children: React.ReactNode
   )
 }
 
+/** Yesterday's graded straights: what was picked, the result, and what it paid. */
+function YesterdayPicks({ league, data }: { league: string; data: NonNullable<ProjectsResponse['yesterday']> }) {
+  const { w, l, units } = data.record
+  return (
+    <YesterdayDropdown
+      label="YESTERDAY'S PICKS"
+      summary={
+        <>
+          {w}-{l}
+          <span className={units >= 0 ? 'text-[#3FBF7F]' : 'text-[#FF6B5C]'}>{formatUnits(units)}</span>
+        </>
+      }
+    >
+      {data.rows.map((r) => (
+        <GradedRow key={r.id} league={league} r={r} />
+      ))}
+    </YesterdayDropdown>
+  )
+}
+
+function GradedRow({ league, r }: { league: string; r: GradedStraight }) {
+  const to = r.kind === 'prop' ? playerPath(league, r.entity_id) : gamePath(league, r.entity_id)
+  const what = r.kind === 'moneyline' ? 'TO WIN' : `${r.side === 'under' ? 'U' : 'O'} ${r.line} ${r.stat_label}`
+  return (
+    <Link to={to} className="flex items-center gap-3 px-[18px] py-[8px] border-t border-[#221D1A] hover:bg-[#211C1A]">
+      {r.kind === 'prop' ? (
+        <PlayerAvatar league={league} extId={r.ext_id} name={r.name} accent={teamAccent(league, r.team ?? '')} size={26} />
+      ) : (
+        <TeamLogo league={league} abbr={r.team ?? ''} size={26} />
+      )}
+      <span className="min-w-0 flex-1 font-schibsted text-[13px] text-[#EFEBE9] truncate">{r.name}</span>
+      <span className="font-martian text-[11px] text-[#C9C2BE] tabular-nums whitespace-nowrap">{what}</span>
+      <span className="font-martian text-[11px] text-[#C9C2BE] tabular-nums w-[34px] text-right">
+        {r.kind === 'prop' ? r.actual : ''}
+      </span>
+      <span
+        className={`font-martian text-[11px] tabular-nums w-[48px] text-right ${r.units >= 0 ? 'text-[#3FBF7F]' : 'text-[#FF6B5C]'}`}
+      >
+        {formatUnits(r.units)}
+      </span>
+      <WinLoss hit={r.did_hit} />
+    </Link>
+  )
+}
+
 const band = (b: { min: number; max: number }) => `${Math.round(b.min * 100)}-${Math.round(b.max * 100)}%`
 
 export default function PicksCard({ league, className = '' }: { league: 'nba' | 'nfl'; className?: string }) {
@@ -129,10 +176,13 @@ export default function PicksCard({ league, className = '' }: { league: 'nba' | 
   return (
     <ModuleCard
       title="PICKS"
-      headerRight={<CardRecord meta="STRAIGHTS · PRICED BY KALSHI" record={data?.record} />}
+      headerRight={
+        <CardRecord meta="STRAIGHTS · PRICED BY KALSHI" label="ALL-TIME" record={data?.record} units={data?.record.units} />
+      }
       className={className}
     >
       {body}
+      {data?.yesterday && <YesterdayPicks league={league} data={data.yesterday} />}
     </ModuleCard>
   )
 }

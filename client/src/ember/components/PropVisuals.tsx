@@ -45,7 +45,7 @@ export function ClearStrip({ values, rung }: { values: number[]; rung: number })
   const cleared = values.filter((v) => v >= rung).length
   return (
     <div
-      className="relative h-[34px] w-[150px] flex items-end gap-[3px]"
+      className="relative h-[34px] w-[160px] flex items-end gap-[3px]"
       role="img"
       aria-label={`Cleared ${rung} in ${cleared} of the last ${values.length} games`}
     >
@@ -94,14 +94,14 @@ export function TrendBars({ season, recent, window = 10, rung }: {
   )
   return (
     <div
-      className="w-[170px] flex flex-col gap-[5px]"
+      className="w-[160px] flex flex-col gap-[5px]"
       role="img"
       aria-label={`Season ${season}, last ${window} ${recent}, ${up ? 'up' : 'down'} ${Math.abs(diff)}${pct != null ? ` (${pct}%)` : ''}${rung != null ? `, line ${rung}` : ''}`}
     >
       {bar('SZN', season, '#665F5D', false)}
       {bar(`L${window}`, recent, tone, true)}
-      <div className="flex items-center justify-end gap-[6px] font-martian text-[11px] tabular-nums">
-        {rung != null && <span className="mr-auto text-[10px] text-[#A8A09C]">│ line {rung}</span>}
+      <div className="flex items-center justify-end gap-[6px] font-martian text-[11px] tabular-nums whitespace-nowrap">
+        {rung != null && <span className="mr-auto text-[10px] text-[#A8A09C]">line {rung}</span>}
         <span className="font-bold rounded-[3px] px-[6px] py-[1px]" style={{ color: tone, background: up ? 'rgba(63,191,127,0.12)' : 'rgba(255,107,92,0.12)' }}>
           {up ? '▲' : '▼'} {up ? '+' : ''}{diff}
           {pct != null && <span className="font-normal"> ({up ? '+' : ''}{pct}%)</span>}
@@ -121,11 +121,13 @@ export function StatTag({ label }: { label: string }) {
 }
 
 /** "vs DET · allows +7% PTS": the opponent and what it gives up in this stat. */
-export function MatchupNote({ league, opponent, matchup, label }: {
+export function MatchupNote({ league, opponent, matchup, label, compact = false }: {
   league: string
   opponent: string | null | undefined
   matchup: Matchup | null | undefined
   label: string
+  /** Leave the stat out ("allows +7%") where the row already names it. */
+  compact?: boolean
 }) {
   if (!opponent) return null
   const pct = matchup ? Math.round((matchup.factor - 1) * 100) : null
@@ -136,7 +138,7 @@ export function MatchupNote({ league, opponent, matchup, label }: {
       {pct != null && (
         <span className={tone}>
           allows {pct > 0 ? '+' : ''}
-          {pct}% {label}
+          {pct}%{compact ? '' : ` ${label}`}
         </span>
       )}
     </span>

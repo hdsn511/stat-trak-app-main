@@ -39,6 +39,8 @@ function LeagueLane({ lane }: { lane: LeagueSignalsData }) {
   return (
     <ModuleCard
       title={`${lane.label} SIGNALS`}
+      // Lanes sit side by side; stretched so they end on the same line.
+      className="h-full"
       headerRight={
         <div className="flex items-center gap-3">
           <span className="font-martian text-[10px] text-[#A8A09C] tracking-[1px]">{meta}</span>

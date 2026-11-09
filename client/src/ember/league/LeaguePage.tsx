@@ -41,6 +41,10 @@ export default function LeaguePage({ config }: LeaguePageProps) {
   )
   const results = useEntityData<SuggestionResults | null>(loadResults)
 
+  // Side by side the two cards read as a pair: same number of rows, so they line
+  // up row for row. When one is empty the other keeps its full length.
+  const pairLen = trending.length > 0 && streaks.length > 0 ? Math.min(trending.length, streaks.length) : 10
+
   const gameCount = ticker.length
   // A single league is always on one slate, so the header can name its date.
   const tickerLabel =
@@ -113,12 +117,12 @@ export default function LeaguePage({ config }: LeaguePageProps) {
           </div>
         )}
 
-        <div className="grid gap-5 xl:grid-cols-2 items-start">
+        <div className="grid gap-5 xl:grid-cols-2 items-stretch">
           <TrendingPlayers
-            rows={trending}
+            rows={trending.slice(0, pairLen)}
+            className="h-full"
             meta={config.slug === 'nfl' ? 'RECENT VS SEASON' : 'LAST 10 VS SEASON'}
             results={results.data?.trending}
-            record={results.data?.totals.trending}
             emptyLabel={
               loading
                 ? 'LOADING TRENDS…'
@@ -128,10 +132,10 @@ export default function LeaguePage({ config }: LeaguePageProps) {
             }
           />
           <StreakWatch
-            rows={streaks}
+            rows={streaks.slice(0, pairLen)}
+            className="h-full"
             meta="KALSHI LINES"
             results={results.data?.streak}
-            record={results.data?.totals.streak}
             emptyLabel={loading ? 'LOADING STREAKS…' : `NO ACTIVE ${config.name} STREAKS`}
           />
         </div>

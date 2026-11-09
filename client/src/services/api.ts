@@ -372,31 +372,6 @@ export interface TeamRef {
   name: string
 }
 
-export interface GameProp {
-  market_ticker: string
-  line: number | null
-  implied_prob: number | null
-  prop_type: string
-  entity_id: number | null
-  team_id: number | null
-  stat: string | null
-  player_name: string | null
-}
-
-export interface GamePick {
-  entity_id: number
-  stat: string
-  recommended_line: number
-  hit_rate: number
-  confidence_score: number
-  implied_prob: number | null
-  edge: number
-  actual_result: number | null
-  did_hit: boolean | null
-  prop_type: string
-  player_name: string | null
-}
-
 export interface GameDetail {
   league: string
   game: {
@@ -411,10 +386,6 @@ export interface GameDetail {
     is_completed: boolean
   }
   box_score: { available: boolean; groups: BoxGroup[] }
-  props: GameProp[]
-  picks: GamePick[]
-  /** False for NHL and NFL, which have no lines or picks pipeline. */
-  has_markets: boolean
   injury_report: GameInjury[]
   head_to_head: GameH2HEntry[]
   rest: { home_days: number | null; away_days: number | null }
@@ -550,8 +521,6 @@ export interface SuggestionResultSet {
 /** Yesterday's graded Trending Players / Streak Watch suggestions. */
 export interface SuggestionResults {
   date: string | null
-  /** Cumulative record per card. */
-  totals: { trending: { w: number; l: number }; streak: { w: number; l: number } }
   trending: SuggestionResultSet
   streak: SuggestionResultSet
 }
@@ -562,11 +531,38 @@ export interface ProjectGame {
   props: ProjectPick[]
 }
 
+export interface UnitsRecord {
+  w: number
+  l: number
+  units: number
+}
+
+/** A straight from a graded slate, with its result. */
+export interface GradedStraight {
+  id: number
+  kind: 'prop' | 'moneyline'
+  /** Player id for props; game id for winners. */
+  entity_id: number
+  name: string
+  team: string | null
+  ext_id: string | null
+  stat_label: string | null
+  side: string | null
+  line: number | null
+  /** YES price paid, as a probability. */
+  price: number
+  actual: number | null
+  did_hit: boolean
+  units: number
+}
+
 export interface ProjectsResponse {
   supported: boolean
   bands: { prop: { min: number; max: number }; moneyline: { min: number; max: number } }
-  /** Cumulative record of picks that were on the card. */
-  record: { w: number; l: number }
+  /** Cumulative record and net units (1u per pick at its Kalshi price) of picks that were on the card. */
+  record: UnitsRecord
+  /** The latest graded slate before today, for the card's dropdown. */
+  yesterday: { date: string; record: UnitsRecord; rows: GradedStraight[] } | null
   props: ProjectPick[]
   moneyline: ProjectPick | null
   games: ProjectGame[]

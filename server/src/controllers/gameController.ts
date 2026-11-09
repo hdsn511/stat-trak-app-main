@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabaseAdmin';
-import { BoxScoreGroup, LeagueConfig, league } from '../config/leagues';
+import { BoxScoreGroup, league } from '../config/leagues';
 import { buildGameInsights } from '../services/gameInsights';
 import { sportsDay } from '../utils/dateQueries';
 
@@ -35,32 +35,6 @@ function groupRows(rows: any[], group: BoxScoreGroup) {
     }));
 }
 
-/** Betting lines and system picks. Only NBA and MLB have these pipelines. */
-async function fetchMarkets(lg: LeagueConfig, gameDate: string) {
-  if (!lg.hasMarkets) return { props: [], picks: [] };
-
-  const [lines, picks] = await Promise.all([
-    supabaseAdmin
-      .from('daily_lines')
-      .select('market_ticker, line, implied_prob, prop_type, entity_id, team_id, stat')
-      .eq('game_date', gameDate)
-      .eq('league_id', lg.leagueId)
-      .order('implied_prob', { ascending: false }),
-    supabaseAdmin
-      .from('pick_results')
-      .select(
-        'entity_id, stat, recommended_line, hit_rate, confidence_score, implied_prob, edge, ' +
-        'actual_result, did_hit, prop_type'
-      )
-      .eq('game_date', gameDate)
-      .eq('league_id', lg.leagueId)
-      .not('pick_type', 'in', '(project,sugg_trending,sugg_streak)')
-      .limit(100),
-  ]);
-
-  return { props: lines.data ?? [], picks: picks.data ?? [] };
-}
-
 export async function getGameById(req: Request<{ id: string }>, res: Response) {
   try {
     const lg = league(res);
@@ -90,47 +64,24 @@ export async function getGameById(req: Request<{ id: string }>, res: Response) {
       return res.status(404).json({ success: false, error: `Game ${gameId} is not a ${lg.slug.toUpperCase()} game` });
     }
 
-    // ET sports day, not the UTC date: UTC rolls over at 7-8pm ET, which marked
-    // the whole evening slate "completed" and hid its picks, props and preview.
+    // ET sports day, not the UTC date: UTC rolls over at 7-8pm ET, which would
+    // mark the whole evening slate "completed".
     const isCompleted = g.home_score != null || g.game_date < sportsDay();
     const homeTeamId = g.home_team?.id as number;
     const awayTeamId = g.away_team?.id as number;
-    const primaryGroup = lg.boxScore.groups[0]!;
     const statSelect = `player_id, team_id, game_date, ${lg.boxScore.select}`;
-
-    // Before tipoff the participants come from each team's season rows (used to
-    // match props to this game). A finished game has a real box score instead.
-    const seasonRowsFor = (teamId: number) => {
-      if (isCompleted) return Promise.resolve({ data: [] as any[] });
-      let q = supabaseAdmin
-        .from(lg.statsTable)
-        .select(`${statSelect}, players!inner(name, position)`)
-        .eq('team_id', teamId)
-        .lte('game_date', g.game_date);
-      // Garbage-time floor: NBA's primary group gates on minutes_played, and a
-      // 1-4 minute token appearance shouldn't drag a rotation player's season
-      // average down. Other leagues' gate columns (plate_appearances,
-      // toi_seconds, attempts, ...) never had an equivalent floor.
-      if (primaryGroup.gate === 'minutes_played') q = q.gte('minutes_played', 5);
-      return q.order('game_date', { ascending: false }).limit(600);
-    };
 
     const [
       boxResult,
-      markets,
       injuryResult,
       h2hResult,
       homeLastGameResult,
       awayLastGameResult,
-      homeSeasonStatsResult,
-      awaySeasonStatsResult,
     ] = await Promise.all([
       supabaseAdmin
         .from(lg.statsTable)
         .select(`${statSelect}, players(name, team, position)`)
         .eq('game_id', gameId),
-
-      fetchMarkets(lg, g.game_date),
 
       supabaseAdmin
         .from('player_availability')
@@ -174,8 +125,6 @@ export async function getGameById(req: Request<{ id: string }>, res: Response) {
         .order('game_date', { ascending: false })
         .limit(1),
 
-      seasonRowsFor(homeTeamId),
-      seasonRowsFor(awayTeamId),
     ]);
 
     // ── box score ───────────────────────────────────────────────────────────
@@ -193,57 +142,6 @@ export async function getGameById(req: Request<{ id: string }>, res: Response) {
         // goal attempts should not render an empty KICKING table.
         .filter((grp) => grp.rows.length > 0),
     };
-
-    const teamIds = [homeTeamId, awayTeamId].filter(Boolean);
-    const homeAbbr = (g.home_team as any)?.abbreviation ?? '';
-    const awayAbbr = (g.away_team as any)?.abbreviation ?? '';
-
-    // For completed games the participants come from the box score; before
-    // tipoff they come from the season rosters already fetched above.
-    const playerIdsInGame: number[] = isCompleted && boxRows.length > 0
-      ? [...new Set(boxRows.map((p: any) => p.player_id))]
-      : [...new Set([
-          ...(homeSeasonStatsResult.data ?? []).map((p: any) => p.player_id),
-          ...(awaySeasonStatsResult.data ?? []).map((p: any) => p.player_id),
-        ])];
-
-    const { data: propPlayers } = await supabaseAdmin
-      .from('players')
-      .select('id, name')
-      .in('id', playerIdsInGame.length > 0 ? playerIdsInGame : [-1]);
-    const playerNameMap: Record<number, string> = Object.fromEntries(
-      (propPlayers ?? []).map((p: any) => [p.id, p.name])
-    );
-
-    // ── markets ─────────────────────────────────────────────────────────────
-    const matchingProps = markets.props.filter((p: any) => {
-      if (p.prop_type === 'player') return playerIdsInGame.includes(p.entity_id);
-      if (p.team_id != null) return teamIds.includes(p.team_id);
-      if (p.entity_id != null) return teamIds.includes(p.entity_id) || p.entity_id === gameId;
-      // Neither id is set: fall back to matching both abbreviations in the ticker.
-      const ticker = (p.market_ticker ?? '').toUpperCase();
-      return ticker.includes(homeAbbr.toUpperCase()) && ticker.includes(awayAbbr.toUpperCase());
-    });
-
-    // Cap player props at 20 and spreads at 10; winner/total lines are few.
-    const playerProps = matchingProps.filter((p: any) => p.prop_type === 'player').slice(0, 20);
-    const spreadProps = matchingProps.filter((p: any) => p.prop_type === 'spread').slice(0, 10);
-    const otherProps = matchingProps.filter(
-      (p: any) => p.prop_type !== 'player' && p.prop_type !== 'spread'
-    );
-    const props = [...playerProps, ...spreadProps, ...otherProps].map((p: any) => ({
-      ...p,
-      player_name: p.prop_type === 'player' ? (playerNameMap[p.entity_id] ?? null) : null,
-    }));
-
-    const picks = markets.picks
-      .filter((p: any) => {
-        if (p.prop_type === 'player') return playerIdsInGame.includes(p.entity_id);
-        // Game picks store entity_id as the game id.
-        if (p.entity_id === gameId) return true;
-        return teamIds.includes(p.entity_id);
-      })
-      .map((p: any) => ({ ...p, player_name: playerNameMap[p.entity_id] ?? null }));
 
     // ── injuries ────────────────────────────────────────────────────────────
     const injury_report = (injuryResult.data ?? []).map((r: any) => ({
@@ -285,9 +183,6 @@ export async function getGameById(req: Request<{ id: string }>, res: Response) {
           is_completed: isCompleted,
         },
         box_score,
-        props,
-        picks,
-        has_markets: lg.hasMarkets,
         injury_report,
         head_to_head,
         rest: {

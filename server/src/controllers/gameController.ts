@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabaseAdmin';
 import { BoxScoreGroup, LeagueConfig, league } from '../config/leagues';
 import { buildGameInsights } from '../services/gameInsights';
+import { sportsDay } from '../utils/dateQueries';
 
 // League-agnostic game detail. Every sport-specific decision — which stats
 // table to read, which columns make up a box score, whether a betting market
@@ -89,8 +90,9 @@ export async function getGameById(req: Request<{ id: string }>, res: Response) {
       return res.status(404).json({ success: false, error: `Game ${gameId} is not a ${lg.slug.toUpperCase()} game` });
     }
 
-    const today = new Date().toISOString().slice(0, 10);
-    const isCompleted = g.home_score != null || g.game_date < today;
+    // ET sports day, not the UTC date: UTC rolls over at 7-8pm ET, which marked
+    // the whole evening slate "completed" and hid its picks, props and preview.
+    const isCompleted = g.home_score != null || g.game_date < sportsDay();
     const homeTeamId = g.home_team?.id as number;
     const awayTeamId = g.away_team?.id as number;
     const primaryGroup = lg.boxScore.groups[0]!;
@@ -327,7 +329,6 @@ export async function getGameInsights(req: Request<{ id: string }>, res: Respons
     if (error || !g || g.league_id !== lg.leagueId) {
       return res.status(404).json({ success: false, error: 'Game not found' });
     }
-    const today = new Date().toISOString().slice(0, 10);
     const data = await buildGameInsights(lg, {
       id: g.id,
       game_date: g.game_date,
@@ -336,7 +337,7 @@ export async function getGameInsights(req: Request<{ id: string }>, res: Respons
       espn_id: g.espn_id ?? null,
       home_team: g.home_team,
       away_team: g.away_team,
-      is_completed: g.home_score != null || g.game_date < today,
+      is_completed: g.home_score != null || g.game_date < sportsDay(),
     });
     res.json({ success: true, data });
   } catch (err: any) {

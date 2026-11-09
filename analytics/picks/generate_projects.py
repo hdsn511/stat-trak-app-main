@@ -17,10 +17,17 @@ context decides which priced sides we believe in.
 
 modifiers.featured marks the card picks; modifiers.game_rank orders a game's props.
 
-Rows are pick_results with pick_type='project' and follow the same additive-lock
-contract as MLB: frozen at first creation, later runs only add. Games that have
-started are never priced. Nothing is ever deleted: if a player is later ruled out,
-the row gets modifiers.void and the API hides it.
+Rows are pick_results with pick_type='project'. Nothing is ever deleted: if a player
+is later ruled out, the row gets modifiers.void.
+
+NBA (lock): the card for a date may change until LOCK_LEAD before that date's first
+tip, then it is final; a game's own picks (game view) refresh until LOCK_LEAD before
+that game's tip. A run inside either window only refreshes what is still open, so a
+late scheduled run can never move a locked pick. Every swap on the card is stamped
+with when and why (modifiers.replaced_at / replaced_reason on the pick taken off,
+added_at on the one put on); on_card mirrors featured, so the graded record is the
+card as it stood at lock.
+NFL (refeature): the featured set may change until each game starts.
 
 CLI:
     python -m analytics.picks.generate_projects --league nfl
@@ -53,12 +60,14 @@ GAME_PROPS = 3          # kept per game for the game view
 # Featured-prop tiers, strictest first. A later tier only fills slots the earlier
 # ones left empty: "belief" drops the veto, "any" drops the form requirement too.
 FALLBACK = ("belief_no_veto", "belief", "any")
+LOCK_LEAD = timedelta(hours=1)   # lock mode: picks are final this long before tip
 
 CFG = {
     "nba": {"sport": "basketball", "game_col": "espn_id", "player_col": "espn_id", "days": 1,
             "aliases": {},
             "out": {"out", "doubtful", "questionable", "day-to-day", "suspension"},
-            "min_line": {"pts": 9.5, "reb": 2.5, "ast": 1.5, "fg3m": 0.5}},
+            "min_line": {"pts": 9.5, "reb": 2.5, "ast": 1.5, "fg3m": 0.5},
+            "lock": True},
     "nfl": {"sport": "football", "game_col": "ext_id", "player_col": "ext_id", "days": 7,
             "aliases": {"JAX": "JAC", "WSH": "WAS", "LAR": "LA"},
             "out": {"out", "doubtful", "questionable", "injured reserve", "suspension", "pup"},
@@ -93,8 +102,29 @@ def _started(game: dict, now: datetime) -> bool:
     return datetime.fromisoformat(gt.replace("Z", "+00:00")) <= now
 
 
-def _load_slate(league: str, now: datetime) -> tuple[dict, dict, dict]:
-    """(event key -> game, team id -> abbr, kalshi abbr -> team id) for unstarted games."""
+def _tip(game: dict) -> Optional[datetime]:
+    gt = game.get("game_time")
+    return datetime.fromisoformat(gt.replace("Z", "+00:00")) if gt else None
+
+
+def _locked(game: dict, now: datetime) -> bool:
+    """A game's picks are final LOCK_LEAD before its tip (or once it can't be proven unstarted)."""
+    return _started(game, now) or _tip(game) - LOCK_LEAD <= now
+
+
+def card_locks(games: list[dict]) -> dict[str, datetime]:
+    """game_date -> when that date's card becomes final: LOCK_LEAD before its first tip."""
+    out: dict[str, datetime] = {}
+    for g in games:
+        t = _tip(g)
+        if t is not None and (g["game_date"] not in out or t - LOCK_LEAD < out[g["game_date"]]):
+            out[g["game_date"]] = t - LOCK_LEAD
+    return out
+
+
+def _load_slate(league: str, now: datetime) -> tuple[dict, dict, dict, dict]:
+    """(event key -> game, team id -> abbr, kalshi abbr -> team id, game_date -> card lock)
+    for games still open: unstarted, or in lock mode not yet inside LOCK_LEAD of tip."""
     cfg, lid = CFG[league], SPEC[league]["league_id"]
     today = now.astimezone(ZoneInfo("America/New_York")).date()
     end = today + timedelta(days=cfg["days"])
@@ -105,12 +135,13 @@ def _load_slate(league: str, now: datetime) -> tuple[dict, dict, dict]:
              .select("id,game_date,game_time,status,home_team_id,away_team_id,season,ext_id,espn_id")
              .eq("league_id", lid).gte("game_date", today.isoformat()).lte("game_date", end.isoformat())
              .execute().data or [])
+    closed = _locked if cfg.get("lock") else _started
     slate = {}
     for g in games:
-        if _started(g, now):
+        if closed(g, now):
             continue
         slate[(g["game_date"], kal[g["away_team_id"]] + kal[g["home_team_id"]])] = g
-    return slate, id_abbr, {a: tid for tid, a in kal.items()}
+    return slate, id_abbr, {a: tid for tid, a in kal.items()}, card_locks(games)
 
 
 def _injured(league: str) -> set[str]:
@@ -206,7 +237,10 @@ def select_winner(winners: list[dict]) -> Optional[dict]:
 def generate(league: str, dry_run: bool = False) -> list[dict]:
     cfg, lid = CFG[league], SPEC[league]["league_id"]
     now = datetime.now(timezone.utc)
-    slate, id_abbr, kal_team = _load_slate(league, now)
+    slate, id_abbr, kal_team, locks = _load_slate(league, now)
+    lock_mode = bool(cfg.get("lock"))
+    # Lock mode: dates whose card can still change. Elsewhere every date is open.
+    open_dates = {d for d, t in locks.items() if now < t} if lock_mode else None
     print(f"[projects:{league}] {len(slate)} unstarted game(s) in window")
     if not slate:
         print("  No slate. Nothing to do.")
@@ -277,7 +311,11 @@ def generate(league: str, dry_run: bool = False) -> list[dict]:
     if unmatched_players:
         print(f"  {len(unmatched_players)} Kalshi name(s) unmatched or ambiguous, e.g. {sorted(unmatched_players)[:6]}")
     cands = list(best.values())
-    featured = select_featured(cands)
+    if open_dates is None:
+        featured = select_featured(cands)
+    else:   # one card per date, chosen only while that card is open
+        featured = [c for d in sorted(open_dates)
+                    for c in select_featured([c for c in cands if c["game"]["game_date"] == d])]
     kept = {id(c): c for c in top_per_game(cands)}
     for c in featured:
         kept[id(c)] = c
@@ -337,7 +375,11 @@ def generate(league: str, dry_run: bool = False) -> list[dict]:
         winners.append({"game": game, "team_id": team_id, "model_prob": round(p, 4), "elo_prob": round(elo_p, 4),
                         "elo_agrees": elo_p >= 0.5, "price": round(ask, 4) if quoted else None,
                         "ticker": q["ticker"] if q else None, "provider": odds.get("provider")})
-    top = select_winner(winners)
+    if open_dates is None:
+        tops = [t for t in [select_winner(winners)] if t]
+    else:
+        tops = [t for d in sorted(open_dates)
+                for t in [select_winner([w for w in winners if w["game"]["game_date"] == d])] if t]
     for w in winners:
         price = w["price"] if w["price"] is not None else w["model_prob"]
         picks.append({
@@ -349,10 +391,14 @@ def generate(league: str, dry_run: bool = False) -> list[dict]:
             "price_source": "kalshi" if w["price"] is not None else "espn",
             "modifiers": {"side": "win", "team_abbr": id_abbr[w["team_id"]], "team_id": w["team_id"],
                           "book_prob": w["model_prob"], "book": w["provider"], "elo_prob": w["elo_prob"],
-                          "elo_agrees": w["elo_agrees"], "featured": w is top},
+                          "elo_agrees": w["elo_agrees"], "featured": any(w is t for t in tops)},
         })
     print(f"  Winners for {len(winners)} game(s); featured: "
-          + (f"{id_abbr[top['team_id']]} {top['model_prob']:.3f}" if top else "none") + f"; total rows {len(picks)}")
+          + (", ".join(f"{id_abbr[t['team_id']]} {t['model_prob']:.3f}" for t in tops) or "none")
+          + f"; total rows {len(picks)}")
+    if open_dates is not None:
+        print("  card locks: " + ", ".join(f"{d} {t:%H:%M}Z{' (open)' if d in open_dates else ' (final)'}"
+                                          for d, t in sorted(locks.items())))
 
     for p in sorted(picks, key=lambda x: (not x["modifiers"].get("featured"), -x["model_prob"]))[:15]:
         m = p["modifiers"]
@@ -363,7 +409,9 @@ def generate(league: str, dry_run: bool = False) -> list[dict]:
         print("  --dry-run: nothing stored")
         return picks
     _store_lines(lid, lines)
-    _store_picks(lid, picks, cfg.get("refeature", False), frozenset(g["id"] for g in slate.values()), now)
+    injured_ids = {p["id"] for p in players if str(p.get(cfg["player_col"]) or "") in injured}
+    _store_picks(lid, picks, cfg.get("refeature", False) or lock_mode, frozenset(g["id"] for g in slate.values()),
+                 now, open_dates, injured_ids)
     _void_injured(league, lid, players, injured, now)
     return picks
 
@@ -403,25 +451,38 @@ def _key(r: dict) -> tuple:
 
 
 def _store_picks(lid: int, picks: list[dict], refeature: bool = False,
-                 slate_ids: frozenset = frozenset(), now: Optional[datetime] = None) -> None:
-    """Additive lock: (game_date, entity, stat, 'project') is frozen once stored.
+                 slate_ids: frozenset = frozenset(), now: Optional[datetime] = None,
+                 open_dates: Optional[set] = None, injured_ids: frozenset | set = frozenset()) -> None:
+    """Store a run's picks. (game_date, entity, stat, 'project') identifies a pick.
 
-    refeature (NFL): props list days early and injury news lands later in the week, so
-    each run's featured set replaces the earlier one on games that haven't started.
-    A row that was ever shown keeps the price it was shown at (it is graded at that
-    price); a replaced one gets modifiers.replaced_at. Rows never shown are refreshed
-    to the latest price and context, since nothing was published at the old one."""
+    Additive (neither flag): rows are frozen at first creation; later runs only add.
+    refeature: each run's featured set replaces the earlier one on games still open. A row
+    that was ever shown keeps the price it was shown at (it is graded at that price); one
+    taken off gets modifiers.replaced_at + replaced_reason. Rows never shown are refreshed
+    to the latest price and context, since nothing was published at the old one.
+    open_dates (lock mode): only these dates' cards may change; on_card mirrors featured."""
     if not picks:
         print("  pick_results: nothing new")
         return
+    stamp = (now or datetime.now(timezone.utc)).isoformat()
     dates = sorted({p["game_date"] for p in picks})
     existing = (supabase.table("pick_results")
-                .select("id,game_id,game_date,entity_id,stat,prop_type,modifiers,actual_result")
+                .select("id,game_id,game_date,entity_id,stat,prop_type,modifiers,actual_result,"
+                        "model_prob,implied_prob,on_card")
                 .eq("league_id", lid).eq("pick_type", "project").in_("game_date", dates).execute().data or [])
     by_key = {_key(r): r for r in existing}
     new = [p for p in picks if _key(p) not in by_key]
     if refeature:
-        _refeature(picks, existing, by_key, slate_ids, (now or datetime.now(timezone.utc)).isoformat())
+        had_card = _dates_with_card(existing)
+        _refeature(picks, existing, by_key, slate_ids, stamp, open_dates, injured_ids)
+        if open_dates is not None:
+            for p in new:
+                m = p["modifiers"]
+                if m.get("featured") and p["game_date"] not in open_dates:
+                    m["featured"] = False           # that card is final: nothing new joins it
+                if m.get("featured") and p["game_date"] in had_card:
+                    m["added_at"] = stamp
+                p["on_card"] = bool(m.get("featured"))
         for i in range(0, len(new), 500):
             supabase.table("pick_results").insert(new[i:i + 500]).execute()
         print(f"  pick_results: added {len(new)}")
@@ -445,18 +506,51 @@ def _store_picks(lid: int, picks: list[dict], refeature: bool = False,
     print(f"  pick_results: added {len(new)} ({len(picks) - len(new)} already locked)")
 
 
-def _refeature(picks: list[dict], existing: list[dict], by_key: dict, slate_ids: frozenset, stamp: str) -> None:
+def _dates_with_card(rows: list[dict]) -> set:
+    """Dates whose card was already published: a pick featured there later is a swap."""
+    return {r["game_date"] for r in rows
+            if (r.get("modifiers") or {}).get("featured") or (r.get("modifiers") or {}).get("replaced_at")}
+
+
+def drop_reason(shown: dict, now_priced: Optional[dict], injured: bool) -> str:
+    """Why a pick that was on the card came off it, in plain words for the card's change log.
+    `shown` is the stored row (price frozen when shown); `now_priced` is this run's
+    candidate for the same player-stat, or None when nothing could be priced for it."""
+    if injured:
+        return "player on the injury report"
+    if now_priced is None:
+        return "Kalshi line pulled or price left the band"
+    was, now = float(shown.get("model_prob") or 0), float(now_priced.get("model_prob") or 0)
+    if (shown.get("modifiers") or {}).get("belief") and not now_priced["modifiers"].get("belief"):
+        return "recent form no longer supports it"
+    if now < was - 0.01:
+        return f"model fell to {now:.0%} from {was:.0%}"
+    return "a stronger pick replaced it"
+
+
+def _refeature(picks: list[dict], existing: list[dict], by_key: dict, slate_ids: frozenset, stamp: str,
+               open_dates: Optional[set] = None, injured_ids: frozenset | set = frozenset()) -> None:
     chosen = {_key(p) for p in picks if p["modifiers"].get("featured")}
     priced = {_key(p) for p in picks}
+    lock_mode = open_dates is not None
+    had_card = _dates_with_card(existing)
     n_refresh = n_feat = n_unfeat = 0
 
-    def set_featured(r: dict, want: bool) -> None:
+    def can_move(r: dict) -> bool:
+        return not lock_mode or r["game_date"] in open_dates
+
+    def set_featured(r: dict, want: bool, reason: Optional[str] = None) -> None:
         nonlocal n_feat, n_unfeat
         m = r.get("modifiers") or {}
-        if want == bool(m.get("featured")):
+        if want == bool(m.get("featured")) or not can_move(r):
             return
-        m = {**m, "featured": want, **({} if want else {"replaced_at": stamp})}
-        supabase.table("pick_results").update({"modifiers": m}).eq("id", r["id"]).execute()
+        if want:
+            m = {**m, "featured": True, **({"added_at": stamp} if r["game_date"] in had_card else {})}
+        else:
+            m = {**m, "featured": False, "replaced_at": stamp, **({"replaced_reason": reason} if reason else {})}
+        upd = {"modifiers": m, **({"on_card": want} if lock_mode else {})}
+        supabase.table("pick_results").update(upd).eq("id", r["id"]).execute()
+        r["modifiers"] = m
         n_feat, n_unfeat = n_feat + want, n_unfeat + (not want)
 
     for p in picks:
@@ -465,16 +559,33 @@ def _refeature(picks: list[dict], existing: list[dict], by_key: dict, slate_ids:
             continue
         m = r.get("modifiers") or {}
         if m.get("featured") or m.get("replaced_at"):
-            set_featured(r, _key(p) in chosen)      # shown: price frozen, only the flag moves
+            # Shown: price frozen, only the flag moves.
+            want = _key(p) in chosen
+            set_featured(r, want, None if want else drop_reason(r, p, r["entity_id"] in injured_ids))
         else:
-            supabase.table("pick_results").update({c: p[c] for c in _REFRESH_COLS}).eq("id", r["id"]).execute()
+            want = bool(p["modifiers"].get("featured")) and can_move(r)
+            mods = {**p["modifiers"], "featured": want,
+                    **({"added_at": stamp} if want and lock_mode and r["game_date"] in had_card else {})}
+            upd = {**{c: p[c] for c in _REFRESH_COLS}, "modifiers": mods, **({"on_card": want} if lock_mode else {})}
+            supabase.table("pick_results").update(upd).eq("id", r["id"]).execute()
+            r["modifiers"] = mods
             n_refresh += 1
-            n_feat += bool(p["modifiers"].get("featured"))
+            n_feat += want
     # Featured rows this run no longer prices at all (player ruled out, market pulled).
+    # Only where the run priced something of that kind on that date: an empty Kalshi
+    # response (outage, markets not yet listed) must not read as every line pulled.
+    priced_kinds = {(p["game_date"], p["prop_type"]) for p in picks}
     for r in existing:
         if (r.get("game_id") in slate_ids and _key(r) not in priced and r.get("actual_result") is None
-                and (r.get("modifiers") or {}).get("featured")):
-            set_featured(r, False)
+                and (r.get("modifiers") or {}).get("featured")
+                and (r["game_date"], r["prop_type"]) in priced_kinds):
+            set_featured(r, False, drop_reason(r, None, r["entity_id"] in injured_ids))
+    # Lock mode: on an open card, on_card mirrors featured (a past run or the API may have stamped it).
+    if lock_mode:
+        for r in existing:
+            want = bool((r.get("modifiers") or {}).get("featured"))
+            if r["game_date"] in open_dates and r.get("actual_result") is None and bool(r.get("on_card")) != want:
+                supabase.table("pick_results").update({"on_card": want}).eq("id", r["id"]).execute()
     print(f"  re-feature: {n_feat} featured, {n_unfeat} replaced, {n_refresh} unshown rows refreshed")
 
 

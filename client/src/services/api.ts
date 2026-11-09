@@ -473,6 +473,10 @@ export interface ProjectPick {
   price_source: string | null
   book_prob: number | null
   featured: boolean
+  /** Where its game stands; a pick stays on a final card through tip-off. */
+  status?: 'upcoming' | 'started' | 'final'
+  /** Set when the pick no longer counts (e.g. 'injury' after the card locked). */
+  void?: string | null
   /** Why the pick is on the card: recent form for props, the Elo check for winners. */
   context: {
     avg20?: number | null
@@ -565,6 +569,16 @@ export interface ProjectsResponse {
   yesterday: { date: string; record: UnitsRecord; rows: GradedStraight[] } | null
   props: ProjectPick[]
   moneyline: ProjectPick | null
+  /**
+   * NBA: the card is final an hour before the date's first tip and is served as
+   * stored. Null for leagues without the lock.
+   */
+  card?: {
+    date: string | null
+    locks_at: string | null
+    locked: boolean
+    changes: { at: string; kind: 'out' | 'in'; reason: string | null; pick: ProjectPick }[]
+  } | null
   games: ProjectGame[]
   upcoming_games: number
 }

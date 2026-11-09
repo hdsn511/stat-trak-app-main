@@ -50,6 +50,21 @@ function Matchup({ league, game }: { league: string; game: ProjectPick['game'] }
   )
 }
 
+/** STARTED / FINAL / VOID, for a pick whose game has tipped or that no longer counts. */
+function PhaseTag({ pick }: { pick: ProjectPick }) {
+  const label = pick.void ? `VOID · ${pick.void.toUpperCase()}` : pick.status === 'started' ? 'STARTED' : pick.status === 'final' ? 'FINAL' : null
+  if (!label) return null
+  return (
+    <span
+      className={`font-martian font-bold text-[10px] tracking-[0.5px] rounded-[3px] px-[5px] py-[1px] shrink-0 ${
+        pick.void ? 'text-[#A8A09C] border border-[#3A3330]' : 'text-[#14100F] bg-[#FF6B3D]'
+      }`}
+    >
+      {label}
+    </span>
+  )
+}
+
 function Row({ league, pick }: { league: string; pick: ProjectPick }) {
   const when = [formatGameDate(pick.game.date), formatGameTime(pick.game.time)].filter(Boolean).join(' · ')
   const to = pick.kind === 'prop' ? playerPath(league, pick.entity_id) : gamePath(league, pick.game.id)
@@ -68,6 +83,7 @@ function Row({ league, pick }: { league: string; pick: ProjectPick }) {
           {pick.kind === 'prop' && pick.team && <TeamLogo league={league} abbr={pick.team} size={14} />}
           <span className="truncate">{pick.name}</span>
           <span className="font-martian font-normal text-[11px] text-[#FF6B3D] tracking-[0.5px] shrink-0">{describe(pick)}</span>
+          <PhaseTag pick={pick} />
         </div>
         <div className="font-martian text-[11px] text-[#C9C2BE] tracking-[0.5px] mt-[3px] truncate">{reason(pick)}</div>
         <div className="font-martian text-[11px] text-[#8A827E] tracking-[0.5px] mt-[2px] truncate flex items-center gap-[6px]">
@@ -139,6 +155,54 @@ function GradedRow({ league, r }: { league: string; r: GradedStraight }) {
   )
 }
 
+const clock = (iso: string) =>
+  new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' })
+
+/** When the card stops changing, or that it already has. */
+function LockLine({ card }: { card: NonNullable<ProjectsResponse['card']> }) {
+  if (!card.locks_at) return null
+  return (
+    <div className="px-[18px] py-2 border-b border-[#221D1A] font-martian text-[10px] tracking-[1px] text-[#A8A09C]">
+      {card.locked ? (
+        <span>
+          <span className="text-[#EFEBE9] font-bold">CARD FINAL</span> · LOCKED {clock(card.locks_at)} ET, AN HOUR BEFORE THE
+          FIRST TIP
+        </span>
+      ) : (
+        <span>
+          UPDATES UNTIL <span className="text-[#EFEBE9] font-bold">{clock(card.locks_at)} ET</span> · FINAL AN HOUR BEFORE
+          THE FIRST TIP
+        </span>
+      )}
+    </div>
+  )
+}
+
+/** Every swap made on today's card, with when and why. */
+function Changes({ changes }: { changes: NonNullable<ProjectsResponse['card']>['changes'] }) {
+  if (changes.length === 0) return null
+  return (
+    <div className="border-t border-[#221D1A]">
+      <div className="px-[18px] py-2 font-martian text-[10px] text-[#8A827E] tracking-[1px]">CHANGES TODAY</div>
+      {changes.map((c) => (
+        <div
+          key={`${c.kind}-${c.pick.id}-${c.at}`}
+          className="grid grid-cols-[64px_34px_1fr] gap-[10px] items-baseline px-[18px] py-[6px] border-t border-[#221D1A] font-martian text-[11px]"
+        >
+          <span className="text-[#8A827E] tabular-nums">{clock(c.at)}</span>
+          <span className={`font-bold ${c.kind === 'out' ? 'text-[#FF6B5C]' : 'text-[#3FBF7F]'}`}>
+            {c.kind === 'out' ? 'OUT' : 'IN'}
+          </span>
+          <span className="min-w-0 text-[#C9C2BE]">
+            <span className="font-schibsted font-bold text-[13px] text-[#EFEBE9]">{c.pick.name}</span> {describe(c.pick)}
+            {c.reason && <span className="text-[#A8A09C]"> — {c.reason}</span>}
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 const band = (b: { min: number; max: number }) => `${Math.round(b.min * 100)}-${Math.round(b.max * 100)}%`
 
 export default function PicksCard({ league, className = '' }: { league: 'nba' | 'nfl'; className?: string }) {
@@ -150,11 +214,12 @@ export default function PicksCard({ league, className = '' }: { league: 'nba' | 
     body = <EmptyState compact label="LOADING PICKS…" />
   } else if (error || !data) {
     body = <EmptyState compact label={`PICKS UNAVAILABLE${error ? `: ${error}` : ''}`} />
-  } else if (data.upcoming_games === 0) {
+  } else if (data.upcoming_games === 0 && data.props.length === 0 && !data.moneyline) {
     body = <EmptyState compact label="NO UPCOMING GAMES ON THE SLATE" />
   } else {
     body = (
       <>
+        {data.card && <LockLine card={data.card} />}
         <Section label={`BEST WINNER · ${band(data.bands.moneyline)}`}>
           {data.moneyline ? (
             <Row league={league} pick={data.moneyline} />
@@ -182,6 +247,7 @@ export default function PicksCard({ league, className = '' }: { league: 'nba' | 
       className={className}
     >
       {body}
+      {data?.card && <Changes changes={data.card.changes} />}
       {data?.yesterday && <YesterdayPicks league={league} data={data.yesterday} />}
     </ModuleCard>
   )

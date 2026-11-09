@@ -268,8 +268,10 @@ jobs:
         if: ${{ !cancelled() && needs.data.outputs.nba_ok == 'true' && (env.LEAGUE == 'all' || env.LEAGUE == 'nba') }}
         run: python -m analytics.picks.generate --date "$(date -u +%Y-%m-%d)"
 
-      # Projects card: grade settled rows, then price unstarted NBA/NFL games.
-      # Additive-lock + started-game gate make repeat passes safe.
+      # Projects card: grade settled rows, then price open NBA/NFL games. NBA locks
+      # (card: an hour before the first tip; each game: an hour before its tip) and the
+      # NFL started-game gate make repeat passes safe. nba-projects-refresh.yml re-runs
+      # NBA every 30 min through the game day.
       - name: Reconcile Projects picks
         if: ${{ !cancelled() }}
         run: python -m analytics.batch.reconcile_projects

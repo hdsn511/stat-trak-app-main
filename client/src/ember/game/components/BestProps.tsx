@@ -73,7 +73,8 @@ function PropRow({ league, p }: { league: string; p: ProjectPick }) {
 /**
  * The Projects picks for this game: the model's winner and its best player
  * props, each tagged with its team. Comes from GET /{league}/projects, which
- * covers only upcoming games inside the league's projects window.
+ * covers the league's projects window. NBA picks are final an hour before tip and
+ * stay visible once the game starts.
  */
 export default function BestProps({ league, game, supported, windowLabel }: {
   league: string

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { selectProjects, type ProjectRow } from '../src/utils/projects';
+import { gamePhase, selectLockedCard, selectProjects, type ProjectRow } from '../src/utils/projects';
 
 const now = new Date('2026-11-01T18:00:00Z');
 const future = { status: 0, game_time: '2026-11-01T21:00:00Z' };
@@ -94,5 +94,68 @@ describe('onCardChanges', () => {
   });
   it('never touches a started game, so the flag freezes at kickoff', () => {
     expect(onCardChanges([row(4, 2, true), row(5, 2, null)], new Set(), games, now)).toEqual([]);
+  });
+});
+
+describe('selectLockedCard', () => {
+  const lockNow = new Date('2026-11-08T23:30:00Z');
+  const lg = new Map([
+    [10, { status: 2, game_time: '2026-11-08T20:30:00Z', game_date: '2026-11-08' }], // final
+    [11, { status: 1, game_time: '2026-11-08T23:00:00Z', game_date: '2026-11-08' }], // live
+    [12, { status: 0, game_time: '2026-11-09T02:00:00Z', game_date: '2026-11-08' }], // tonight
+    [20, { status: 0, game_time: '2026-11-10T00:00:00Z', game_date: '2026-11-09' }], // tomorrow
+  ]);
+  const r = (o: Partial<ProjectRow> & { modifiers?: Record<string, unknown> }) =>
+    row({ game_date: '2026-11-08', game_id: 12, ...o });
+
+  it('keeps started picks on a final card and pulls nothing in to replace them', () => {
+    const out = selectLockedCard(
+      [
+        r({ game_id: 10, modifiers: { featured: true } }),
+        r({ game_id: 11, modifiers: { featured: true } }),
+        r({ game_id: 12, model_prob: 0.69 }), // not featured: never funneled in
+        r({ game_id: 20, game_date: '2026-11-09', modifiers: { featured: true } }),
+      ],
+      lg, lockNow,
+    );
+    expect(out.date).toBe('2026-11-08');
+    expect(out.locked).toBe(true);
+    expect(out.locksAt).toBe(new Date('2026-11-08T19:30:00Z').getTime());
+    expect(out.props.map((p) => p.game_id)).toEqual([10, 11]);
+  });
+
+  it('keeps a voided featured pick on a final card rather than replacing it', () => {
+    const out = selectLockedCard(
+      [r({ modifiers: { featured: true, void: 'injury' } }), r({ model_prob: 0.69 })],
+      lg, lockNow,
+    );
+    expect(out.props).toHaveLength(1);
+    expect(out.props[0].modifiers?.void).toBe('injury');
+  });
+
+  it('lists the swaps on the card date in time order, out before in', () => {
+    const out = selectLockedCard(
+      [
+        r({ modifiers: { featured: true, added_at: '2026-11-08T17:00:00Z' } }),
+        r({ modifiers: { replaced_at: '2026-11-08T17:00:00Z', replaced_reason: 'player on the injury report' } }),
+        r({ modifiers: { featured: true } }),
+      ],
+      lg, lockNow,
+    );
+    expect(out.changes.map((c) => [c.kind, c.reason])).toEqual([
+      ['out', 'player on the injury report'],
+      ['in', null],
+    ]);
+  });
+
+  it('keeps each game\'s own picks visible after its tip', () => {
+    const out = selectLockedCard([r({ game_id: 11 }), r({ game_id: 11, modifiers: { void: 'injury' } })], lg, lockNow);
+    expect(out.byGame.get(11)?.props).toHaveLength(1);
+  });
+
+  it('labels a game upcoming, started or final', () => {
+    expect(gamePhase(lg.get(10), lockNow)).toBe('final');
+    expect(gamePhase(lg.get(11), lockNow)).toBe('started');
+    expect(gamePhase(lg.get(12), lockNow)).toBe('upcoming');
   });
 });

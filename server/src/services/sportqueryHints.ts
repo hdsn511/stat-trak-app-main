@@ -57,11 +57,12 @@ export async function resolvePlayerHints(message: string): Promise<PlayerHint[]>
 
   // Cast a wide net with a 3-letter prefix per token, then rank in JS.
   const ors = tokens.map((t) => `name.ilike.%${t.slice(0, 3)}%`).join(',')
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from('players')
     .select('id, name, team, league, is_active')
     .or(ors)
     .limit(400)
+  if (error) console.warn('[sportquery] player hint lookup failed:', error.message)
   if (!data?.length) return []
 
   const scored: PlayerHint[] = []

@@ -216,8 +216,16 @@ export function formatCell(v: unknown): string {
   return String(v)
 }
 
+const KEY_WORDS: Record<string, string> = {
+  pct: '%', avg: 'AVG', gp: 'GP', ppg: 'PPG', rpg: 'RPG', apg: 'APG', pts: 'PTS',
+  reb: 'REB', ast: 'AST', stl: 'STL', blk: 'BLK', tov: 'TO', min: 'MIN', mins: 'MIN',
+}
+
 export function humanizeKey(k: string): string {
-  return k.replace(/_/g, ' ').toUpperCase()
+  return k
+    .split('_')
+    .map((w) => KEY_WORDS[w.toLowerCase()] ?? w.toUpperCase())
+    .join(' ')
 }
 
 const LEAGUE_BY_ID: Record<number, 'nba' | 'mlb' | 'nfl' | 'nhl'> = {

@@ -1,5 +1,5 @@
 import type { Request, Response } from 'express'
-import { callLLM } from '../services/sportqueryLLM'
+import { callLLM, narrate } from '../services/sportqueryLLM'
 import { formatHints, resolvePlayerHints } from '../services/sportqueryHints'
 import { validateSql } from '../services/sqlValidator'
 import { runReadOnly } from '../services/sportqueryDB'
@@ -191,9 +191,13 @@ export async function postMessage(req: Request, res: Response) {
     await appendMessage(sessionId, 'user', message)
 
     const history = await getMessages(sessionId)
+    // Assistant turns carry the SQL that ran, so "now only X" / "top 5" can refine it.
     const forLLM = history.slice(0, -1).map((m) => ({
       role: m.role,
-      content: m.content,
+      content:
+        m.role === 'assistant' && m.sql_executed
+          ? `${m.content}\n[SQL run: ${m.sql_executed}] [${m.result_count ?? 0} rows]`
+          : m.content,
     }))
 
     // Resolve loosely-typed player names up front; a failure here must never
@@ -201,7 +205,9 @@ export async function postMessage(req: Request, res: Response) {
     const hints = formatHints(await resolvePlayerHints(message).catch(() => []))
     const envelope = await callLLM(forLLM, message, hints)
 
-    send('narrative', { token: envelope.narrative })
+    // No SQL (greeting, clarification, disambiguation): the model's text is the answer.
+    // With SQL the answer is written after the query runs, from the real rows.
+    if (!envelope.sql) send('narrative', { token: envelope.narrative })
 
     let rows: any[] = []
     let sqlForLog: string | null = null
@@ -264,11 +270,36 @@ export async function postMessage(req: Request, res: Response) {
       }
     }
 
+    // A query that ran but matched nothing is usually a too-literal filter: retry once.
+    if (sqlForLog && rows.length === 0 && !queryError) {
+      const retry = await retryOnce(
+        'Your previous query returned 0 rows. Loosen the filters: match names by distinctive stem (ILIKE), accept team city/nickname/abbreviation, check game_type and season scope, and widen the date range if it was narrow.'
+      )
+      if (retry && retry.rows.length > 0) {
+        sqlForLog = retry.sql
+        rows = retry.rows
+      }
+    }
+
     // Fill team/league for player rows the query left bare, before shaping, so
     // trend stat ids are labeled in the right sport.
     rows = await attachPlayerContext(rows)
     const shape = detectShape(rows)
     const enriched = enrich(shape, rows)
+
+    let narrative = envelope.narrative
+    if (envelope.sql) {
+      try {
+        narrative = await narrate(message, enriched as Record<string, unknown>[], enriched.length, wideningNote)
+      } catch {
+        narrative = queryError
+          ? 'I could not run that query. Try rephrasing it, for example by naming the player, team and stat.'
+          : enriched.length === 0
+            ? 'No matching games or players were found. Try a different spelling, team or time period.'
+            : `Found ${enriched.length} result${enriched.length === 1 ? '' : 's'}.`
+      }
+      send('narrative', { token: narrative })
+    }
 
     send('results', {
       rows: enriched,
@@ -279,7 +310,7 @@ export async function postMessage(req: Request, res: Response) {
       follow_up_suggestions: envelope.follow_up_suggestions ?? [],
     })
 
-    await appendMessage(sessionId, 'assistant', envelope.narrative, {
+    await appendMessage(sessionId, 'assistant', narrative, {
       sqlExecuted: sqlForLog,
       resultCount: rows.length,
       resultRows: enriched.length > 0 ? enriched : null,

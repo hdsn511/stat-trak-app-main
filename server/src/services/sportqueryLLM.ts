@@ -83,6 +83,57 @@ function todayET(): string {
 
 export type HistoryEntry ={ role: 'user' | 'assistant'; content: string }
 
+// With SQL present the narrative is written AFTER the query runs (see narrate),
+// so few-shot examples must not teach the model to describe results it hasn't seen.
+function exampleAssistant(raw: string): string {
+  try {
+    const obj = JSON.parse(raw)
+    if (obj && obj.sql) obj.narrative = ''
+    return JSON.stringify(obj)
+  } catch {
+    return raw
+  }
+}
+
+const NARRATE_SYSTEM = `You answer a sports-stats question using ONLY the verified result rows provided.
+- Line 1: the direct answer in one short sentence, bolding key names and numbers (**LeBron James**, **38 pts**).
+- Then at most 3 bullets starting with "- ": sport, season or date range covered, sample size (games), and any assumption you made about an ambiguous question.
+- Use only values that appear in the rows. Never invent numbers, never write placeholders like "x" or "y" or "{team}".
+- Interpret the question sensibly (e.g. "how does X do against Y" means his average stats in games vs Y), and say the interpretation in a bullet.
+- If there are no rows, say plainly that no matching games or players were found, name what was searched (player, team, stat, period), and suggest one concrete rephrase.
+- Plain text with the light markdown above. No headings, no SQL talk.`
+
+export async function narrate(
+  question: string,
+  rows: Record<string, unknown>[],
+  totalRows: number,
+  note?: string | null
+): Promise<string> {
+  const compact = rows.slice(0, 20).map((r) =>
+    Object.fromEntries(Object.entries(r).filter(([, v]) => v !== null && v !== undefined))
+  )
+  const data = JSON.stringify(compact).slice(0, 6000)
+  const completion = await llm.chat.completions.create({
+    model: SPORTQUERY_MODEL,
+    temperature: 0.3,
+    max_tokens: 500,
+    messages: [
+      { role: 'system', content: NARRATE_SYSTEM },
+      {
+        role: 'user',
+        content:
+          `TODAY (US Eastern): ${todayET()}\nQUESTION: ${question}\n` +
+          `ROWS RETURNED: ${totalRows} (showing ${compact.length})\n` +
+          (note ? `NOTE: ${note}\n` : '') +
+          `ROWS: ${data}`,
+      },
+    ],
+  })
+  const text = (completion.choices?.[0]?.message?.content ?? '').trim()
+  if (!text) throw new Error('empty narrative')
+  return text
+}
+
 export async function callLLM(
   history: HistoryEntry[],
   userMessage: string,
@@ -93,7 +144,7 @@ export async function callLLM(
 
   for (const ex of FEW_SHOT_EXAMPLES) {
     messages.push({ role: 'user', content: ex.user })
-    messages.push({ role: 'assistant', content: ex.assistant })
+    messages.push({ role: 'assistant', content: exampleAssistant(ex.assistant) })
   }
 
   for (const h of history.slice(-20)) {

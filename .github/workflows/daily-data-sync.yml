@@ -1,8 +1,8 @@
 name: Daily Data Sync
 
-# ONE daily workflow that owns the whole data path for every league. It replaces
+# ONE daily workflow that owns the whole data path for every league. It replaced
 # five separate workflows (nightly-pipeline, mlb-nightly-pipeline,
-# espn-nightly-ingest, reconcile-picks, mlb-reconcile-picks — now manual-only).
+# espn-nightly-ingest, reconcile-picks, mlb-reconcile-picks), now deleted.
 #
 # Schedule: 11:00 UTC (07:00 ET). The last US game of the previous night (west
 # coast MLB / NBA, incl. extra innings) is final by ~07:00 UTC; Monday-night NFL

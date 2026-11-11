@@ -139,8 +139,9 @@ host. Do not run both against the same database.
 | `mlb-performance-report.yml` | `30 17 * * *` | Performance + calibration report (needs reconciled picks from the 11:00 sync). |
 
 Manual run of one league: Actions -> Daily Data Sync -> Run workflow -> `league`.
-Retired (manual-only): `nightly-pipeline`, `mlb-nightly-pipeline`,
-`espn-nightly-ingest`, `reconcile-picks`, `mlb-reconcile-picks`.
+The five older per-league workflows (`nightly-pipeline`, `mlb-nightly-pipeline`,
+`espn-nightly-ingest`, `reconcile-picks`, `mlb-reconcile-picks`) were deleted;
+Daily Data Sync replaces them.
 
 Freshness: `python -m analytics.batch.freshness_check` (read-only). Fails if an
 in-season league (any game within +/-3 days) has no final box score in 2 days;

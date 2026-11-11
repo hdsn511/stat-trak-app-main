@@ -53,7 +53,7 @@ export function MatchupCell({ league, opponent, matchup, label }: {
  * Last games as bars against the rung: cleared in green, missed in red, the
  * line dashed across.
  */
-export function HitStrip({ values, rung, width = 120 }: { values: number[]; rung: number; width?: number }) {
+export function HitStrip({ values, rung, width = 120 }: { values: number[]; rung: number; width?: number | string }) {
   const max = Math.max(rung * 1.6, ...values, 1)
   const lineAt = (rung / max) * 100
   const cleared = values.filter((v) => v >= rung).length

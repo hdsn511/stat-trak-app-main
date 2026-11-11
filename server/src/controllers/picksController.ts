@@ -378,6 +378,8 @@ export async function getPerfectStreaks(req: Request<{}, {}, {}, { type?: string
       matchup: { tier: 'good' | 'tough'; label: string } | null;
       rolling_avg: number;
       games_used: number;
+      // Last 10 played values, oldest first, for the card's bar chart.
+      last10: number[];
       opponent: { team: string; league_rank: number | null } | null;
       // Picks v2 context fields (nullable until backfill / nightly populates them)
       recent_opp_form: number | null;
@@ -464,6 +466,7 @@ export async function getPerfectStreaks(req: Request<{}, {}, {}, { type?: string
           streak_line: streakMin,
           matchup: null,
           rolling_avg: rollingAvg,
+          last10: rollWin.slice().reverse(),
           games_used: values.length,
           opponent: null,
           recent_opp_form: null,
@@ -497,6 +500,7 @@ export async function getPerfectStreaks(req: Request<{}, {}, {}, { type?: string
         streak_line: streakMin,
         matchup: null,
         rolling_avg: rollingAvg,
+        last10: rollWin.slice().reverse(),
         games_used: n,
         opponent: null,
         recent_opp_form: null,

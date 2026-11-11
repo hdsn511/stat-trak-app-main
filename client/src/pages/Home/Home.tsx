@@ -153,16 +153,19 @@ export default function Home() {
           ))}
         </div>
 
-        <div className="grid gap-[14px] lg:grid-cols-[1fr_380px] items-start">
+        {/* Equal columns, stretched: the two cards line up row for row. */}
+        <div className="grid gap-[14px] xl:grid-cols-2 items-stretch">
           <TrendingPlayers
             rows={trendingShown}
-            meta={`${leagueFilter === 'all' ? 'IN-SEASON SPORTS' : leagueFilter.toUpperCase()} · L10 VS SEASON`}
+            className="h-full"
+            meta={`${leagueFilter === 'all' ? 'IN-SEASON SPORTS' : leagueFilter.toUpperCase()} · BARS: RECENT FORM VS SEASON`}
             showLeague
             emptyLabel={loading ? 'LOADING TRENDS…' : 'NO TRENDS AVAILABLE RIGHT NOW'}
           />
           <StreakWatch
             rows={streakRows}
-            meta={`${leagueFilter === 'all' ? 'IN-SEASON SPORTS' : leagueFilter.toUpperCase()} · LAST 10`}
+            className="h-full"
+            meta={`${leagueFilter === 'all' ? 'IN-SEASON SPORTS' : leagueFilter.toUpperCase()} · BARS: LAST 10 GAMES VS LINE`}
             showLeague
             emptyLabel={loading ? 'LOADING STREAKS…' : 'NO ACTIVE STREAKS RIGHT NOW'}
           />

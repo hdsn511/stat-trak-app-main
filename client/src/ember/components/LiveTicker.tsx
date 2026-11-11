@@ -107,64 +107,135 @@ function groupByLeague(games: TickerGame[]): [string, TickerGame[]][] {
 }
 
 const DRIFT_PX_PER_SEC = 22
-const RESUME_AFTER_MS = 2500
+/** Pointer travel before a press becomes a drag (and the click is swallowed). */
+const DRAG_THRESHOLD_PX = 5
 
 /**
- * Slowly drifts a scroll container sideways. Pauses while the pointer is over
- * it or the user is scrolling/touching, resumes after a short idle, and wraps
- * at the halfway point (the content is rendered twice). Does nothing under
- * prefers-reduced-motion.
+ * Drifts a scroll container sideways, endlessly: the content is rendered twice
+ * and the position wraps at the halfway point, in both directions. It stops only
+ * while the cursor is over it or a finger is on it, and starts again the moment
+ * that ends. It can be grabbed and dragged with the mouse, swiped on touch, and
+ * wheel-scrolled. Under prefers-reduced-motion it doesn't drift, but can still be
+ * dragged and scrolled.
  */
 function useAutoScroll(ref: React.RefObject<HTMLDivElement>, enabled: boolean) {
   useEffect(() => {
     const el = ref.current
     if (!el || !enabled) return
-    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return
+    const drift = !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
 
     let raf = 0
     let last = performance.now()
     let hovering = false
-    let pausedUntil = 0
+    let touching = false
     let pos = el.scrollLeft
+    // Mouse drag state.
+    let dragId: number | null = null
+    let dragStartX = 0
+    let dragStartPos = 0
+    let dragged = false
 
-    const pause = () => {
-      pausedUntil = performance.now() + RESUME_AFTER_MS
+    const half = () => el.scrollWidth / 2
+    /** Keep the position inside [0, half) so the loop never hits an edge. */
+    const wrap = (p: number) => {
+      const h = half()
+      if (h <= 0) return p
+      return ((p % h) + h) % h
     }
+    const setPos = (p: number) => {
+      pos = wrap(p)
+      el.scrollLeft = pos
+    }
+
     const onEnter = () => (hovering = true)
     const onLeave = () => {
       hovering = false
-      pause()
+      last = performance.now()
     }
-    const onUser = () => {
-      pause()
+    const onTouchStart = () => (touching = true)
+    const onTouchEnd = () => {
+      touching = false
+      pos = wrap(el.scrollLeft)
+      last = performance.now()
+    }
+    // Wheel and swipe scroll natively; adopt where they land, and loop at the edges.
+    const onScroll = () => {
+      if (dragId != null) return
+      // Our own drift write (scrollLeft may round it): keep the precise position.
+      if (Math.abs(el.scrollLeft - pos) < 1.5) return
+      const h = half()
+      if (h > 0 && (el.scrollLeft <= 0 || el.scrollLeft >= h)) el.scrollLeft = wrap(el.scrollLeft)
       pos = el.scrollLeft
     }
 
-    const tick = (now: number) => {
-      const dt = (now - last) / 1000
-      last = now
-      if (!hovering && now > pausedUntil) {
-        pos += DRIFT_PX_PER_SEC * dt
-        const half = el.scrollWidth / 2
-        if (half > 0 && pos >= half) pos -= half
-        el.scrollLeft = pos
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.pointerType !== 'mouse' || e.button !== 0) return
+      dragId = e.pointerId
+      dragStartX = e.clientX
+      dragStartPos = el.scrollLeft
+      dragged = false
+    }
+    const onPointerMove = (e: PointerEvent) => {
+      if (dragId !== e.pointerId) return
+      const dx = e.clientX - dragStartX
+      if (!dragged && Math.abs(dx) < DRAG_THRESHOLD_PX) return
+      if (!dragged) {
+        dragged = true
+        el.setPointerCapture(e.pointerId)
+        el.style.cursor = 'grabbing'
       }
+      setPos(dragStartPos - dx)
+    }
+    const endDrag = (e: PointerEvent) => {
+      if (dragId !== e.pointerId) return
+      dragId = null
+      el.style.cursor = ''
+      if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId)
+    }
+    // A drag that started on a chip must not also open the game.
+    const onClickCapture = (e: MouseEvent) => {
+      if (!dragged) return
+      e.preventDefault()
+      e.stopPropagation()
+      dragged = false
+    }
+    // Links are natively draggable; that would hijack the grab.
+    const onDragStart = (e: DragEvent) => e.preventDefault()
+
+    const tick = (now: number) => {
+      const dt = Math.min((now - last) / 1000, 0.1)
+      last = now
+      if (drift && !hovering && !touching && dragId == null) setPos(pos + DRIFT_PX_PER_SEC * dt)
       raf = requestAnimationFrame(tick)
     }
 
     el.addEventListener('mouseenter', onEnter)
     el.addEventListener('mouseleave', onLeave)
-    el.addEventListener('wheel', onUser, { passive: true })
-    el.addEventListener('touchstart', onUser, { passive: true })
-    el.addEventListener('pointerdown', onUser)
+    el.addEventListener('touchstart', onTouchStart, { passive: true })
+    el.addEventListener('touchend', onTouchEnd, { passive: true })
+    el.addEventListener('touchcancel', onTouchEnd, { passive: true })
+    el.addEventListener('scroll', onScroll, { passive: true })
+    el.addEventListener('pointerdown', onPointerDown)
+    el.addEventListener('pointermove', onPointerMove)
+    el.addEventListener('pointerup', endDrag)
+    el.addEventListener('pointercancel', endDrag)
+    el.addEventListener('click', onClickCapture, true)
+    el.addEventListener('dragstart', onDragStart)
     raf = requestAnimationFrame(tick)
     return () => {
       cancelAnimationFrame(raf)
       el.removeEventListener('mouseenter', onEnter)
       el.removeEventListener('mouseleave', onLeave)
-      el.removeEventListener('wheel', onUser)
-      el.removeEventListener('touchstart', onUser)
-      el.removeEventListener('pointerdown', onUser)
+      el.removeEventListener('touchstart', onTouchStart)
+      el.removeEventListener('touchend', onTouchEnd)
+      el.removeEventListener('touchcancel', onTouchEnd)
+      el.removeEventListener('scroll', onScroll)
+      el.removeEventListener('pointerdown', onPointerDown)
+      el.removeEventListener('pointermove', onPointerMove)
+      el.removeEventListener('pointerup', endDrag)
+      el.removeEventListener('pointercancel', endDrag)
+      el.removeEventListener('click', onClickCapture, true)
+      el.removeEventListener('dragstart', onDragStart)
     }
   }, [ref, enabled])
 }
@@ -219,8 +290,8 @@ export default function LiveTicker({ label, games, emptyLabel, onGameClick }: Li
 
       {games.length > 0 && (
         // A real scroll container: the drift is a slow scrollLeft nudge, so the
-        // user can wheel, drag-scroll or swipe it themselves at any time.
-        <div ref={scroller} className="flex-1 min-w-0 overflow-x-auto no-scrollbar">
+        // user can wheel it, grab and drag it, or swipe it at any time.
+        <div ref={scroller} className={`flex-1 min-w-0 overflow-x-auto no-scrollbar select-none ${moving ? 'cursor-grab' : ''}`}>
           <div className="flex w-max items-center gap-[18px] py-[9px]">
             {renderLanes(0)}
             {/* Duplicate so the drift can wrap without a visible jump. */}

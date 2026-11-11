@@ -9,8 +9,11 @@ Per league (NBA, MLB, NFL, NHL) it reports:
     today -- so the NBA offseason does not fail the check),
   * final games from the last 7 days that have no stat rows.
 
-Exit code 1 if an in-season league's latest box-score date is more than
---max-stale-days (default 2) days old, or if it has no box scores at all.
+Exit code 1 if an in-season league's latest box-score date LAGS its latest
+already-played game date (game_date < today) by more than --max-stale-days
+(default 2), or if it has no box scores at all. Lag is measured against the
+schedule, not the calendar: NFL plays weekly, so a Thursday box score on
+Sunday morning is current, not three days stale.
 Missing-stat finals are reported but only warn (a single late-final game is
 normal and self-heals on the next ingest window).
 
@@ -49,6 +52,22 @@ def _latest_stat_date(table: str, today: date) -> Optional[date]:
         supabase.table(table)
         .select("game_date")
         .lte("game_date", today.isoformat())
+        .order("game_date", desc=True)
+        .limit(1)
+        .execute()
+    )
+    rows = res.data or []
+    return date.fromisoformat(rows[0]["game_date"]) if rows else None
+
+
+def _latest_played_date(league_id: int, today: date) -> Optional[date]:
+    """Latest scheduled game_date strictly before today -- the newest date
+    whose box scores we should already have."""
+    res = (
+        supabase.table("games")
+        .select("game_date")
+        .eq("league_id", league_id)
+        .lt("game_date", today.isoformat())
         .order("game_date", desc=True)
         .limit(1)
         .execute()
@@ -126,7 +145,7 @@ def main() -> int:
     parser.add_argument("--league", choices=sorted(LEAGUES), default=None,
                         help="Check a single league (default: all)")
     parser.add_argument("--max-stale-days", type=int, default=2, dest="max_stale",
-                        help="In-season league fails if latest box score is older (default: 2)")
+                        help="In-season league fails if box scores lag the last played game by more (default: 2)")
     parser.add_argument("--today", type=str, default=None, help="Override today (YYYY-MM-DD)")
     args = parser.parse_args()
 
@@ -134,9 +153,9 @@ def main() -> int:
     slugs = [args.league] if args.league else list(LEAGUES)
 
     print(f"Data freshness check  |  today {today.isoformat()}  |  "
-          f"stale if in-season and latest box score > {args.max_stale}d old")
+          f"stale if in-season and box scores lag last played game by > {args.max_stale}d")
     print(f"{'league':<7}{'in-season':<11}{'games +/-3d':<13}{'latest box':<12}{'age(d)':<8}"
-          f"{'final w/o stats (7d)':<22}status")
+          f"{'last played':<13}{'lag(d)':<8}{'final w/o stats (7d)':<22}status")
 
     failed = False
     detail: list[str] = []
@@ -145,20 +164,25 @@ def main() -> int:
         in_season, n_near = _in_season(league_id, today)
         latest = _latest_stat_date(table, today)
         missing = _final_games_missing_stats(league_id, table, today)
+        played = _latest_played_date(league_id, today)
         age = (today - latest).days if latest else None
+        # Nothing played before today yet (season opener is today) -> no lag.
+        lag = max((played - latest).days, 0) if (latest and played) else 0
 
         if not in_season:
             status = "OK (off-season)"
         elif latest is None:
             status, failed = "STALE (no box scores)", True
-        elif age is not None and age > args.max_stale:
-            status, failed = f"STALE ({age}d)", True
+        elif lag > args.max_stale:
+            status, failed = f"STALE ({lag}d behind schedule)", True
         else:
             status = "OK"
 
         print(f"{slug:<7}{('yes' if in_season else 'no'):<11}{n_near:<13}"
               f"{(latest.isoformat() if latest else '-'):<12}"
-              f"{(str(age) if age is not None else '-'):<8}{len(missing):<22}{status}")
+              f"{(str(age) if age is not None else '-'):<8}"
+              f"{(played.isoformat() if played else '-'):<13}{lag:<8}"
+              f"{len(missing):<22}{status}")
         for g in missing:
             detail.append(f"  {slug}: game id={g['id']} {g['game_date']} "
                           f"({g.get('away_score')}-{g.get('home_score')}) final but no stat rows")

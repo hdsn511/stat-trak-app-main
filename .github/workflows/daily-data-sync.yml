@@ -125,29 +125,33 @@ jobs:
         if: ${{ !cancelled() && (env.LEAGUE == 'all' || env.LEAGUE == 'nfl' || env.LEAGUE == 'nhl') }}
         run: python -m analytics.batch.compute_trends
 
-      # ── MLB ──
+      # ── MLB ── PAUSED (off-season, 2026-11-08): MLB steps run only on a manual
+      # dispatch with league=mlb, never on the schedule or league=all. To resume,
+      # change `env.LEAGUE == 'mlb'` back to `(env.LEAGUE == 'all' || env.LEAGUE == 'mlb')`
+      # here and on "Generate MLB picks", then re-enable mlb-selfheal-picks.yml and
+      # mlb-performance-report.yml (gh workflow enable) and the injury-check MLB step.
       # Refresh teams + active rosters (idempotent upserts; picks up call-ups).
       - name: Refresh MLB rosters
         id: mlb_init
-        if: ${{ !cancelled() && (env.LEAGUE == 'all' || env.LEAGUE == 'mlb') }}
+        if: ${{ !cancelled() && env.LEAGUE == 'mlb' }}
         run: python -m analytics.batch.mlb_init
 
       # Reconcile yesterday's picks, backfill missed box scores, sync today's
       # slate + probable starters, compute daily_conditions.
       - name: MLB nightly batch (incl. reconcile)
         id: mlb_nightly
-        if: ${{ !cancelled() && (env.LEAGUE == 'all' || env.LEAGUE == 'mlb') }}
+        if: ${{ !cancelled() && env.LEAGUE == 'mlb' }}
         run: python -m analytics.batch.mlb_nightly --today
 
       # Empirical park factors + pitcher quality snapshots.
       - name: MLB enrich
         id: mlb_enrich
-        if: ${{ !cancelled() && (env.LEAGUE == 'all' || env.LEAGUE == 'mlb') }}
+        if: ${{ !cancelled() && env.LEAGUE == 'mlb' }}
         run: python -m analytics.batch.mlb_enrich
 
       - name: Compute MLB trends
         id: mlb_trends
-        if: ${{ !cancelled() && (env.LEAGUE == 'all' || env.LEAGUE == 'mlb') }}
+        if: ${{ !cancelled() && env.LEAGUE == 'mlb' }}
         working-directory: server
         run: npm run sync-data-mlb
 
@@ -173,7 +177,9 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           if [ "$LEAGUE" = "all" ]; then
-            python -m analytics.batch.sync_rosters
+            # MLB paused: sync every league except MLB.
+            for lg in nba nfl nhl; do python -m analytics.batch.sync_rosters --league "$lg" || rc=1; done
+            exit "${rc:-0}"
           else
             python -m analytics.batch.sync_rosters --league "$LEAGUE"
           fi
@@ -260,7 +266,7 @@ jobs:
       # Kalshi MLB lines + backtest + store picks for games whose markets are
       # already open (the hourly self-heal captures the rest as they list).
       - name: Generate MLB picks
-        if: ${{ !cancelled() && needs.data.outputs.mlb_ok == 'true' && (env.LEAGUE == 'all' || env.LEAGUE == 'mlb') }}
+        if: ${{ !cancelled() && needs.data.outputs.mlb_ok == 'true' && env.LEAGUE == 'mlb' }}
         run: python -m analytics.picks.generate_mlb --today ${{ github.event.inputs.force == 'true' && '--force' || '' }}
 
       # Kalshi NBA lines + backtest + store picks.
@@ -268,8 +274,10 @@ jobs:
         if: ${{ !cancelled() && needs.data.outputs.nba_ok == 'true' && (env.LEAGUE == 'all' || env.LEAGUE == 'nba') }}
         run: python -m analytics.picks.generate --date "$(date -u +%Y-%m-%d)"
 
-      # Projects card: grade settled rows, then price unstarted NBA/NFL games.
-      # Additive-lock + started-game gate make repeat passes safe.
+      # Projects card: grade settled rows, then price open NBA/NFL games. NBA locks
+      # (card: an hour before the first tip; each game: an hour before its tip) and the
+      # NFL started-game gate make repeat passes safe. nba-projects-refresh.yml re-runs
+      # NBA every 30 min through the game day.
       - name: Reconcile Projects picks
         if: ${{ !cancelled() }}
         run: python -m analytics.batch.reconcile_projects

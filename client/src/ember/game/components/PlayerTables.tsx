@@ -63,18 +63,22 @@ function both<T>(insights: GameInsights, pick: (t: GameInsights['away']) => T[])
   return out
 }
 
-const STREAK_COLS = 'grid-cols-[minmax(180px,280px)_110px_70px_130px_64px_minmax(110px,1fr)]'
+/** Rows per side: the two tables sit side by side, so they show the same count. */
+const MAX_ROWS = 10
+
+// Fluid columns: the tables fill their half of the page and never scroll sideways.
+const STREAK_COLS = 'grid-cols-[minmax(0,1.6fr)_84px_52px_minmax(60px,1fr)_40px_minmax(0,0.8fr)]'
 
 export function StreaksTable({ league, insights }: { league: string; insights: GameInsights }) {
-  const rows = both<GameInsightStreak>(insights, (t) => t.streaks)
+  const rows = both<GameInsightStreak>(insights, (t) => t.streaks).slice(0, MAX_ROWS)
   return (
-    <ModuleCard title="STREAKS" meta="CONSECUTIVE GAMES OVER A KALSHI RUNG · OUT PLAYERS REMOVED">
+    <ModuleCard className="h-full" title="STREAKS" meta="CONSECUTIVE GAMES OVER A KALSHI RUNG · OUT PLAYERS REMOVED">
       {rows.length === 0 ? (
         <EmptyState compact label="NO ACTIVE STREAKS AT A KALSHI RUNG FOR EITHER TEAM" />
       ) : (
-        <div className="overflow-x-auto">
-          <div className="min-w-[640px]">
-            <div className={`grid ${STREAK_COLS} gap-3 px-[18px] py-2`}>
+        <div>
+          <div>
+            <div className={`grid ${STREAK_COLS} gap-2 px-3 py-2`}>
               <Th>PLAYER</Th>
               <Th align="center">LINE</Th>
               <Th align="center">RUN</Th>
@@ -95,9 +99,9 @@ export function StreaksTable({ league, insights }: { league: string; insights: G
                 </span>
                 <span className="text-center font-martian font-bold text-[15px] tabular-nums" style={{ color: GOOD }}>
                   {s.depth}
-                  <span className="text-[11px] text-[#8A827E] font-normal" title={`${s.depth} straight, from the last ${s.games} games`}> straight</span>
+                  <span className="block text-[9px] text-[#8A827E] font-normal tracking-[0.5px]" title={`${s.depth} straight, from the last ${s.games} games`}>STRAIGHT</span>
                 </span>
-                <HitStrip values={s.last10} rung={s.rung} width={124} />
+                <HitStrip values={s.last10} rung={s.rung} width="100%" />
                 <span className="text-right font-martian text-[13px] text-[#EFEBE9] tabular-nums">{s.l10_avg}</span>
                 <MatchupCell league={league} opponent={opp(insights, s.team)} matchup={s.matchup} label={s.stat_label} />
               </Link>
@@ -109,7 +113,7 @@ export function StreaksTable({ league, insights }: { league: string; insights: G
   )
 }
 
-const TREND_COLS = 'grid-cols-[minmax(180px,280px)_70px_170px_90px_110px_minmax(110px,1fr)]'
+const TREND_COLS = 'grid-cols-[minmax(0,1.6fr)_44px_minmax(0,1.2fr)_76px_84px_minmax(0,0.8fr)]'
 
 function Delta({ t }: { t: GameInsightTrend }) {
   const season = t.season_avg
@@ -153,15 +157,15 @@ function ZBar({ z }: { z: number }) {
 }
 
 export function TrendsTable({ league, insights }: { league: string; insights: GameInsights }) {
-  const rows = both<GameInsightTrend>(insights, (t) => t.trends)
+  const rows = both<GameInsightTrend>(insights, (t) => t.trends).slice(0, MAX_ROWS)
   return (
-    <ModuleCard title="TRENDS" meta="RECENT FORM VS SEASON · ▲ HOT / ▼ COLD">
+    <ModuleCard className="h-full" title="TRENDS" meta="RECENT FORM VS SEASON · ▲ HOT / ▼ COLD">
       {rows.length === 0 ? (
         <EmptyState compact label="NO TREND ROWS FOR EITHER ROSTER" />
       ) : (
-        <div className="overflow-x-auto">
-          <div className="min-w-[660px]">
-            <div className={`grid ${TREND_COLS} gap-3 px-[18px] py-2`}>
+        <div>
+          <div>
+            <div className={`grid ${TREND_COLS} gap-2 px-3 py-2`}>
               <Th>PLAYER</Th>
               <Th>STAT</Th>
               <Th>SEASON → RECENT</Th>

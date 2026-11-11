@@ -1,13 +1,8 @@
-import { Link } from 'react-router-dom'
-import { playerPath } from '@/lib/paths'
-import { teamAccent } from '@/lib/teamBrand'
-import type { Matchup, SuggestionResult, SuggestionResultSet } from '@/services/api'
-import PlayerAvatar from './PlayerAvatar'
+import type { Matchup, SuggestionResultSet } from '@/services/api'
 import YesterdayResults from './YesterdayResults'
-import TeamLogo from './TeamLogo'
 import CardRecord from './CardRecord'
-import { ClearStrip, ImpliedOddsNote, MatchupNote, PropTicket, ResultMark, StatTag } from './PropVisuals'
-import LeaguePill from './LeaguePill'
+import SuggestionRow, { RowTag } from './SuggestionRow'
+import { ClearStrip, ImpliedOddsNote, PropTicket, ResultMark } from './PropVisuals'
 import ModuleCard from './ModuleCard'
 import { EmptyState } from './EntityState'
 
@@ -48,6 +43,8 @@ export type StreakRow = {
   extId?: string | null
   /** Highest Kalshi rung the streak floor still clears. */
   suggested?: number | null
+  /** Last 10 values, oldest first: run/tier rows draw the same bar chart as NBA. */
+  last10?: number[]
 }
 
 interface StreakWatchProps {
@@ -56,24 +53,20 @@ interface StreakWatchProps {
   showLeague?: boolean
   className?: string
   emptyLabel?: string
-  /** Yesterday's graded snapshot of this card. */
+  /** Yesterday's graded snapshot of this card; its W-L goes in the header. */
   results?: SuggestionResultSet | null
-  /** This card's cumulative record, for the header corner. */
-  record?: { w: number; l: number } | null
 }
 
 /**
- * Tiered lines rather than a per-game hit strip: the API reports the value a
- * player cleared in 10, 9, 8 and 7 of their last 10 games, which is the actual
- * bettable fact. The ladder shades from solid (guaranteed) to faint (likeliest
- * to break).
+ * Tiered lines: the value a player cleared in 10, 9, 8 and 7 of their last 10
+ * games, shading from solid (guaranteed) to faint (likeliest to break).
  */
 function TierLadder({ tiers }: { tiers: StreakTier[] }) {
   const opacity = [1, 0.72, 0.48, 0.28]
   return (
-    <div className="flex gap-[6px] shrink-0">
-      {tiers.map((t, i) => (
-        <div key={t.cleared} className="text-center w-[38px]">
+    <div className="flex gap-[6px] w-[160px]">
+      {tiers.slice(0, 4).map((t, i) => (
+        <div key={t.cleared} className="text-center flex-1">
           <div
             className="font-martian font-bold text-[13px] text-[#FF6B3D] tabular-nums"
             style={{ opacity: opacity[i] ?? 0.28 }}
@@ -89,32 +82,46 @@ function TierLadder({ tiers }: { tiers: StreakTier[] }) {
   )
 }
 
-/** An active run: N straight games clearing at least `line`. */
-function RunBadge({ games, line }: { games: number; line: number }) {
-  // Cap the pips so a 30-game streak doesn't blow out the row.
-  const pips = Math.min(games, 12)
+/** An active run as pips, one per game (capped so a long run fits). */
+function RunPips({ games }: { games: number }) {
+  const pips = Math.min(games, 14)
   return (
-    <div className="flex items-center gap-[10px] shrink-0">
-      <div className="flex gap-[3px]">
-        {Array.from({ length: pips }, (_, i) => (
-          <span key={i} className="w-[5px] h-[14px] rounded-[1.5px] bg-[#FF6B3D]" />
-        ))}
-        {games > pips && (
-          <span className="font-martian text-[10px] text-[#FF6B3D] self-center ml-[2px]">
-            +{games - pips}
-          </span>
-        )}
-      </div>
-      <div className="text-center w-[42px]">
-        <div className="font-martian font-bold text-[13px] text-[#FF6B3D] tabular-nums">
-          {line}+
-        </div>
-        <div className="font-martian text-[10px] text-[#A8A09C] mt-[3px] tracking-[0.5px]">
-          {games} STRAIGHT
-        </div>
-      </div>
+    <div className="flex items-center gap-[3px] w-[160px] h-[34px]">
+      {Array.from({ length: pips }, (_, i) => (
+        <span key={i} className="w-[6px] h-[18px] rounded-[1.5px] bg-[#FF6B3D]" />
+      ))}
+      {games > pips && <span className="font-martian text-[10px] text-[#FF6B3D] ml-[2px]">+{games - pips}</span>}
     </div>
   )
+}
+
+/** The streak's line, how deep it runs, and the chart for it. */
+function describe(row: StreakRow): { rung: number | null; price?: number | null; depth: string; viz: React.ReactNode } {
+  const d = row.detail
+  if (d.kind === 'watch') {
+    return { rung: d.rung, price: d.price, depth: `${d.depth} straight`, viz: <ClearStrip values={d.last10} rung={d.rung} /> }
+  }
+  const last10 = row.last10 ?? []
+  if (d.kind === 'run') {
+    return {
+      rung: d.line,
+      depth: `${d.games} straight`,
+      viz: last10.length ? <ClearStrip values={last10} rung={d.line} /> : <RunPips games={d.games} />,
+    }
+  }
+  const top = d.tiers[0]
+  if (top && last10.length) {
+    // Tier lines are x.5 (Kalshi style); the rung is the whole number that clears it.
+    const rung = Math.ceil(top.line)
+    let run = 0
+    for (let i = last10.length - 1; i >= 0 && last10[i]! >= rung; i--) run++
+    return { rung, depth: `${run} straight`, viz: <ClearStrip values={last10} rung={rung} /> }
+  }
+  return {
+    rung: top?.line ?? null,
+    depth: top ? `${top.cleared}/${top.of} games` : 'streak',
+    viz: <TierLadder tiers={d.tiers} />,
+  }
 }
 
 export default function StreakWatch({
@@ -124,86 +131,46 @@ export default function StreakWatch({
   className = '',
   emptyLabel = 'NO ACTIVE STREAKS',
   results,
-  record,
 }: StreakWatchProps) {
+  const yesterday = results && results.rows.length > 0 ? results.record : null
   return (
-    <ModuleCard title="STREAK WATCH" headerRight={<CardRecord meta={meta} record={record} />} className={className}>
+    <ModuleCard
+      title="STREAK WATCH"
+      headerRight={<CardRecord meta={meta} label="YESTERDAY'S RECORD" record={yesterday} />}
+      className={`sugg-card ${className}`}
+    >
       {rows.length === 0 && <EmptyState label={emptyLabel} compact />}
       {rows.map((row) => {
         const yday = results?.rows.find((r) => r.player_id === row.playerId && r.stat_label === row.label)
-        const key = `${row.league}-${row.playerId}-${row.label}`
-        if (row.detail.kind === 'watch') return <WatchRow key={key} row={row} detail={row.detail} yday={yday} showLeague={showLeague} />
+        const { rung, price, depth, viz } = describe(row)
         return (
-          <Link
-            key={key}
-            to={playerPath(row.league, row.playerId)}
-            className="flex items-center gap-3 px-5 py-4 border-b border-[#221D1A] last:border-b-0 hover:bg-[#211C1A]"
-          >
-            {showLeague && <LeaguePill league={row.leagueLabel} />}
-            <PlayerAvatar league={row.league} extId={row.extId} name={row.name} accent={teamAccent(row.league, row.team)} size={36} />
-            <div className="min-w-0 flex-1">
-              <div className="font-schibsted font-bold text-[14px] text-[#EFEBE9] truncate">{row.name}</div>
-              <div className="font-martian text-[11px] text-[#C9C2BE] mt-[2px] truncate">
-                {row.team} · {row.label}
-                {row.opponent ? ` · vs ${row.opponent}` : ''}
-              </div>
-            </div>
-            {row.detail.kind === 'tiers' ? (
-              <TierLadder tiers={row.detail.tiers} />
-            ) : (
-              <RunBadge games={row.detail.games} line={row.detail.line} />
-            )}
-            <div className="text-right w-[38px] shrink-0">
-              <div className="font-martian font-bold text-[15px] text-[#EFEBE9] tabular-nums">{row.rollingAvg}</div>
-              <div className="font-martian text-[10px] text-[#A8A09C] mt-[3px] tracking-[0.5px]">L10 AVG</div>
-            </div>
-          </Link>
+          <div key={`${row.league}-${row.playerId}-${row.label}`} className="border-b border-[#221D1A] last:border-b-0">
+            <SuggestionRow
+              league={row.league}
+              leagueLabel={row.leagueLabel}
+              showLeague={showLeague}
+              playerId={row.playerId}
+              extId={row.extId}
+              name={row.name}
+              team={row.team}
+              label={row.label}
+              opponent={row.opponent}
+              matchup={row.detail.kind === 'watch' ? row.detail.matchup : null}
+              tags={
+                <>
+                  <RowTag strong>{depth}</RowTag>
+                  <RowTag>L10 avg {row.rollingAvg}</RowTag>
+                </>
+              }
+              ticket={<PropTicket rung={rung} label={row.label} price={row.detail.kind === 'watch' ? price : undefined} />}
+              viz={viz}
+              mark={<ResultMark hit={yday?.did_hit} actual={yday?.actual} />}
+            />
+          </div>
         )
       })}
       <YesterdayResults league={rows[0]?.league ?? 'nba'} set={results} />
       <ImpliedOddsNote />
     </ModuleCard>
-  )
-}
-
-/** NBA: a run at a Kalshi rung. Identity, the prop ticket, then the last ten games against the line. */
-function WatchRow({ row, detail, yday, showLeague }: {
-  row: StreakRow
-  detail: Extract<StreakDetail, { kind: 'watch' }>
-  yday?: SuggestionResult
-  showLeague: boolean
-}) {
-  return (
-    <Link
-      to={playerPath(row.league, row.playerId)}
-      className="grid grid-cols-[minmax(0,1fr)_112px_30px] sm:grid-cols-[minmax(0,1fr)_112px_150px_30px] items-center gap-[18px] px-5 py-4 border-b border-[#221D1A] last:border-b-0 hover:bg-[#211C1A]"
-    >
-      <div className="min-w-0 flex items-center gap-3">
-        {showLeague && <LeaguePill league={row.leagueLabel} />}
-        <PlayerAvatar league={row.league} extId={row.extId} name={row.name} accent={teamAccent(row.league, row.team)} size={42} />
-        <div className="min-w-0">
-          <div className="flex items-center gap-[6px] min-w-0">
-            <span className="font-schibsted font-bold text-[15px] text-[#EFEBE9] truncate">{row.name}</span>
-            <StatTag label={row.label} />
-          </div>
-          <div className="mt-[3px] flex items-center gap-[5px] font-martian text-[11px] text-[#C9C2BE]">
-            <TeamLogo league={row.league} abbr={row.team} size={13} />
-            {row.team}
-          </div>
-          <div className="mt-[3px] truncate">
-            <MatchupNote league={row.league} opponent={row.opponent} matchup={detail.matchup} label={row.label} />
-          </div>
-        </div>
-      </div>
-      <PropTicket rung={detail.rung} label={row.label} price={detail.price} />
-      <div className="hidden sm:block">
-        <ClearStrip values={detail.last10} rung={detail.rung} />
-        <div className="flex justify-between font-martian text-[10px] text-[#A8A09C] mt-[4px] tabular-nums whitespace-nowrap">
-          <span className="text-[#FF6B3D]">{detail.depth} straight</span>
-          <span>L10 avg {row.rollingAvg}</span>
-        </div>
-      </div>
-      <ResultMark hit={yday?.did_hit} actual={yday?.actual} />
-    </Link>
   )
 }

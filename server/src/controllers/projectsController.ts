@@ -1,13 +1,20 @@
 import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabaseAdmin';
 import { league as resolveLeague } from '../config/leagues';
-import { ML_BAND, PROP_BAND, onCardChanges, selectProjects, type GameState } from '../utils/projects';
-import { gradedRecord } from '../utils/record';
+import {
+  ML_BAND,
+  PROP_BAND,
+  gamePhase,
+  onCardChanges,
+  selectLockedCard,
+  selectProjects,
+  type CardChange,
+  type GameState,
+  type LockGame,
+} from '../utils/projects';
+import { gradedStraights, straightUnits, tallyStraights } from '../utils/record';
+import { sportsDay } from '../utils/dateQueries';
 
-/** Calendar date in US Eastern: game_date is local, so UTC would roll over early. */
-function easternDate(d: Date): string {
-  return d.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
-}
 
 export async function getProjects(_req: Request, res: Response) {
   try {
@@ -21,8 +28,9 @@ export async function getProjects(_req: Request, res: Response) {
     }
 
     const now = new Date();
-    const from = easternDate(now);
-    const to = easternDate(new Date(now.getTime() + lg.projectsWindowDays * 86400000));
+    // ET sports day (rolls at 4am), so tonight's late games stay on tonight's card.
+    const from = sportsDay(now);
+    const to = sportsDay(new Date(now.getTime() + lg.projectsWindowDays * 86400000));
 
     const [{ data: gameRows, error: gErr }, { data: pickRows, error: pErr }] = await Promise.all([
       supabaseAdmin
@@ -35,7 +43,7 @@ export async function getProjects(_req: Request, res: Response) {
         .from('pick_results')
         .select(
           'id,prop_type,entity_id,stat,recommended_line,model_prob,implied_prob,edge,' +
-            'game_id,game_date,modifiers,price_source,on_card,on_card_changed_at',
+            'game_id,game_date,modifiers,price_source,on_card',
         )
         .eq('league_id', lg.leagueId)
         .eq('pick_type', 'project')
@@ -48,35 +56,29 @@ export async function getProjects(_req: Request, res: Response) {
 
     const games = (gameRows ?? []) as any[];
     const gameMap = new Map<number, GameState>(games.map((g) => [g.id, g]));
-    const { props, moneyline, byGame } = selectProjects((pickRows ?? []) as any[], gameMap, now);
+    const rows = (pickRows ?? []) as any[];
 
-    // Stamp what the card shows now; frozen at each game's kickoff, it is what gets graded.
-    const shownIds = new Set([...props, ...(moneyline ? [moneyline] : [])].map((r: any) => r.id));
-    const changes = onCardChanges((pickRows ?? []) as any[], shownIds, gameMap, now);
-    // A swap is a flag flipping on a row that already had one; first appearances are not changes.
-    const priorOf = new Map((pickRows ?? []).map((r: any) => [r.id, r.on_card]));
-    const stampedAt = now.toISOString();
-    await Promise.all(
-      [true, false].flatMap((v) => {
-        const ids = changes.filter((c) => c.on_card === v).map((c) => c.id);
-        const swapped = ids.filter((id) => priorOf.get(id) != null);
-        const fresh = ids.filter((id) => priorOf.get(id) == null);
-        return [
-          fresh.length ? supabaseAdmin.from('pick_results').update({ on_card: v }).in('id', fresh) : null,
-          swapped.length
-            ? supabaseAdmin.from('pick_results').update({ on_card: v, on_card_changed_at: stampedAt }).in('id', swapped)
-            : null,
-        ];
-      }),
-    ).catch((e) => console.error('[getProjects] on_card stamp failed', e));
-    for (const c of changes) {
-      const row: any = (pickRows ?? []).find((r: any) => r.id === c.id);
-      if (row && row.on_card != null) row.on_card_changed_at = stampedAt;
-      if (row) row.on_card = c.on_card;
+    let props: any[];
+    let moneyline: any;
+    let byGame: Map<number, { winner: any; props: any[] }>;
+    let lock: { date: string | null; locksAt: number | null; locked: boolean; changes: CardChange<any>[] } | null = null;
+    if (lg.projectsLock) {
+      // The generator owns the card and stamps on_card itself; served exactly as stored.
+      const card = selectLockedCard(rows, new Map<number, LockGame>(games.map((g) => [g.id, g])), now);
+      ({ props, moneyline, byGame } = card);
+      lock = card;
+    } else {
+      ({ props, moneyline, byGame } = selectProjects(rows, gameMap, now));
+      // Stamp what the card shows now; frozen at each game's kickoff, it is what gets graded.
+      const shownIds = new Set([...props, ...(moneyline ? [moneyline] : [])].map((r: any) => r.id));
+      const stamps = onCardChanges(rows, shownIds, gameMap, now);
+      await Promise.all(
+        [true, false].map((v) => {
+          const ids = stamps.filter((c) => c.on_card === v).map((c) => c.id);
+          return ids.length ? supabaseAdmin.from('pick_results').update({ on_card: v }).in('id', ids) : null;
+        }),
+      ).catch((e) => console.error('[getProjects] on_card stamp failed', e));
     }
-    const changedToday = (pickRows ?? []).filter(
-      (r: any) => r.on_card_changed_at && easternDate(new Date(r.on_card_changed_at)) === from,
-    ) as any[];
 
     const { data: teams } = await supabaseAdmin
       .from('teams')
@@ -85,9 +87,21 @@ export async function getProjects(_req: Request, res: Response) {
     const teamById = new Map((teams ?? []).map((t: any) => [t.id, t]));
     const gameById = new Map(games.map((g) => [g.id, g]));
 
+    // Graded straights: the all-time record and net units, plus the latest graded slate
+    // before today for the card's "yesterday" dropdown.
+    const graded = await gradedStraights(lg.leagueId);
+    const today = sportsDay(now);
+    const lastDate = graded.reduce<string | null>(
+      (d, r: any) => (r.game_date < today && (d == null || r.game_date > d) ? r.game_date : d),
+      null,
+    );
+    const ydayRows = lastDate ? graded.filter((r: any) => r.game_date === lastDate) : [];
+
     const playerIds = [
       ...[...byGame.values()].flatMap((g) => g.props.map((p: any) => p.entity_id)),
-      ...changedToday.filter((r) => r.prop_type !== 'winner').map((r) => r.entity_id),
+      ...ydayRows.filter((r: any) => r.prop_type === 'player').map((r: any) => r.entity_id),
+      ...props.map((p: any) => p.entity_id),
+      ...(lock?.changes ?? []).filter((c) => c.row.prop_type === 'player').map((c) => c.row.entity_id),
     ];
     const { data: players } = playerIds.length
       ? await supabaseAdmin.from('players').select('id,name,team,ext_id').in('id', playerIds)
@@ -119,6 +133,9 @@ export async function getProjects(_req: Request, res: Response) {
         price_source: p.price_source,
         book_prob: mods.book_prob ?? null,
         featured: !!mods.featured,
+        // Where its game stands: a pick stays on a final card through tip-off.
+        status: gamePhase(gameMap.get(p.game_id), now),
+        void: mods.void ?? null,
         // Why we like it: recent form for props, the Elo check for winners.
         context:
           kind === 'prop'
@@ -142,29 +159,61 @@ export async function getProjects(_req: Request, res: Response) {
       };
     };
 
+    const ydayShape = (r: any) => {
+      const mods = r.modifiers ?? {};
+      const isProp = r.prop_type === 'player';
+      const player: any = isProp ? playerById.get(r.entity_id) : null;
+      const team: any = isProp ? null : teamById.get(mods.team_id);
+      const price = Number(r.implied_prob);
+      return {
+        id: r.id,
+        kind: isProp ? 'prop' : 'moneyline',
+        entity_id: isProp ? r.entity_id : r.game_id,
+        name: isProp ? (player?.name ?? 'Unknown') : (team?.name ?? mods.team_abbr ?? 'Unknown'),
+        team: mods.team_abbr ?? null,
+        ext_id: isProp ? (player?.ext_id ?? null) : null,
+        stat_label: isProp ? (lg.statLabels[r.stat] ?? r.stat) : null,
+        side: mods.side ?? null,
+        line: r.recommended_line == null ? null : Number(r.recommended_line),
+        price,
+        actual: r.actual_result == null ? null : Number(r.actual_result),
+        did_hit: !!r.did_hit,
+        units: Math.round(straightUnits(price, !!r.did_hit) * 100) / 100,
+      };
+    };
+
     return res.json({
       success: true,
       data: {
         supported: true,
         bands,
         // Graded picks that were on the card when their game started (on_card).
-        record: await gradedRecord(lg.leagueId, ['project'], true),
+        record: tallyStraights(graded),
+        yesterday: lastDate
+          ? { date: lastDate, record: tallyStraights(ydayRows), rows: ydayRows.map(ydayShape) }
+          : null,
         props: props.map((p) => shape(p, 'prop')),
         moneyline: moneyline ? shape(moneyline, 'moneyline') : null,
+        // Lock mode: which date the card is for, when it is final, and every swap made on it.
+        card: lock
+          ? {
+              date: lock.date,
+              locks_at: lock.locksAt != null ? new Date(lock.locksAt).toISOString() : null,
+              locked: lock.locked,
+              changes: lock.changes.map((c) => ({
+                at: c.at,
+                kind: c.kind,
+                reason: c.reason,
+                pick: shape(c.row, c.row.prop_type === 'winner' ? 'moneyline' : 'prop'),
+              })),
+            }
+          : null,
         // Every upcoming game's predicted winner and top props, for the game view.
         games: [...byGame.entries()].map(([gameId, g]) => ({
           game_id: gameId,
           winner: g.winner ? shape(g.winner, 'moneyline') : null,
           props: g.props.map((p) => shape(p, 'prop')),
         })),
-        // Picks that swapped on/off the card today (Eastern), for the "Changes today" dropdown.
-        changes: changedToday
-          .filter((r) => gameById.has(r.game_id))
-          .map((r) => ({
-            ...shape(r, r.prop_type === 'winner' ? 'moneyline' : 'prop'),
-            change: r.on_card ? 'added' : 'removed',
-            at: r.on_card_changed_at,
-          })),
         upcoming_games: games.filter((g) => gameMap.has(g.id) && g.status === 0 && g.game_time && new Date(g.game_time) > now).length,
       },
     });

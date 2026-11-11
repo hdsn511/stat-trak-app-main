@@ -111,3 +111,27 @@
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
+
+/*
+ * Suggestion rows (Trending Players, Streak Watch). The columns follow the CARD's
+ * width, not the viewport's, so the same card in a narrow side column never
+ * squeezes the player into the ticket. Both cards share the template, so side by
+ * side their rows line up.
+ */
+.sugg-card {
+  container-type: inline-size;
+}
+.sugg-row {
+  grid-template-columns: minmax(0, 1fr) 112px 30px;
+}
+.sugg-viz {
+  display: none;
+}
+@container (min-width: 560px) {
+  .sugg-row {
+    grid-template-columns: minmax(0, 1fr) 112px 160px 30px;
+  }
+  .sugg-viz {
+    display: block;
+  }
+}

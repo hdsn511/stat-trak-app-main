@@ -281,6 +281,8 @@ export interface PlayerStreakRow {
   /** MLB: opposing-starter matchup flag (good = weak arm, tough = ace). */
   matchup?: { tier: 'good' | 'tough'; label: string } | null
   rolling_avg: number       // average over the 10-game window
+  /** Last 10 played values, oldest first. */
+  last10?: number[]
   games_used: number        // NBA: always 10; MLB: games available in window
   /** For MLB, league_rank is the opposing starter's quality_rank (1=best). */
   opponent: { team: string; league_rank: number | null } | null
@@ -383,20 +385,6 @@ export interface GameProp {
   player_name: string | null
 }
 
-export interface GamePick {
-  entity_id: number
-  stat: string
-  recommended_line: number
-  hit_rate: number
-  confidence_score: number
-  implied_prob: number | null
-  edge: number
-  actual_result: number | null
-  did_hit: boolean | null
-  prop_type: string
-  player_name: string | null
-}
-
 export interface GameDetail {
   league: string
   game: {
@@ -411,10 +399,8 @@ export interface GameDetail {
     is_completed: boolean
   }
   box_score: { available: boolean; groups: BoxGroup[] }
-  props: GameProp[]
-  picks: GamePick[]
-  /** False for NHL and NFL, which have no lines or picks pipeline. */
-  has_markets: boolean
+  /** Upcoming games: spread and winner lines (absent from older API builds). */
+  props?: GameProp[]
   injury_report: GameInjury[]
   head_to_head: GameH2HEntry[]
   rest: { home_days: number | null; away_days: number | null }
@@ -502,6 +488,10 @@ export interface ProjectPick {
   price_source: string | null
   book_prob: number | null
   featured: boolean
+  /** Where its game stands; a pick stays on a final card through tip-off. */
+  status?: 'upcoming' | 'started' | 'final'
+  /** Set when the pick no longer counts (e.g. 'injury' after the card locked). */
+  void?: string | null
   /** Why the pick is on the card: recent form for props, the Elo check for winners. */
   context: {
     avg20?: number | null
@@ -550,8 +540,6 @@ export interface SuggestionResultSet {
 /** Yesterday's graded Trending Players / Streak Watch suggestions. */
 export interface SuggestionResults {
   date: string | null
-  /** Cumulative record per card. */
-  totals: { trending: { w: number; l: number }; streak: { w: number; l: number } }
   trending: SuggestionResultSet
   streak: SuggestionResultSet
 }
@@ -562,13 +550,50 @@ export interface ProjectGame {
   props: ProjectPick[]
 }
 
+export interface UnitsRecord {
+  w: number
+  l: number
+  units: number
+}
+
+/** A straight from a graded slate, with its result. */
+export interface GradedStraight {
+  id: number
+  kind: 'prop' | 'moneyline'
+  /** Player id for props; game id for winners. */
+  entity_id: number
+  name: string
+  team: string | null
+  ext_id: string | null
+  stat_label: string | null
+  side: string | null
+  line: number | null
+  /** YES price paid, as a probability. */
+  price: number
+  actual: number | null
+  did_hit: boolean
+  units: number
+}
+
 export interface ProjectsResponse {
   supported: boolean
   bands: { prop: { min: number; max: number }; moneyline: { min: number; max: number } }
-  /** Cumulative record of picks that were on the card. */
-  record: { w: number; l: number }
+  /** Cumulative record and net units (1u per pick at its Kalshi price) of picks that were on the card. */
+  record: UnitsRecord
+  /** The latest graded slate before today, for the card's dropdown. */
+  yesterday: { date: string; record: UnitsRecord; rows: GradedStraight[] } | null
   props: ProjectPick[]
   moneyline: ProjectPick | null
+  /**
+   * NBA: the card is final an hour before the date's first tip and is served as
+   * stored. Null for leagues without the lock.
+   */
+  card?: {
+    date: string | null
+    locks_at: string | null
+    locked: boolean
+    changes: { at: string; kind: 'out' | 'in'; reason: string | null; pick: ProjectPick }[]
+  } | null
   games: ProjectGame[]
   /** Picks that swapped on/off the card today (Eastern). */
   changes?: (ProjectPick & { change: 'added' | 'removed'; at: string })[]

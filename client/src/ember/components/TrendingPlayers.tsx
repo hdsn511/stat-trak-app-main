@@ -1,15 +1,10 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
-import { playerPath } from '@/lib/paths'
-import { teamAccent } from '@/lib/teamBrand'
 import type { Matchup, SuggestionResultSet } from '@/services/api'
-import PlayerAvatar from './PlayerAvatar'
-import TeamLogo from './TeamLogo'
 import YesterdayResults from './YesterdayResults'
-import LeaguePill from './LeaguePill'
 import ModuleCard from './ModuleCard'
 import CardRecord from './CardRecord'
-import { ImpliedOddsNote, MatchupNote, PropTicket, ResultMark, StatTag, TrendBars } from './PropVisuals'
+import SuggestionRow from './SuggestionRow'
+import { ImpliedOddsNote, PropTicket, ResultMark, TrendBars } from './PropVisuals'
 import { EmptyState } from './EntityState'
 
 export type TrendingRow = {
@@ -45,10 +40,8 @@ interface TrendingPlayersProps {
   showLeague?: boolean
   className?: string
   emptyLabel?: string
-  /** Yesterday's graded snapshot of this card. */
+  /** Yesterday's graded snapshot of this card; its W-L goes in the header. */
   results?: SuggestionResultSet | null
-  /** This card's cumulative record, for the header corner. */
-  record?: { w: number; l: number } | null
 }
 
 export default function TrendingPlayers({
@@ -58,89 +51,72 @@ export default function TrendingPlayers({
   className = '',
   emptyLabel = 'NO TRENDS AVAILABLE',
   results,
-  record,
 }: TrendingPlayersProps) {
   // One open explanation at a time, keyed by row + chip.
   const [openKey, setOpenKey] = useState<string | null>(null)
+  const yesterday = results && results.rows.length > 0 ? results.record : null
   return (
-    <ModuleCard title="TRENDING PLAYERS" headerRight={<CardRecord meta={meta} record={record} />} className={className}>
+    <ModuleCard
+      title="TRENDING PLAYERS"
+      headerRight={<CardRecord meta={meta} label="YESTERDAY'S RECORD" record={yesterday} />}
+      className={`sugg-card ${className}`}
+    >
       {rows.length === 0 && <EmptyState label={emptyLabel} compact />}
       {rows.map((row) => {
         const rowKey = `${row.league}-${row.playerId}-${row.stat}`
         const openDetail = row.chipDetails?.find((d) => openKey === `${rowKey}:${d.label}`)
         const yday = results?.rows.find((r) => r.player_id === row.playerId && r.stat_label === row.stat)
+        const toggle = (chip: string, isOpen: boolean) => setOpenKey(isOpen ? null : `${rowKey}:${chip}`)
         return (
           <div key={rowKey} className="border-b border-[#221D1A] last:border-b-0">
-            <Link
-              to={playerPath(row.league, row.playerId)}
-              className="grid grid-cols-[minmax(0,1fr)_112px_30px] sm:grid-cols-[minmax(0,1fr)_112px_170px_30px] items-center gap-[18px] px-5 py-4 hover:bg-[#211C1A]"
-            >
-              <div className="min-w-0 flex items-center gap-3">
-                {showLeague && <LeaguePill league={row.leagueLabel} />}
-                <PlayerAvatar
-                  league={row.league}
-                  extId={row.extId}
-                  name={row.name}
-                  accent={teamAccent(row.league, row.team)}
-                  size={42}
-                />
-                <div className="min-w-0">
-                  <div className="flex items-center gap-[6px] min-w-0">
-                    <span className="font-schibsted font-bold text-[15px] text-[#EFEBE9] truncate">{row.name}</span>
-                    <StatTag label={row.stat} />
-                  </div>
-                  <div className="mt-[3px] flex items-center gap-[5px] font-martian text-[11px] text-[#C9C2BE]">
-                    <TeamLogo league={row.league} abbr={row.team} size={13} />
-                    {row.team}
-                  </div>
-                  <div className="mt-[3px] truncate">
-                    <MatchupNote league={row.league} opponent={row.opponent} matchup={row.matchup} label={row.stat} />
-                  </div>
-                  {row.chips.length > 0 && (
-                    <div className="flex flex-wrap gap-[6px] mt-[6px]">
-                      {row.chips.slice(0, 2).map((chip) => {
-                        const has = row.chipDetails?.some((d) => d.label === chip)
-                        const isOpen = openKey === `${rowKey}:${chip}`
-                        return (
-                          <span
-                            key={chip}
-                            role={has ? 'button' : undefined}
-                            tabIndex={has ? 0 : undefined}
-                            aria-expanded={has ? isOpen : undefined}
-                            title={has ? 'Click for the numbers behind this' : undefined}
-                            onClick={(e) => {
-                              if (!has) return
-                              e.preventDefault()
-                              setOpenKey(isOpen ? null : `${rowKey}:${chip}`)
-                            }}
-                            onKeyDown={(e) => {
-                              if (has && (e.key === 'Enter' || e.key === ' ')) {
-                                e.preventDefault()
-                                setOpenKey(isOpen ? null : `${rowKey}:${chip}`)
-                              }
-                            }}
-                            className={`font-martian text-[10px] uppercase border rounded-[3px] px-[6px] py-[2px] whitespace-nowrap ${
-                              has ? 'cursor-pointer hover:bg-[rgba(255,107,61,0.18)]' : ''
-                            } ${
-                              isOpen
-                                ? 'bg-[#FF6B3D] text-[#14100F] border-[#FF6B3D]'
-                                : 'text-[#FF6B3D] border-[rgba(255,107,61,0.4)]'
-                            }`}
-                          >
-                            {chip}
-                          </span>
-                        )
-                      })}
-                    </div>
-                  )}
-                </div>
-              </div>
-              <PropTicket rung={row.suggested} label={row.stat} />
-              <div className="hidden sm:block">
-                <TrendBars season={row.seasonVal} recent={row.l10Val} window={row.window} rung={row.suggested} />
-              </div>
-              <ResultMark hit={yday?.did_hit} actual={yday?.actual} />
-            </Link>
+            <SuggestionRow
+              league={row.league}
+              leagueLabel={row.leagueLabel}
+              showLeague={showLeague}
+              playerId={row.playerId}
+              extId={row.extId}
+              name={row.name}
+              team={row.team}
+              label={row.stat}
+              opponent={row.opponent}
+              matchup={row.matchup}
+              tags={row.chips.slice(0, 2).map((chip) => {
+                const has = row.chipDetails?.some((d) => d.label === chip)
+                const isOpen = openKey === `${rowKey}:${chip}`
+                return (
+                  <span
+                    key={chip}
+                    role={has ? 'button' : undefined}
+                    tabIndex={has ? 0 : undefined}
+                    aria-expanded={has ? isOpen : undefined}
+                    title={has ? 'Click for the numbers behind this' : undefined}
+                    onClick={(e) => {
+                      if (!has) return
+                      e.preventDefault()
+                      toggle(chip, isOpen)
+                    }}
+                    onKeyDown={(e) => {
+                      if (has && (e.key === 'Enter' || e.key === ' ')) {
+                        e.preventDefault()
+                        toggle(chip, isOpen)
+                      }
+                    }}
+                    className={`font-martian text-[10px] uppercase border rounded-[3px] px-[6px] py-[2px] whitespace-nowrap ${
+                      has ? 'cursor-pointer hover:bg-[rgba(255,107,61,0.18)]' : ''
+                    } ${
+                      isOpen
+                        ? 'bg-[#FF6B3D] text-[#14100F] border-[#FF6B3D]'
+                        : 'text-[#FF6B3D] border-[rgba(255,107,61,0.4)]'
+                    }`}
+                  >
+                    {chip}
+                  </span>
+                )
+              })}
+              ticket={<PropTicket rung={row.suggested} label={row.stat} />}
+              viz={<TrendBars season={row.seasonVal} recent={row.l10Val} window={row.window} rung={row.suggested} />}
+              mark={<ResultMark hit={yday?.did_hit} actual={yday?.actual} />}
+            />
             {openDetail && (
               <div className="mx-5 mb-4 rounded-md border border-[rgba(255,107,61,0.35)] bg-[#17120F] px-[14px] py-[12px]">
                 <div className="font-martian font-bold text-[12px] text-[#FF6B3D] tracking-[0.5px]">

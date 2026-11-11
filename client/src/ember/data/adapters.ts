@@ -120,6 +120,7 @@ export function toStreakRows(
     opponent: r.opponent?.team ?? null,
     extId: r.ext_id ?? null,
     suggested: r.suggested?.rung ?? null,
+    last10: r.last10,
     detail:
       r.streak_count != null && r.streak_count > 0
         ? { kind: 'run' as const, games: r.streak_count, line: r.streak_line ?? 1 }

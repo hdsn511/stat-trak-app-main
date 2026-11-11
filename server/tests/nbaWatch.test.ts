@@ -54,3 +54,17 @@ describe('bestStreak with NFL rules', () => {
     expect(bestStreak('recyds', [18, 22, 19, 25, 21], yards(5, 10, 15, 20), false, nfl)).toBeNull();
   });
 });
+
+describe('strength with length and matchup', () => {
+  it('rewards a longer run past 10 games', async () => {
+    const { strength } = await import('../src/services/nbaWatch');
+    const base = { rung: 20, l10_avg: 25 };
+    expect(strength({ ...base, depth: 14 })).toBeGreaterThan(strength({ ...base, depth: 10 }));
+  });
+  it('a soft matchup outranks a tough one, clamped to +-15%', async () => {
+    const { strength } = await import('../src/services/nbaWatch');
+    const c = { depth: 8, rung: 20, l10_avg: 25 };
+    expect(strength({ ...c, mf: 1.1 })).toBeGreaterThan(strength({ ...c, mf: 0.9 }));
+    expect(strength({ ...c, mf: 9 })).toBeCloseTo(strength({ ...c, mf: 1.15 }));
+  });
+});

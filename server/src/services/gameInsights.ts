@@ -369,7 +369,7 @@ async function listedRungs(lg: LeagueConfig, date: string, ids: number[]): Promi
   return out;
 }
 
-const strength = (depth: number, rung: number, avg: number) => Math.min(depth, 10) * Math.min(rung / Math.max(avg, 0.1), 1);
+const strength = (depth: number, rung: number, avg: number) => Math.min(depth, 15) * Math.min(rung / Math.max(avg, 0.1), 1);
 
 function bestRun(values: number[], rungs: Rung[], minDepth: number, minRung = -Infinity) {
   let best: { rung: number; price: number | null; depth: number; s: number } | null = null;

@@ -218,11 +218,13 @@ export interface WatchRow {
   matchup: Matchup | null;
 }
 
-export interface Candidate extends Omit<WatchRow, 'name' | 'team' | 'ext_id' | 'opponent' | 'matchup'> { listed: boolean }
+/** `mf` is the opponent's matchup factor for this stat (1 = neutral), applied to strength. */
+export interface Candidate extends Omit<WatchRow, 'name' | 'team' | 'ext_id' | 'opponent' | 'matchup'> { listed: boolean; mf?: number }
 
-/** Depth (capped at 10) weighted by how close the rung is to the player's level. */
-export function strength(c: Pick<Candidate, 'depth' | 'rung' | 'l10_avg'>): number {
-  return Math.min(c.depth, 10) * Math.min(c.rung / Math.max(c.l10_avg, 0.1), 1);
+/** Run length (up to the 15-game look-back) x how close the rung is to the player's level x matchup. */
+export function strength(c: Pick<Candidate, 'depth' | 'rung' | 'l10_avg' | 'mf'>): number {
+  const mf = Math.min(Math.max(c.mf ?? 1, 0.85), 1.15);
+  return Math.min(c.depth, 15) * Math.min(c.rung / Math.max(c.l10_avg, 0.1), 1) * mf;
 }
 
 export type StreakRules = Pick<WatchConfig, 'minDepth' | 'minRung' | 'minRelative'>;
@@ -316,25 +318,29 @@ export async function buildStreakWatch(lg: LeagueConfig): Promise<{ date: string
   }
 
   const listed = await listedRungs(lg, date, ids);
+  const factors = await matchupFactors(lg);
+  const playerById = new Map(roster.map((p: any) => [p.id, p]));
   const cands: Candidate[] = [];
   for (const [pid, byStat] of values) {
     let best: Candidate | null = null;
+    const teamId = idOf.get(((playerById.get(pid) as any)?.team ?? '').toUpperCase());
+    const oppId = teamId != null ? oppOf.get(teamId) : undefined;
     for (const s of Object.keys(cols)) {
       const l = listed.get(`${pid}:${s}`);
       const rungs = l?.length ? l : (ladder(lg.slug, s) ?? []).map((rung) => ({ rung, price: null }));
-      const c = bestStreak(s, byStat[s]!, rungs, !!l?.length, cfg);
+      const c0 = bestStreak(s, byStat[s]!, rungs, !!l?.length, cfg);
+      const c = c0 && { ...c0, mf: oppId != null ? (factors.get(oppId)?.[s]?.factor ?? 1) : 1 };
       if (c && (!best || byStreakStrength(c, best) < 0)) best = { ...c, player_id: pid };
     }
     if (best) cands.push(best);
   }
   const chosen = selectWatch(cands);
-  const factors = await matchupFactors(lg);
   const byId = new Map(roster.map((p: any) => [p.id, p]));
   const rows: WatchRow[] = chosen.map((c) => {
     const p: any = byId.get(c.player_id);
     const teamId = idOf.get((p?.team ?? '').toUpperCase());
     const opp = teamId != null ? oppOf.get(teamId) : undefined;
-    const { listed: _listed, ...rest } = c;
+    const { listed: _listed, mf: _mf, ...rest } = c;
     return {
       ...rest,
       name: p?.name ?? 'Unknown',

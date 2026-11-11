@@ -570,6 +570,8 @@ export interface ProjectsResponse {
   props: ProjectPick[]
   moneyline: ProjectPick | null
   games: ProjectGame[]
+  /** Picks that swapped on/off the card today (Eastern). */
+  changes?: (ProjectPick & { change: 'added' | 'removed'; at: string })[]
   upcoming_games: number
 }
 

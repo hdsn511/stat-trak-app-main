@@ -35,7 +35,7 @@ export async function getProjects(_req: Request, res: Response) {
         .from('pick_results')
         .select(
           'id,prop_type,entity_id,stat,recommended_line,model_prob,implied_prob,edge,' +
-            'game_id,game_date,modifiers,price_source,on_card',
+            'game_id,game_date,modifiers,price_source,on_card,on_card_changed_at',
         )
         .eq('league_id', lg.leagueId)
         .eq('pick_type', 'project')
@@ -53,12 +53,30 @@ export async function getProjects(_req: Request, res: Response) {
     // Stamp what the card shows now; frozen at each game's kickoff, it is what gets graded.
     const shownIds = new Set([...props, ...(moneyline ? [moneyline] : [])].map((r: any) => r.id));
     const changes = onCardChanges((pickRows ?? []) as any[], shownIds, gameMap, now);
+    // A swap is a flag flipping on a row that already had one; first appearances are not changes.
+    const priorOf = new Map((pickRows ?? []).map((r: any) => [r.id, r.on_card]));
+    const stampedAt = now.toISOString();
     await Promise.all(
-      [true, false].map((v) => {
+      [true, false].flatMap((v) => {
         const ids = changes.filter((c) => c.on_card === v).map((c) => c.id);
-        return ids.length ? supabaseAdmin.from('pick_results').update({ on_card: v }).in('id', ids) : null;
+        const swapped = ids.filter((id) => priorOf.get(id) != null);
+        const fresh = ids.filter((id) => priorOf.get(id) == null);
+        return [
+          fresh.length ? supabaseAdmin.from('pick_results').update({ on_card: v }).in('id', fresh) : null,
+          swapped.length
+            ? supabaseAdmin.from('pick_results').update({ on_card: v, on_card_changed_at: stampedAt }).in('id', swapped)
+            : null,
+        ];
       }),
     ).catch((e) => console.error('[getProjects] on_card stamp failed', e));
+    for (const c of changes) {
+      const row: any = (pickRows ?? []).find((r: any) => r.id === c.id);
+      if (row && row.on_card != null) row.on_card_changed_at = stampedAt;
+      if (row) row.on_card = c.on_card;
+    }
+    const changedToday = (pickRows ?? []).filter(
+      (r: any) => r.on_card_changed_at && easternDate(new Date(r.on_card_changed_at)) === from,
+    ) as any[];
 
     const { data: teams } = await supabaseAdmin
       .from('teams')
@@ -67,7 +85,10 @@ export async function getProjects(_req: Request, res: Response) {
     const teamById = new Map((teams ?? []).map((t: any) => [t.id, t]));
     const gameById = new Map(games.map((g) => [g.id, g]));
 
-    const playerIds = [...byGame.values()].flatMap((g) => g.props.map((p: any) => p.entity_id));
+    const playerIds = [
+      ...[...byGame.values()].flatMap((g) => g.props.map((p: any) => p.entity_id)),
+      ...changedToday.filter((r) => r.prop_type !== 'winner').map((r) => r.entity_id),
+    ];
     const { data: players } = playerIds.length
       ? await supabaseAdmin.from('players').select('id,name,team,ext_id').in('id', playerIds)
       : { data: [] as any[] };
@@ -136,6 +157,14 @@ export async function getProjects(_req: Request, res: Response) {
           winner: g.winner ? shape(g.winner, 'moneyline') : null,
           props: g.props.map((p) => shape(p, 'prop')),
         })),
+        // Picks that swapped on/off the card today (Eastern), for the "Changes today" dropdown.
+        changes: changedToday
+          .filter((r) => gameById.has(r.game_id))
+          .map((r) => ({
+            ...shape(r, r.prop_type === 'winner' ? 'moneyline' : 'prop'),
+            change: r.on_card ? 'added' : 'removed',
+            at: r.on_card_changed_at,
+          })),
         upcoming_games: games.filter((g) => gameMap.has(g.id) && g.status === 0 && g.game_time && new Date(g.game_time) > now).length,
       },
     });

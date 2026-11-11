@@ -10,6 +10,7 @@ import { createLeagueApi, type ProjectPick, type ProjectsResponse } from '@/serv
 import { formatGameDate, formatGameTime } from '@/ember/game/format'
 import { gamePath, playerPath } from '@/lib/paths'
 import { teamAccent } from '@/lib/teamBrand'
+import { ImpliedOddsNote } from '@/ember/components/PropVisuals'
 
 const pct = (v: number) => `${(v * 100).toFixed(1)}%`
 
@@ -85,7 +86,7 @@ function Section({ label, children }: { label: string; children: React.ReactNode
       <div className="grid grid-cols-[40px_1fr_60px_60px] gap-[10px] px-[18px] py-2 font-martian text-[10px] text-[#8A827E] tracking-[1px]">
         <span className="col-span-2">{label}</span>
         <span className="text-right">HIT</span>
-        <span className="text-right">PRICE</span>
+        <span className="text-right">IMPLIED</span>
       </div>
       {children}
     </div>
@@ -122,6 +123,27 @@ export default function PicksCard({ league, className = '' }: { league: 'nba' | 
             <EmptyState compact label="NO PRICED PROPS ON THE SLATE YET" />
           )}
         </Section>
+        {data.changes && data.changes.length > 0 && (
+          <details className="border-t border-[#221D1A] group">
+            <summary className="cursor-pointer select-none px-[18px] py-[10px] font-martian text-[10px] text-[#8A827E] tracking-[1px] hover:text-[#EFEBE9]">
+              CHANGES TODAY ({data.changes.length})
+            </summary>
+            {data.changes.map((c) => (
+              <div key={`${c.id}-${c.at}`} className="flex items-center gap-3 px-[18px] py-[8px] border-t border-[#221D1A]">
+                <span
+                  className="font-martian font-bold text-[10px] tracking-[1px] w-[64px] shrink-0"
+                  style={{ color: c.change === 'added' ? '#3FBF7F' : '#FF6B5C' }}
+                >
+                  {c.change === 'added' ? 'ADDED' : 'REMOVED'}
+                </span>
+                <span className="font-martian text-[12px] text-[#EFEBE9] truncate">
+                  {c.name} <span className="text-[#FF6B3D]">{describe(c)}</span>
+                </span>
+              </div>
+            ))}
+          </details>
+        )}
+        <ImpliedOddsNote />
       </>
     )
   }

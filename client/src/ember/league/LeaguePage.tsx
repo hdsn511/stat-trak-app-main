@@ -116,7 +116,7 @@ export default function LeaguePage({ config }: LeaguePageProps) {
         <div className="grid gap-5 xl:grid-cols-2 items-start">
           <TrendingPlayers
             rows={trending}
-            meta={config.slug === 'nfl' ? 'RECENT VS SEASON' : 'LAST 10 VS SEASON'}
+            meta="RECENT FORM VS SEASON"
             results={results.data?.trending}
             record={results.data?.totals.trending}
             emptyLabel={
@@ -124,12 +124,12 @@ export default function LeaguePage({ config }: LeaguePageProps) {
                 ? 'LOADING TRENDS…'
                 : // Trends compare the last 10 games with the season, so early in a
                   // season the list is legitimately empty — say so.
-                  `NO ${config.name} TRENDS YET — THEY START ONCE PLAYERS HAVE 10 GAMES THIS SEASON`
+                  `NO ${config.name} TRENDS YET — THEY START ONCE PLAYERS HAVE ENOUGH GAMES THIS SEASON`
             }
           />
           <StreakWatch
             rows={streaks}
-            meta="KALSHI LINES"
+            meta={config.slug === 'nba' || config.slug === 'nfl' ? 'KALSHI LINES' : 'ACTIVE RUNS'}
             results={results.data?.streak}
             record={results.data?.totals.streak}
             emptyLabel={loading ? 'LOADING STREAKS…' : `NO ACTIVE ${config.name} STREAKS`}

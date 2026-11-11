@@ -107,7 +107,9 @@ export function toStreakRows(
   rows: PlayerStreakRow[],
   label: string
 ): StreakRow[] {
-  return rows.map((r) => ({
+  // One layout per league: when run-based rows exist, show only those.
+  const runs = rows.filter((r) => r.streak_count != null && r.streak_count > 0)
+  return (runs.length ? runs : rows).map((r) => ({
     playerId: r.player_id,
     league,
     leagueLabel: league.toUpperCase(),

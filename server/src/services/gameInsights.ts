@@ -11,7 +11,7 @@
 
 import { supabaseAdmin } from '../config/supabaseAdmin';
 import { LeagueConfig, LeagueSlug, seasonStartFor } from '../config/leagues';
-import { watchConfig } from './nbaWatch';
+import { preseasonGameIds, watchConfig } from './nbaWatch';
 import { ladder } from '../utils/kalshiLadder';
 
 // ── shared helpers ────────────────────────────────────────────────────────────
@@ -739,6 +739,7 @@ export async function buildGameInsights(lg: LeagueConfig, g: GameRow): Promise<G
   const statCols = [...new Set(streakStats.map((s) => s.col))];
   const values = new Map<number, Record<string, number[]>>();
   const lookback = lg.slug === 'nfl' ? 150 : 75;
+  const exhibition = await preseasonGameIds(lg.leagueId, day(g.game_date, -lookback), g.game_date);
   const [listed] = await Promise.all([
     listedRungs(lg, g.game_date, ids),
     (async () => {
@@ -751,6 +752,7 @@ export async function buildGameInsights(lg: LeagueConfig, g: GameRow): Promise<G
             .order('game_date', { ascending: false }).order('game_id').order('player_id')
             .range(from, from + 999));
         for (const r of rows) {
+          if (exhibition.has(r.game_id)) continue;
           const v = values.get(r.player_id) ?? {};
           for (const s of streakStats) {
             if (s.gate && !(Number(r[s.gate]) > 0)) continue;

@@ -277,6 +277,13 @@ export function selectWatch<T extends Candidate>(cands: T[], size = WATCH_SIZE, 
   return out;
 }
 
+/** Preseason game ids in the window: exhibition box scores must not count toward streaks. */
+export async function preseasonGameIds(leagueId: number, since: string, until: string): Promise<Set<number>> {
+  const { data } = await supabaseAdmin.from('games').select('id')
+    .eq('league_id', leagueId).eq('game_type', 'preseason').gte('game_date', since).lt('game_date', until);
+  return new Set((data ?? []).map((g: any) => g.id as number));
+}
+
 export async function buildStreakWatch(lg: LeagueConfig): Promise<{ date: string | null; rows: WatchRow[] }> {
   const cfg = watchConfig(lg);
   if (!cfg) return { date: null, rows: [] };
@@ -302,6 +309,7 @@ export async function buildStreakWatch(lg: LeagueConfig): Promise<{ date: string
 
   const values = new Map<number, Record<string, number[]>>();
   const since = day(date, -cfg.lookbackDays);
+  const exhibition = await preseasonGameIds(lg.leagueId, since, date);
   for (let i = 0; i < ids.length; i += 100) {
     const rows = await paged<any>((from) =>
       supabaseAdmin.from(lg.statsTable)
@@ -309,7 +317,7 @@ export async function buildStreakWatch(lg: LeagueConfig): Promise<{ date: string
         .in('player_id', ids.slice(i, i + 100)).gte('game_date', since).lt('game_date', date)
         .order('game_date', { ascending: false }).order('game_id').order('player_id').range(from, from + 999));
     for (const r of rows) {
-      if (!cfg.played(r)) continue;
+      if (!cfg.played(r) || exhibition.has(r.game_id)) continue;
       const v = values.get(r.player_id) ?? Object.fromEntries(Object.keys(cols).map((k) => [k, [] as number[]]));
       if (Object.values(v)[0]!.length >= cfg.history) continue;
       for (const [s, col] of Object.entries(cols)) v[s]!.push(Number(r[col] ?? 0));

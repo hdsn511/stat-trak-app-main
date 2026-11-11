@@ -182,9 +182,19 @@ function LockLine({ card }: { card: NonNullable<ProjectsResponse['card']> }) {
 /** Every swap made on today's card, with when and why. */
 function Changes({ changes }: { changes: NonNullable<ProjectsResponse['card']>['changes'] }) {
   if (changes.length === 0) return null
+  const ins = changes.filter((c) => c.kind === 'in').length
   return (
-    <div className="border-t border-[#221D1A]">
-      <div className="px-[18px] py-2 font-martian text-[10px] text-[#8A827E] tracking-[1px]">CHANGES TODAY</div>
+    <YesterdayDropdown
+      label="CHANGES TODAY"
+      summary={
+        <>
+          {changes.length}
+          <span className="font-normal text-[#A8A09C]">
+            <span className="text-[#3FBF7F]">{ins} IN</span> · <span className="text-[#FF6B5C]">{changes.length - ins} OUT</span>
+          </span>
+        </>
+      }
+    >
       {changes.map((c) => (
         <div
           key={`${c.kind}-${c.pick.id}-${c.at}`}
@@ -200,7 +210,7 @@ function Changes({ changes }: { changes: NonNullable<ProjectsResponse['card']>['
           </span>
         </div>
       ))}
-    </div>
+    </YesterdayDropdown>
   )
 }
 

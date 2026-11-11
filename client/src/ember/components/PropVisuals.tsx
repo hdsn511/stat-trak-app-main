@@ -10,13 +10,13 @@ export function PropTicket({ rung, label, price }: { rung: number | null | undef
   if (rung == null) {
     // No Kalshi rung for this stat: still say which stat the row is about.
     return (
-      <div className="w-[112px] rounded-md border border-[#3A3330] px-2 py-[7px] text-center font-chakra italic font-bold text-[14px] text-[#EFEBE9]">
+      <div className="w-[112px] h-[56px] flex items-center justify-center rounded-md border border-[#3A3330] px-2 text-center font-chakra italic font-bold text-[14px] text-[#EFEBE9]">
         {label}
       </div>
     )
   }
   return (
-    <div className="w-[112px] rounded-md border border-[rgba(255,107,61,0.45)] bg-[rgba(255,107,61,0.07)] px-2 py-[7px] text-center">
+    <div className="w-[112px] h-[56px] flex flex-col items-center justify-center rounded-md border border-[rgba(255,107,61,0.45)] bg-[rgba(255,107,61,0.07)] px-2 text-center">
       <div className="font-chakra italic font-bold text-[19px] leading-none text-[#FF6B3D] whitespace-nowrap">
         {rung}+ <span className="text-[13px]">{label}</span>
       </div>
@@ -45,7 +45,7 @@ export function ClearStrip({ values, rung }: { values: number[]; rung: number })
   const cleared = values.filter((v) => v >= rung).length
   return (
     <div
-      className="relative h-[34px] w-[160px] flex items-end gap-[3px]"
+      className="relative h-[64px] w-[160px] flex items-end gap-[3px]"
       role="img"
       aria-label={`Cleared ${rung} in ${cleared} of the last ${values.length} games`}
     >
@@ -94,7 +94,7 @@ export function TrendBars({ season, recent, window = 10, rung }: {
   )
   return (
     <div
-      className="w-[160px] flex flex-col gap-[5px]"
+      className="w-[160px] h-[64px] flex flex-col justify-between"
       role="img"
       aria-label={`Season ${season}, last ${window} ${recent}, ${up ? 'up' : 'down'} ${Math.abs(diff)}${pct != null ? ` (${pct}%)` : ''}${rung != null ? `, line ${rung}` : ''}`}
     >

@@ -86,7 +86,7 @@ function TierLadder({ tiers }: { tiers: StreakTier[] }) {
 function RunPips({ games }: { games: number }) {
   const pips = Math.min(games, 14)
   return (
-    <div className="flex items-center gap-[3px] w-[160px] h-[34px]">
+    <div className="flex items-center gap-[3px] w-[160px] h-[64px]">
       {Array.from({ length: pips }, (_, i) => (
         <span key={i} className="w-[6px] h-[18px] rounded-[1.5px] bg-[#FF6B3D]" />
       ))}

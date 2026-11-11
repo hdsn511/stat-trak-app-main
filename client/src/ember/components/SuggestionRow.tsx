@@ -88,7 +88,8 @@ export default function SuggestionRow({
         </div>
       </div>
       {ticket}
-      <div className="sugg-viz">{viz}</div>
+      {/* Fixed box: trend bars and streak strips draw differently but take the same space. */}
+      <div className="sugg-viz h-[64px] [&>*]:h-full">{viz}</div>
       {mark}
     </Link>
   )

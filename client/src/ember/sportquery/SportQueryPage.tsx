@@ -1,3 +1,4 @@
+import { SignUpPrompt } from './SignUpPrompt'
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import ChatPane from './ChatPane'
@@ -27,6 +28,7 @@ export default function SportQueryPage() {
     busy,
     booting,
     error,
+    errorCode,
     ask,
     startSession,
     selectSession,
@@ -83,6 +85,7 @@ export default function SportQueryPage() {
           <span className="font-martian text-[12px] text-[#FF6B5C] tracking-[0.5px] flex-1 min-w-0">
             {error}
           </span>
+          {errorCode === 'signup_required' && <SignUpPrompt />}
           <button
             type="button"
             onClick={dismissError}

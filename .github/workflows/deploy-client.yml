@@ -53,6 +53,10 @@ jobs:
       # send the browser cross-origin and reintroduce CORS.
       - name: Build
         working-directory: client
+        # Public by design (the anon key only grants what RLS allows).
+        env:
+          VITE_SUPABASE_URL: https://qtwqwqyyczitwcepibzk.supabase.co
+          VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
         run: npm run build
 
       - name: Deploy

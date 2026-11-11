@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express'
+import { MAX_MESSAGE_CHARS } from '../middleware/sportqueryAuth'
 import { callLLM, narrate } from '../services/sportqueryLLM'
 import { formatHints, resolvePlayerHints } from '../services/sportqueryHints'
 import { validateSql } from '../services/sqlValidator'
@@ -16,14 +17,9 @@ import { attachPlayerContext } from '../services/sportqueryContext'
 import { supabaseAdmin } from '../config/supabaseAdmin'
 import { ownsSession } from '../services/sportquerySession'
 
-const CLIENT_ID_HEADER = 'x-sportquery-client-id'
-
-/** No login exists, so a per-browser id (generated and stored client-side) is
- * the only thing scoping "whose session is this" — see sportquerySession.ts's
- * ownsSession for why every route below checks it. */
+/** Owner of a session: the verified Supabase user set by requireUser. */
 function clientIdFrom(req: Request): string {
-  const raw = req.get(CLIENT_ID_HEADER)
-  return typeof raw === 'string' && raw.trim() ? raw.trim().slice(0, 128) : 'anonymous'
+  return req.sqUser!.id
 }
 
 type SlateTable = 'pick_results' | 'daily_lines'
@@ -165,7 +161,7 @@ export async function deleteSessionHandler(req: Request, res: Response) {
 
 export async function postMessage(req: Request, res: Response) {
   const { sessionId, message } = req.body ?? {}
-  if (!sessionId || !message) {
+  if (!sessionId || typeof message !== 'string' || !message.trim() || message.length > MAX_MESSAGE_CHARS) {
     res
       .status(400)
       .json({ success: false, error: 'sessionId and message required' })

@@ -51,6 +51,7 @@ export function useSportQuery(initialSessionId?: string, forceNewSession = false
   const [turns, setTurns] = useState<Turn[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [errorCode, setErrorCode] = useState<string | null>(null)
   const [booting, setBooting] = useState(true)
 
   const abortRef = useRef<AbortController | null>(null)
@@ -205,6 +206,7 @@ export function useSportQuery(initialSessionId?: string, forceNewSession = false
                 break
               case 'error':
                 setError(event.error)
+                setErrorCode(event.code ?? null)
                 patch({ queryError: event.error })
                 break
               case 'done':
@@ -267,10 +269,14 @@ export function useSportQuery(initialSessionId?: string, forceNewSession = false
     busy,
     booting,
     error,
+    errorCode,
     ask,
     startSession,
     selectSession: setSessionId,
     removeSession,
-    dismissError: () => setError(null),
+    dismissError: () => {
+      setError(null)
+      setErrorCode(null)
+    },
   }
 }

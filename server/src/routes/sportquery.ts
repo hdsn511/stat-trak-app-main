@@ -10,15 +10,17 @@ import {
   sportqueryMinuteLimiter,
   sportquerySessionLimiter,
 } from '../middleware/sportqueryRateLimit'
+import { requireUser, enforceQuota } from '../middleware/sportqueryAuth'
 
 const router = Router()
+
+router.use(requireUser)
 
 router.post('/session', sportquerySessionLimiter, postSession)
 router.get('/sessions', sportquerySessionLimiter, getSessions)
 router.get('/session/:id/messages', sportquerySessionLimiter, getSessionMessages)
 router.delete('/session/:id', sportquerySessionLimiter, deleteSessionHandler)
-// No daily cap for now (accounts will bring per-user limits). The per-minute
-// limiter stays as burst protection.
-router.post('/message', sportqueryMinuteLimiter, postMessage)
+// Per-minute limiter is burst protection; enforceQuota spends the user's free/monthly allowance.
+router.post('/message', sportqueryMinuteLimiter, enforceQuota, postMessage)
 
 export default router

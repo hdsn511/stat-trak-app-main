@@ -1,11 +1,10 @@
-import { getSportQueryClientId } from '@/lib/sportqueryClientId'
+import { getAccessToken } from '@/lib/supabase'
 
 // See services/api.ts for why this is relative by default.
 const BASE = `${import.meta.env.VITE_API_BASE_URL ?? '/api'}/sportquery`
-const CLIENT_ID_HEADER = 'x-sportquery-client-id'
 
-function clientHeaders(extra?: HeadersInit): HeadersInit {
-  return { [CLIENT_ID_HEADER]: getSportQueryClientId(), ...extra }
+async function clientHeaders(extra?: HeadersInit): Promise<HeadersInit> {
+  return { Authorization: `Bearer ${await getAccessToken()}`, ...extra }
 }
 
 export type SessionSummary = {
@@ -42,23 +41,23 @@ async function json<T>(res: Response): Promise<T> {
 }
 
 export async function createSession(): Promise<string> {
-  const res = await fetch(`${BASE}/session`, { method: 'POST', headers: clientHeaders() })
+  const res = await fetch(`${BASE}/session`, { method: 'POST', headers: await clientHeaders() })
   const data = await json<{ sessionId: string }>(res)
   return data.sessionId
 }
 
 export async function listSessions(): Promise<SessionSummary[]> {
-  return json(await fetch(`${BASE}/sessions`, { headers: clientHeaders() }))
+  return json(await fetch(`${BASE}/sessions`, { headers: await clientHeaders() }))
 }
 
 export async function loadMessages(sessionId: string): Promise<MessageRow[]> {
-  return json(await fetch(`${BASE}/session/${sessionId}/messages`, { headers: clientHeaders() }))
+  return json(await fetch(`${BASE}/session/${sessionId}/messages`, { headers: await clientHeaders() }))
 }
 
 export async function deleteSession(sessionId: string): Promise<void> {
   const res = await fetch(`${BASE}/session/${sessionId}`, {
     method: 'DELETE',
-    headers: clientHeaders(),
+    headers: await clientHeaders(),
   })
   await json<unknown>(res)
 }
@@ -79,7 +78,7 @@ export type StreamEvent =
       followUps: string[]
     }
   | { type: 'done' }
-  | { type: 'error'; error: string }
+  | { type: 'error'; error: string; code?: string }
 
 /**
  * POST a message and dispatch the server-sent events it streams back.
@@ -96,7 +95,7 @@ export async function streamMessage(
 ): Promise<void> {
   const res = await fetch(`${BASE}/message`, {
     method: 'POST',
-    headers: clientHeaders({ 'Content-Type': 'application/json' }),
+    headers: await clientHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ sessionId, message }),
     signal,
   })
@@ -107,7 +106,7 @@ export async function streamMessage(
     const error =
       body?.error ??
       (res.status === 429 ? 'Rate limited — slow down for a moment.' : `Request failed (${res.status})`)
-    onEvent({ type: 'error', error })
+    onEvent({ type: 'error', error, code: body?.code })
     return
   }
 

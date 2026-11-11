@@ -796,6 +796,9 @@ export async function getPlayerGames(req: Request<{ id: string }>, res: Response
             rebounds: g.rebounds,
             assists: g.assists,
             threes: g.three_points_made,
+            threesAttempted: g.three_points_attempted,
+            fgm: g.field_goals_made,
+            fga: g.field_goals_attempted,
             fouls: g.fouls,
             minutes: g.minutes_played,
           };

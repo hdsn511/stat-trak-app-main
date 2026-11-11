@@ -112,7 +112,7 @@ const NBA: LeagueConfig = {
   regularSeasonType: 'regular',
   seasonStartMonth: 10,
   playerGameSelect:
-    'game_id, team_id, points, rebounds, assists, three_points_made, fouls, minutes_played, game_date, games!inner(game_type, season)',
+    'game_id, team_id, points, rebounds, assists, three_points_made, three_points_attempted, field_goals_made, field_goals_attempted, fouls, minutes_played, game_date, games!inner(game_type, season)',
   boxScore: {
     select: 'points, rebounds, assists, three_points_made, fouls, minutes_played',
     groups: [

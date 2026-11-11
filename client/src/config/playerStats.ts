@@ -64,6 +64,9 @@ const NBA_STATS = [
   field('rebounds', 'REB'),
   field('assists', 'AST'),
   field('threes', '3PM'),
+  field('threesAttempted', '3PA'),
+  field('fgm', 'FGM'),
+  field('fga', 'FGA'),
 ]
 const NBA_COMBOS = [
   sum('pra', 'PRA', ['points', 'rebounds', 'assists']),

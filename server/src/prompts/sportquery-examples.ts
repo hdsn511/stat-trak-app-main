@@ -135,12 +135,12 @@ FROM (SELECT 1 FROM grouped WHERE is_loss = 1 GROUP BY grp HAVING COUNT(*) > 2) 
   {
     user: 'Players with 2+ days rest tonight.',
     assistant: JSON.stringify({
-      sql: `SELECT DISTINCT p.id, p.name, p.team, p.position, pgc.days_rest
-FROM player_game_conditions pgc
-JOIN players p ON pgc.player_id = p.id
-WHERE pgc.game_date = CURRENT_DATE
-  AND pgc.days_rest >= 2
-ORDER BY pgc.days_rest DESC, p.name
+      sql: `SELECT p.id AS player_id, p.name, p.team, p.position, dc.days_rest, dc.home_away
+FROM daily_conditions dc
+JOIN players p ON dc.player_id = p.id
+WHERE dc.game_date = CURRENT_DATE
+  AND dc.days_rest >= 2
+ORDER BY dc.days_rest DESC, p.name
 LIMIT 40`,
       narrative:
         "Players on today's slate with 2 or more days of rest.",
@@ -149,18 +149,17 @@ LIMIT 40`,
   {
     user: 'Now just show me the ones with a Kalshi line available.',
     assistant: JSON.stringify({
-      sql: `SELECT DISTINCT p.id, p.name, p.team, p.position, pgc.days_rest,
-       dl.stat, dl.line, dl.kalshi_price
-FROM player_game_conditions pgc
-JOIN players p ON pgc.player_id = p.id
+      sql: `SELECT DISTINCT ON (p.id, dl.stat) p.id AS player_id, p.name, p.team, p.position,
+       dc.days_rest, dl.stat, dl.line, dl.implied_prob
+FROM daily_conditions dc
+JOIN players p ON dc.player_id = p.id
 JOIN daily_lines dl ON dl.entity_id = p.id
   AND dl.league_id = 1
   AND dl.prop_type = 'player'
   AND dl.game_date = CURRENT_DATE
-WHERE pgc.game_date = CURRENT_DATE
-  AND pgc.days_rest >= 2
-  AND dl.kalshi_price IS NOT NULL
-ORDER BY pgc.days_rest DESC, p.name
+WHERE dc.game_date = CURRENT_DATE
+  AND dc.days_rest >= 2
+ORDER BY p.id, dl.stat, ABS(dl.implied_prob - 0.5)
 LIMIT 40`,
       narrative:
         "Same set as before, now filtered to players with a Kalshi line available today.",
@@ -181,22 +180,95 @@ LIMIT 40`,
   {
     user: "Find guards in today's slate against a bottom-10 defense who are trending up on points over the last 10 games.",
     assistant: JSON.stringify({
-      sql: `SELECT DISTINCT p.id, p.name, p.team, p.position,
-       t.trend_val AS z_score, t.rolling_avg, opd.league_rank AS opp_def_rank
-FROM players p
-JOIN nba_trends t ON t.player_id = p.id
-JOIN player_game_conditions pgc ON pgc.player_id = p.id
-JOIN opponent_position_defense opd ON opd.team_id = pgc.opponent_team_id
-  AND opd.position_group = 'G'
-WHERE (p.position ILIKE '%G%' OR p.position IN ('PG','SG','G'))
-  AND t.stat = 0 AND t.window_size = 10
+      sql: `SELECT p.id AS player_id, p.name, p.team, p.position, opp.abbreviation AS opponent,
+       ROUND(t.trend_val::numeric, 2) AS z_score, ROUND(t.rolling_avg::numeric, 1) AS pts_last_10,
+       ROUND(t.season_avg::numeric, 1) AS pts_season, dc.opp_def_rank_position AS opp_rank_vs_guards
+FROM daily_conditions dc
+JOIN players p ON p.id = dc.player_id
+JOIN nba_trends t ON t.player_id = p.id AND t.stat = 0 AND t.window_size = 10
+JOIN teams opp ON opp.id = dc.opponent_team_id
+WHERE dc.game_date = CURRENT_DATE
+  AND dc.position_group = 'G'
   AND t.trend_val > 0.5
-  AND pgc.game_date = CURRENT_DATE
-  AND opd.league_rank >= 21
+  AND dc.opp_def_rank_position >= 21
 ORDER BY t.trend_val DESC
 LIMIT 20`,
       narrative:
         "Guards on today's slate trending up on points (10-game window) against a bottom-10 positional defense.",
+    }),
+  },
+  {
+    // Intent over literal reading: "best spot to beat the line" ranks by evidence
+    // (over rate vs the main line, avg vs line, matchup), never by implied % alone.
+    // nba_tonight_props already holds all of it for tonight's slate.
+    user: 'who has the best shot to go over their pts line tonight, close to 50/50 lines only, and why',
+    assistant: JSON.stringify({
+      sql: `SELECT player_id, name, team, opponent, line, implied_pct,
+       over_last_10 || '/' || games_last_10 AS over_last_10, avg_last_10, avg_vs_line,
+       season_avg, opp_allowed_to_position, opp_rank, min_last_5
+FROM nba_tonight_props
+WHERE stat = 'pts' AND implied_pct BETWEEN 40 AND 60 AND games_last_10 >= 5
+ORDER BY over_last_10::numeric / games_last_10 DESC, avg_vs_line DESC
+LIMIT 10`,
+      narrative: '',
+    }),
+  },
+  {
+    // Named player tonight: the view keeps the row when no line is posted
+    // (line NULL), so the answer can say so instead of "no data".
+    user: 'is giannis a good bet for over his rebounds tonight',
+    assistant: JSON.stringify({
+      sql: `SELECT player_id, name, team, opponent, line, implied_pct,
+       over_last_10 || '/' || games_last_10 AS over_last_10, avg_last_5, avg_last_10, avg_vs_line,
+       season_avg, opp_allowed_to_position, opp_rank, days_rest, min_last_5, trend_z
+FROM nba_tonight_props
+WHERE stat = 'reb' AND name ILIKE '%antetokounmpo%'`,
+      narrative: '',
+    }),
+  },
+  {
+    // Multi-part question → one row set; "allowed" is computed from box scores
+    // (sum per game, then average), joined to the opposing team's shooters.
+    user: "which team gives up the most 3s in tonight's games, and who are the best shooters going against them",
+    assistant: JSON.stringify({
+      sql: `WITH tonight AS (
+  SELECT gm.team_id, gm.opponent_team_id
+  FROM game_matchups gm JOIN games g ON g.id = gm.game_id
+  WHERE g.league_id = 1 AND g.game_date = CURRENT_DATE
+), season AS (
+  SELECT MAX(season) AS season FROM games WHERE league_id = 1 AND game_date <= CURRENT_DATE
+), allowed AS (
+  SELECT gm.opponent_team_id AS defense_id,
+         ROUND(SUM(s.three_points_made)::numeric / COUNT(DISTINCT s.game_id), 1) AS opp_3pm_allowed_pg,
+         COUNT(DISTINCT s.game_id) AS games
+  FROM nba_player_stats s
+  JOIN games g ON g.id = s.game_id
+  JOIN game_matchups gm ON gm.game_id = s.game_id AND gm.team_id = s.team_id
+  WHERE g.league_id = 1 AND g.season = (SELECT season FROM season) AND g.game_type = 'regular'
+  GROUP BY gm.opponent_team_id
+), worst AS (
+  SELECT t.team_id AS defense_id, t.opponent_team_id AS shooter_team_id, a.opp_3pm_allowed_pg, a.games
+  FROM tonight t JOIN allowed a ON a.defense_id = t.team_id
+  ORDER BY a.opp_3pm_allowed_pg DESC LIMIT 1
+), shooters AS (
+  SELECT s.player_id, COUNT(*) AS gp, AVG(s.three_points_made) AS fg3m_pg
+  FROM nba_player_stats s JOIN games g ON g.id = s.game_id
+  JOIN worst w ON w.shooter_team_id = s.team_id
+  WHERE g.season = (SELECT season FROM season) AND g.game_type = 'regular' AND s.minutes_played > 0
+  GROUP BY s.player_id HAVING COUNT(*) >= 3
+)
+SELECT d.name AS defense, w.opp_3pm_allowed_pg, w.games AS defense_games,
+       o.name AS opponent, p.id AS player_id, p.name, sh.gp,
+       ROUND(sh.fg3m_pg::numeric, 1) AS fg3m_pg, ROUND(tr.rolling_avg::numeric, 1) AS fg3m_last_10
+FROM worst w
+JOIN teams d ON d.id = w.defense_id
+JOIN teams o ON o.id = w.shooter_team_id
+CROSS JOIN shooters sh
+JOIN players p ON p.id = sh.player_id
+LEFT JOIN nba_trends tr ON tr.player_id = p.id AND tr.stat = 3 AND tr.window_size = 10
+ORDER BY sh.fg3m_pg DESC
+LIMIT 8`,
+      narrative: '',
     }),
   },
   {

@@ -40,7 +40,8 @@ export async function runReadOnly(sql: string): Promise<RowSet> {
   const client = await pool.connect()
   try {
     await client.query('BEGIN READ ONLY')
-    await client.query("SET LOCAL statement_timeout = '2s'")
+    // 5s: multi-CTE "last N games" window queries over a full season ran just past 2s.
+    await client.query("SET LOCAL statement_timeout = '5s'")
     const res: QueryResult = await client.query(sql)
     await client.query('COMMIT')
     return res.rows as RowSet

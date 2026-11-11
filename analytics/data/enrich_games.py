@@ -435,8 +435,9 @@ def backfill_opp_defense(snapshot_date: str | None = None):
     """
     Compute opponent-position-defense rankings from nba_player_stats + player positions.
 
-    For each (team, position_group) pair, compute the average pts/reb/ast that the
-    team allows to opponents of that position group over the current season.
+    For each (team, position_group) pair, compute the per-game pts/reb/ast/fg3m the
+    team allows to opponents of that group (summed over all opposing players of the
+    group in a game, averaged over the team's non-preseason games this season).
     Then rank teams 1-30 by total points allowed per position group (1=best defense).
 
     The result populates opponent_position_defense, which nightly.py uses to set
@@ -479,6 +480,8 @@ def backfill_opp_defense(snapshot_date: str | None = None):
     latest_game = (
         supabase.table("games")
         .select("season")
+        .eq("league_id", NBA_LEAGUE_ID)
+        .lte("game_date", snapshot_date)
         .order("game_date", desc=True)
         .limit(1)
         .execute()
@@ -488,10 +491,11 @@ def backfill_opp_defense(snapshot_date: str | None = None):
     # Load all games for the current season — _fetch_all paginates past the 1000-row cap
     game_rows_list = _fetch_all(
         "games",
-        "id,home_team_id,away_team_id",
+        "id,home_team_id,away_team_id,game_type",
         [("eq", "season", current_season), ("eq", "league_id", NBA_LEAGUE_ID)],
     )
-    games = {g["id"]: g for g in game_rows_list}
+    # Preseason box scores are rotation noise, not defense.
+    games = {g["id"]: g for g in game_rows_list if g.get("game_type") != "preseason"}
 
     # Load all stats for those games.
     # Use chunks of 40 game IDs: 40 games × ~26 rows/game ≈ 1040 rows/chunk which
@@ -521,17 +525,14 @@ def backfill_opp_defense(snapshot_date: str | None = None):
 
     print(f"  Loaded {len(all_stats)} stat rows for season {current_season}")
 
-    # Accumulate: for each defending_team + position_group, sum stats allowed
-    # "allowed" = stats by opponents playing AGAINST the team
+    # "Allowed to G" = the SUM of all opposing guards' stats in a game, averaged
+    # over the defending team's games. (Averaging per player row instead gave a
+    # per-guard number, ~2.5 APG, diluted by however many bench guards played.)
     from collections import defaultdict
-    accum: dict[tuple[int, str], list[dict]] = defaultdict(list)
+    totals: dict[tuple[int, str], dict] = defaultdict(lambda: {"pts": 0, "reb": 0, "ast": 0, "fg3m": 0})
+    games_played: dict[int, set] = defaultdict(set)
 
     for stat in all_stats:
-        pid = stat["player_id"]
-        pos_group = player_pos.get(pid)
-        if not pos_group:
-            continue
-
         game = games.get(stat["game_id"])
         if not game:
             continue
@@ -544,25 +545,27 @@ def backfill_opp_defense(snapshot_date: str | None = None):
             defending_team = game["home_team_id"]
         else:
             continue
+        # Count the game even if no player of a group appeared (that group allowed 0).
+        games_played[defending_team].add(stat["game_id"])
 
-        accum[(defending_team, pos_group)].append({
-            "pts":  stat.get("points", 0) or 0,
-            "reb":  stat.get("rebounds", 0) or 0,
-            "ast":  stat.get("assists", 0) or 0,
-            "fg3m": stat.get("three_points_made", 0) or 0,
-        })
-
-    # Compute averages per (team, position_group)
-    avgs: dict[tuple[int, str], dict] = {}
-    for key, stats_list in accum.items():
-        n = len(stats_list)
-        if n == 0:
+        pos_group = player_pos.get(stat["player_id"])
+        if not pos_group:
             continue
-        avgs[key] = {
-            "pts_allowed_pg":  sum(s["pts"]  for s in stats_list) / n,
-            "reb_allowed_pg":  sum(s["reb"]  for s in stats_list) / n,
-            "ast_allowed_pg":  sum(s["ast"]  for s in stats_list) / n,
-            "fg3m_allowed_pg": sum(s["fg3m"] for s in stats_list) / n,
+        t = totals[(defending_team, pos_group)]
+        t["pts"]  += stat.get("points", 0) or 0
+        t["reb"]  += stat.get("rebounds", 0) or 0
+        t["ast"]  += stat.get("assists", 0) or 0
+        t["fg3m"] += stat.get("three_points_made", 0) or 0
+
+    # Per-game averages per (team, position_group)
+    avgs: dict[tuple[int, str], dict] = {}
+    for (team_id, pos_group), t in totals.items():
+        n = len(games_played[team_id])
+        avgs[(team_id, pos_group)] = {
+            "pts_allowed_pg":  t["pts"]  / n,
+            "reb_allowed_pg":  t["reb"]  / n,
+            "ast_allowed_pg":  t["ast"]  / n,
+            "fg3m_allowed_pg": t["fg3m"] / n,
         }
 
     # Rank each stat within each position_group (1 = fewest allowed = best defense)

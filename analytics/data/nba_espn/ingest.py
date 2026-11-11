@@ -57,6 +57,7 @@ _KEY_REBOUNDS = "rebounds"
 _KEY_ASSISTS = "assists"
 _KEY_FOULS = "fouls"
 _KEY_THREES = "threePointFieldGoalsMade-threePointFieldGoalsAttempted"
+_KEY_FG = "fieldGoalsMade-fieldGoalsAttempted"
 REQUIRED_KEYS = {
     _KEY_MINUTES, _KEY_POINTS, _KEY_REBOUNDS,
     _KEY_ASSISTS, _KEY_FOULS, _KEY_THREES,
@@ -98,6 +99,13 @@ def _int0(raw) -> int:
         return int(float(str(raw).replace("+", "")))
     except (ValueError, TypeError):
         return 0
+
+
+def _att_from_pair(raw) -> int:
+    """'3-5' -> 5 (attempted). Junk -> 0."""
+    if raw in (None, "", "--") or "-" not in str(raw):
+        return 0
+    return _int0(str(raw).split("-", 1)[1])
 
 
 def _made_from_pair(raw) -> int:
@@ -339,6 +347,9 @@ def parse_summary_boxscore(summary: dict, event_id: str) -> list[dict]:
                     "rebounds": _int0(val(_KEY_REBOUNDS)),
                     "assists": _int0(val(_KEY_ASSISTS)),
                     "three_points_made": _made_from_pair(val(_KEY_THREES)),
+                    "three_points_attempted": _att_from_pair(val(_KEY_THREES)),
+                    "field_goals_made": _made_from_pair(val(_KEY_FG)),
+                    "field_goals_attempted": _att_from_pair(val(_KEY_FG)),
                     "fouls": _int0(val(_KEY_FOULS)),
                     "minutes_played": _int0(val(_KEY_MINUTES)),
                 })
@@ -427,6 +438,7 @@ def ingest_boxscores_for_date(
     date_str: str,
     only_game_ext_ids: Optional[list[str]] = None,
     dry_run: bool = False,
+    new_cols_only: bool = False,
 ) -> tuple[int, int]:
     """Fetch ESPN box scores for every FINAL event on date_str and upsert
     nba_player_stats basic rows (+ games scores/status). Games must already
@@ -434,6 +446,8 @@ def ingest_boxscores_for_date(
 
     only_game_ext_ids: optional games.ext_id filter (backward-compat with the
     old per-game fetch interface). dry_run parses and reports without writing.
+    new_cols_only: backfill mode — only writes FG/3PA columns onto rows that
+    already exist; never touches other columns or games.
     Returns (games_processed, stat_rows_written).
     """
     team_espn_map, team_abbr_by_espn = load_team_maps()
@@ -477,11 +491,22 @@ def ingest_boxscores_for_date(
             t_db = team_espn_map.get(r["team_espn_id"])
             if not p_db or not t_db:
                 continue
+            if new_cols_only:
+                stat_buffer.append({
+                    "game_id": game["id"], "player_id": p_db,
+                    "field_goals_made": r["field_goals_made"],
+                    "field_goals_attempted": r["field_goals_attempted"],
+                    "three_points_attempted": r["three_points_attempted"],
+                })
+                continue
             stat_buffer.append({
                 "game_id": game["id"],
                 "player_id": p_db,
                 "team_id": t_db,
                 "game_date": date_str,
+                "field_goals_made": r["field_goals_made"],
+                "field_goals_attempted": r["field_goals_attempted"],
+                "three_points_attempted": r["three_points_attempted"],
                 "points": r["points"],
                 "rebounds": r["rebounds"],
                 "assists": r["assists"],
@@ -489,6 +514,9 @@ def ingest_boxscores_for_date(
                 "fouls": r["fouls"],
                 "minutes_played": r["minutes_played"],
             })
+        if new_cols_only:
+            games_done += 1
+            continue
         ev = events_by_id.get(ev_id, {})
         home, away = _event_sides(ev)
         score_updates[game["id"]] = {
@@ -505,6 +533,12 @@ def ingest_boxscores_for_date(
               f"{len(stat_buffer)} stat rows across {games_done} game(s).")
         return games_done, len(stat_buffer)
 
+    if new_cols_only:  # partial upsert would INSERT-fail on missing rows: keep existing only
+        gids = [g["id"] for g in matched.values()]
+        have = {(r["game_id"], r["player_id"]) for r in (
+            supabase.table("nba_player_stats").select("game_id,player_id")
+            .in_("game_id", gids).limit(5000).execute()).data or []}
+        stat_buffer = [r for r in stat_buffer if (r["game_id"], r["player_id"]) in have]
     for i in range(0, len(stat_buffer), BATCH_SIZE):
         supabase.table("nba_player_stats").upsert(
             stat_buffer[i:i + BATCH_SIZE],

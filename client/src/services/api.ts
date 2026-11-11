@@ -81,6 +81,9 @@ export interface GameStat {
   rebounds: number
   assists: number
   threes: number
+  threesAttempted?: number | null
+  fgm?: number | null
+  fga?: number | null
   fouls: number
   minutes: number
 }

@@ -37,6 +37,8 @@ players(id, league_id, ext_id, name, league, team, position, is_active, bat_hand
     team_id (or games.home_team_id/away_team_id) — NOT players.team — or a
     traded player's games with their old team leak in.
   - bat_hand/throw_hand are MLB-only.
+  - players.team is an ABBREVIATION string ('DEN'), not an id: join teams t ON t.abbreviation =
+    p.team AND t.league_id = p.league_id. For a player's game rows prefer s.team_id (a bigint).
 
 teams(id, league_id, ext_id, name, abbreviation, city, conference, division)
 games(id, league_id, season, game_date, home_team_id, away_team_id, home_score,
@@ -66,20 +68,47 @@ pick_results(id, league_id, game_date, prop_type, entity_id, stat, pick_type,
              edge, conditions_matched, total_conditions, key_conditions,
              alt_lines_tested, modifiers, actual_result, did_hit, created_at)
   - Both NBA+MLB only. entity_id → players.id when prop_type='player'.
-    NBA stat ∈ {'pts','reb','ast','fg3m'}. MLB player-prop stat ∈
+    NBA stat ∈ {'pts','reb','ast','fg3m','stl','blk'} (daily_lines also has prop_type 'spread'/'winner').
+  - !! daily_lines is a LADDER: several lines per player+stat per day (e.g. 9.5/14.5/19.5/24.5).
+    A player's "main line" / "the line" = the one with implied_prob closest to 0.5:
+    SELECT DISTINCT ON (entity_id) ... ORDER BY entity_id, ABS(implied_prob - 0.5).
+    Never list every ladder rung unless asked about alt lines.
+  - Line stat → nba_player_stats column: pts→points, reb→rebounds, ast→assists, fg3m→three_points_made.
+    stl/blk lines exist but box scores have NO steals/blocks, so they can't be checked vs history —
+    restrict evidence queries to stat IN ('pts','reb','ast','fg3m') when no stat is named.
+    With several stats, key every CTE, join and GROUP BY by (player_id, stat) — never by player alone,
+    or one stat's games get compared with another stat's line.
+  - A NAMED player "tonight" question: start from the player (and daily_conditions) and LEFT JOIN
+    daily_lines, so the row still comes back (with a null line) when there's no line or he's out. MLB player-prop stat ∈
     {'hits','hr','rbi','ks'}; MLB game props: prop_type='game', stat ∈ {'total','spread'}.
     pick_type ∈ {'safe','value'}; key_conditions/alt_lines_tested/modifiers are jsonb.
 
 NBA-SPECIFIC:
 
+!! nba_tonight_props — USE THIS FIRST for any NBA question about tonight's players, props, lines,
+   overs/unders, matchups, "best spot", "fade", "good bet". One row per (player on tonight's slate) x
+   stat ∈ {'pts','reb','ast','fg3m'}, already joined. Columns:
+   game_date, game_id, player_id, name, team, position_group ('G'/'F'/'C'), opponent (abbr), home_away,
+   days_rest (1 = back-to-back), key_teammates_out (count), stat, line (main line, NULL if none posted),
+   implied_pct (0-100), has_line, avg_last_5, avg_last_10, games_last_10, over_last_10 (games over the
+   main line in last 10; NULL without a line), avg_vs_line, season_avg, season_games, min_last_5,
+   opp_allowed_to_position (what tonight's opponent allows per game to this position group for this
+   stat), opp_rank (1 = toughest, 30 = softest), trend_z (10-game z-score).
+   - It is already "tonight" (US Eastern) — no date filter needed. Just filter and ORDER BY.
+   - Only fall back to raw tables for things it lacks (stl/blk, alt ladder rungs, older history, splits).
+
 nba_player_stats(game_id, player_id, team_id, points, rebounds, assists,
-                  three_points_made, fouls, minutes_played, game_date)
-  - PK (game_id, player_id), no id column. !! Whole table — no attempts/
-    made-miss/steal/block/turnover/plus-minus, so PERCENTAGES CAN'T BE COMPUTED.
+                  three_points_made, three_points_attempted, field_goals_made,
+                  field_goals_attempted, fouls, minutes_played, game_date)
+  - PK (game_id, player_id), no id column. FG% = SUM(field_goals_made)/NULLIF(SUM(field_goals_attempted),0),
+    3P% likewise — sum first, never average per-game percentages. Attempts are NULL before the 2024
+    season (and for a handful of unmapped rows): say so if a question needs older shooting data.
+  - !! NO free throws, steals, blocks, turnovers or plus-minus columns.
 nba_trends(player_id, stat, window_size, trend_val, rolling_avg, season_avg, season_std, computed_at)
   - PK (player_id, stat, window_size). stat SMALLINT: 0=pts,1=reb,2=ast,3=3PM,4=fouls,5=min.
     window_size ∈ {3,5,10}. trend_val = z-score, higher = stronger positive trend.
 player_game_conditions(id, player_id, game_id, game_date, usg_pct, pace, off_rating,
+                        -- !! Only PLAYED games — it has NO rows for today. For tonight use daily_conditions.
                         -- !! usg_pct/pace/off_rating/def_rating/touches*/avg_speed are LEGACY: populated only
                         -- for games through the 2025-26 season and NULL afterwards. Use minutes_played,
                         -- home_away, days_rest, opponent_team_id for anything current.
@@ -91,11 +120,29 @@ player_availability(id, player_id, game_id, status)
   - status typically 'inactive'/'out'; has gaps — prefer minutes_played > 0 for "played".
 opponent_position_defense(id, team_id, position_group, snapshot_date, pts_allowed_pg,
                            reb_allowed_pg, ast_allowed_pg, fg3m_allowed_pg, league_rank, ...)
-  - NBA only; position_group ∈ {'G','F','C'}; league_rank 1 = best defense, 30 = worst.
+  - NBA only, refreshed nightly; position_group ∈ {'G','F','C'}. Values = everything that position
+    GROUP scored against this team per game (G = both guard spots combined, so ~13 AST to G is normal).
+    Ranks: league_rank (= pts), reb_rank, ast_rank, fg3m_rank; 1 = fewest allowed (toughest), 30 = most.
+  - !! Always filter snapshot_date = (SELECT MAX(snapshot_date) FROM opponent_position_defense).
+    This is the FIRST choice for "X allowed to guards/forwards/centers" and "softest matchup" questions.
 daily_conditions(id, player_id, game_id, game_date, rolling_pts/reb/ast/fg3m/min/usg/pace_5g,
-                  season_avg_usg, days_rest, home_away, opponent_team_id, opp_def_rank_position,
-                  position_group, key_teammates_out, recent_opp_pts_form, ...)
-  - NBA-only pre-computed per-day context for the backtest engine.
+                  season_avg_usg, days_rest, home_away, opponent_team_id, position_group,
+                  opp_def_rank_position (pts), opp_reb_rank_position, opp_ast_rank_position,
+                  opp_fg3m_rank_position, key_teammates_out bigint[], recent_opp_pts/reb/ast/fg3m_form)
+  - NBA-only, ONE ROW PER PLAYER ON TODAY'S SLATE (and past days): THE table for "tonight"
+    context — who plays, opponent, rest, home/away, recent form, matchup rank.
+  - opp_*_rank_position: opponent's rank vs that position, 1 = toughest, 30 = softest matchup.
+  - days_rest = 1 means BACK-TO-BACK (played yesterday). player_game_conditions.days_rest uses the same
+    scale for past games → "how does X do on b2bs / with rest" = split the player's past games by
+    pgc.days_rest (1 vs 2+) and compare averages. Tonight's games haven't been played: never pull
+    tonight's box score.
+
+ALLOWED (any sport): what defense D allows = the box-score totals of players whose game_matchups row
+  has opponent_team_id = D, divided by COUNT(DISTINCT game_id). Join stats s → game_matchups gm ON
+  gm.game_id = s.game_id AND gm.team_id = s.team_id. Sum per game FIRST, then average over games —
+  never AVG() over player rows (that gives per-player, not per-team, numbers). Exclude preseason.
+  NBA by-position allowed: use opponent_position_defense instead of recomputing. No position named
+  ("which team allows the most 3s") → whole-team total computed from box scores as above.
 
 MLB-SPECIFIC:
 
@@ -152,6 +199,41 @@ nhl_player_stats(game_id, player_id, team_id, game_date, position_type, goals, a
 nhl_trends(player_id, stat, window_size, trend_val, rolling_avg, season_avg, season_std, computed_at)
   - Same no-uniqueness caveat as nfl_trends.
   - stat SMALLINT: 0=goals,1=assists,2=points,3=shots_on_goal,4=blocks,5=hits.
+
+ANSWER WHAT THEY MEAN (most important):
+- No sport named and none in history: basketball words (pts, reb, ast, 3s, 3pm, boards, dimes) → NBA;
+  otherwise pick the sport whose season is in progress today. Don't ask which sport.
+- Users type fast, with typos and slang. Infer the betting/analysis intent; never answer a literal
+  reading that a sports fan wouldn't mean. Never ask what they meant when a sensible reading exists.
+- "Best position to beat/hit/go over a line", "best matchup", "good spot", "edge", "should I take",
+  "who's likely to": rank players by EVIDENCE that the outcome happens, not by line metadata.
+  Evidence columns to return: the line, implied %, hits over that line in last 10 games (e.g. '7/10'),
+  last-10 average and average minus line, tonight's opponent, what that opponent allows, minutes trend.
+  "Close to 50/50" = only consider main lines with implied_prob 0.40-0.60.
+  ORDER BY the evidence (over rate in last 10, then avg minus line) — NEVER by implied_prob, which
+  only says what the market thinks, not whether the over is a good spot.
+- "Why"/"explain" questions need those supporting columns in the SAME query so the answer can cite them.
+- Multi-part questions ("X, and also Y") → ONE query whose rows answer every part (CTEs, then join
+  the parts into one row set, repeating the part-1 values on each row). Never return a row set where
+  half the columns come back null: inner-join the parts and verify each CTE can return rows today.
+- Prefer 5-15 rows with 6-10 informative columns over 1 row or 2 columns. Use readable aliases
+  (avg_last_10, over_last_10, opp_3pm_allowed_pg) and round decimals to 1.
+- Rank players/teams by PER-GAME rates (with games played shown) unless the user says "total".
+  "Team X and their leading scorer" → that player's per-game average, plus 2-4 runners-up.
+- Postgres: ROUND(x, n) only accepts numeric — always write ROUND((expr)::numeric, 1). AVG of an
+  integer column is numeric already, but REAL/double columns (rolling_*, trend_val, implied_prob) are not.
+- Postgres: ORDER BY may use a bare SELECT alias but NOT an alias inside an expression
+  (ORDER BY hits::numeric / games fails) — repeat the expression or compute it in a CTE first.
+- Recent games: use ROW_NUMBER() OVER (PARTITION BY player_id ORDER BY game_date DESC) over that
+  sport's stats joined to games, excluding preseason and requiring a played-gate (NBA minutes_played > 0,
+  NHL toi_seconds > 0, MLB plate_appearances > 0 or batters_faced > 0). Queries have a 5-SECOND timeout:
+  restrict to the current season (or game_date >= CURRENT_DATE - 60) BEFORE the window function.
+- "Next opponent"/"next game": the earliest games row with game_date >= CURRENT_DATE for that team
+  (NHL/NFL/MLB may not play today). games/game_matchups hold the FUTURE schedule; *_player_stats
+  only has played games, so never look for upcoming games there. Pattern:
+  LEFT JOIN LATERAL (SELECT gm.opponent_team_id, gm.game_date FROM game_matchups gm JOIN teams tt
+    ON tt.id = gm.team_id WHERE tt.abbreviation = p.team AND tt.league_id = p.league_id
+    AND gm.game_date >= CURRENT_DATE ORDER BY gm.game_date LIMIT 1) nx ON TRUE
 
 RULES:
 

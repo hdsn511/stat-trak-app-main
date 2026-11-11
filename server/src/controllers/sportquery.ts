@@ -214,26 +214,36 @@ export async function postMessage(req: Request, res: Response) {
 
     // Ask the model for a corrected query, then validate and run it. Returns
     // null when the retry is unusable, so the caller can report the failure.
-    const retryOnce = async (why: string): Promise<{ sql: string; rows: any[] } | null> => {
+    // The failed SQL goes back in the note: without it the model rewrites from
+    // scratch and tends to repeat the same mistake.
+    // A repair that itself fails gets one more try with its own error: long
+    // multi-CTE queries often need two fixes (e.g. a bad column, then an alias).
+    const retryOnce = async (
+      why: string,
+      badSql: string,
+      attemptsLeft = 2
+    ): Promise<{ sql: string; rows: any[] } | null> => {
       const retryEnvelope = await callLLM(
         forLLM,
-        `${message}\n\n[SYSTEM NOTE] ${why} Produce a corrected query.`,
+        `${message}\n\n[SYSTEM NOTE] ${why}\nPrevious SQL:\n${badSql}\nFix that query (keep its intent and columns) and return the corrected one.`,
         hints
       )
       if (!retryEnvelope.sql) return null
+      const again = (reason: string) =>
+        attemptsLeft > 1 ? retryOnce(reason, retryEnvelope.sql!, attemptsLeft - 1) : Promise.resolve(null)
       const v2 = await validateSql(retryEnvelope.sql)
-      if (!v2.ok) return null
+      if (v2.ok === false) return again(`Your previous SQL was rejected by the validator: ${v2.reason}.`)
       try {
         return { sql: retryEnvelope.sql, rows: await runReadOnly(v2.rewritten) }
-      } catch {
-        return null
+      } catch (err: any) {
+        return again(`Your previous SQL errored: ${err.message}.`)
       }
     }
 
     if (envelope.sql) {
       const v = await validateSql(envelope.sql)
       if (v.ok === false) {
-        const retry = await retryOnce(`Your previous SQL was rejected by the validator: ${v.reason}.`)
+        const retry = await retryOnce(`Your previous SQL was rejected by the validator: ${v.reason}.`, envelope.sql)
         if (retry) {
           sqlForLog = retry.sql
           rows = retry.rows
@@ -245,7 +255,7 @@ export async function postMessage(req: Request, res: Response) {
           sqlForLog = envelope.sql
           rows = await runReadOnly(v.rewritten)
         } catch (err: any) {
-          const retry = await retryOnce(`Your previous SQL errored: ${err.message}.`)
+          const retry = await retryOnce(`Your previous SQL errored: ${err.message}.`, envelope.sql)
           if (retry) {
             sqlForLog = retry.sql
             rows = retry.rows
@@ -269,7 +279,8 @@ export async function postMessage(req: Request, res: Response) {
     // A query that ran but matched nothing is usually a too-literal filter: retry once.
     if (sqlForLog && rows.length === 0 && !queryError) {
       const retry = await retryOnce(
-        'Your previous query returned 0 rows. Loosen the filters: match names by distinctive stem (ILIKE), accept team city/nickname/abbreviation, check game_type and season scope, and widen the date range if it was narrow.'
+        'Your previous query returned 0 rows. Loosen the filters: match names by distinctive stem (ILIKE), accept team city/nickname/abbreviation, check game_type and season scope, and widen the date range if it was narrow. If a part that can legitimately be empty (no line posted, no game tonight) is inner-joined or drives the FROM, restructure: start FROM the player/team and LEFT JOIN that part so the row still returns with nulls.',
+        sqlForLog
       )
       if (retry && retry.rows.length > 0) {
         sqlForLog = retry.sql

@@ -33,6 +33,7 @@ const ALLOWED_TABLES = new Set([
   'player_availability',
   'opponent_position_defense',
   'daily_conditions',
+  'nba_tonight_props',
   'daily_lines',
   'pick_results',
   'game_matchups',

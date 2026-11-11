@@ -4,6 +4,8 @@ import EmberHeader from '@/ember/components/EmberHeader'
 import SiteFooter from '@/ember/components/SiteFooter'
 import AboutPage from '@/ember/about/AboutPage'
 import { PrivacyPage, TermsPage } from '@/ember/about/LegalPages'
+import AuthPage from '@/ember/auth/AuthPage'
+import ProfilePage from '@/ember/auth/ProfilePage'
 import Home from '@/pages/Home/Home'
 import NBA from '@/pages/NBA/NBA'
 import NFL from '@/pages/NFL/NFL'
@@ -62,6 +64,8 @@ export default function App() {
         <Route path="/player/:league/:id" element={<PlayerPage />} />
         <Route path="/game/:league/:id" element={<GamePage />} />
         <Route path="/team/:league/:id" element={<TeamPage />} />
+        <Route path="/login" element={<AuthPage />} />
+        <Route path="/profile" element={<ProfilePage />} />
         <Route path="/about" element={<AboutPage />} />
         <Route path="/terms" element={<TermsPage />} />
         <Route path="/privacy" element={<PrivacyPage />} />

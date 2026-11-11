@@ -1,5 +1,7 @@
 import { Link, NavLink } from 'react-router-dom'
 import GlobalSearch from './GlobalSearch'
+import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/lib/useAuth'
 
 const NAV_ITEMS = [
   { label: 'HOME', to: '/', end: true },
@@ -15,6 +17,8 @@ interface EmberHeaderProps {
 }
 
 export default function EmberHeader({ meta = 'ALL LEAGUES' }: EmberHeaderProps) {
+  const { account } = useAuth()
+  const link = 'font-martian text-[11px] tracking-[1px] text-[#C9C2BE] hover:text-[#EFEBE9] shrink-0'
   return (
     // Desktop: three-column grid; the middle `auto` track sits at the true
     // centre because the outer tracks are equal (1fr), regardless of logo or
@@ -52,6 +56,14 @@ export default function EmberHeader({ meta = 'ALL LEAGUES' }: EmberHeaderProps) 
           {meta}
         </span>
         <GlobalSearch />
+        {account ? (
+          <>
+            <Link to="/profile" className={link}>PROFILE</Link>
+            <button onClick={() => supabase.auth.signOut()} className={`${link} cursor-pointer`}>LOG OUT</button>
+          </>
+        ) : (
+          <Link to="/login" className={link}>LOG IN</Link>
+        )}
       </div>
     </div>
   )

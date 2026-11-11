@@ -1,4 +1,5 @@
-import type { GameInsights, GameTapeRow, GameTapeSide, TeamRef } from '@/services/api'
+import type { GameH2HEntry, GameInsights, GameTapeRow, GameTapeSide, TeamRef } from '@/services/api'
+import { HeadToHead } from './SidePanels'
 import ModuleCard from '@/ember/components/ModuleCard'
 import TeamLogo from '@/ember/components/TeamLogo'
 import { teamAccent } from '@/lib/teamBrand'
@@ -98,11 +99,12 @@ function Table({ title, caption, rows, count }: { title: string; caption: string
  * that wins the row is green and the other red; the rank chip is the league
  * context (1 = best, green top third, red bottom third).
  */
-export default function TaleOfTape({ league, insights, home, away }: {
+export default function TaleOfTape({ league, insights, home, away, headToHead = [] }: {
   league: string
   insights: GameInsights
   home: TeamRef
   away: TeamRef
+  headToHead?: GameH2HEntry[]
 }) {
   const head = (team: TeamRef, align: 'left' | 'right', gp: number) => (
     <div
@@ -134,6 +136,7 @@ export default function TaleOfTape({ league, insights, home, away }: {
         <span><span style={{ color: BAD }}>■</span> LOSES THE ROW</span>
         <span>↑ = MORE IS BETTER (DEFENSE MADE THE PLAY)</span>
       </div>
+      <HeadToHead embedded league={league} entries={headToHead} home={home} away={away} />
       </div>
     </ModuleCard>
   )

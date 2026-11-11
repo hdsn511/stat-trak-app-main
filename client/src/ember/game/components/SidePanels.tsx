@@ -43,23 +43,35 @@ export function InjuryList({ league, injuries }: { league: string; injuries: Gam
 }
 
 interface HeadToHeadProps {
+  embedded?: boolean
   league: string
   entries: GameH2HEntry[]
   home: TeamRef
   away: TeamRef
 }
 
-export function HeadToHead({ league, entries, home, away }: HeadToHeadProps) {
+export function HeadToHead({ league, entries, home, away, embedded }: HeadToHeadProps) {
   if (entries.length === 0) return null
 
   const homeWins = entries.filter((e) => e.winner_team_id === home.id).length
   const awayWins = entries.length - homeWins
 
+  const meta = `${away.abbreviation} ${awayWins}–${homeWins} ${home.abbreviation}`
+  const Shell = ({ children }: { children: React.ReactNode }) =>
+    embedded ? (
+      <div className="border-t border-[#27221F]">
+        <div className="flex items-center justify-between px-[18px] py-[10px]">
+          <span className="font-martian text-[10px] text-[#8A827E] tracking-[1px]">HEAD TO HEAD</span>
+          <span className="font-martian font-bold text-[12px] text-[#EFEBE9] tabular-nums">{meta}</span>
+        </div>
+        {children}
+      </div>
+    ) : (
+      <ModuleCard title="HEAD TO HEAD" meta={meta}>{children}</ModuleCard>
+    )
+
   return (
-    <ModuleCard
-      title="HEAD TO HEAD"
-      meta={`${away.abbreviation} ${awayWins}–${homeWins} ${home.abbreviation}`}
-    >
+    <Shell>
       <div className="max-h-[360px] overflow-y-auto">
         {entries.map((e) => {
           const awayWon = e.winner_team_id === e.away_team.id
@@ -87,6 +99,6 @@ export function HeadToHead({ league, entries, home, away }: HeadToHeadProps) {
           )
         })}
       </div>
-    </ModuleCard>
+    </Shell>
   )
 }

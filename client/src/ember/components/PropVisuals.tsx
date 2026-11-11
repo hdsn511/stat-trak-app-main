@@ -23,7 +23,7 @@ export function PropTicket({ rung, label, price }: { rung: number | null | undef
       {price !== undefined && (
         <div className="font-martian text-[11px] mt-[5px] tabular-nums text-[#EFEBE9] whitespace-nowrap">
           {price != null ? (
-            `${Math.round(price * 100)}¢`
+            `${Math.round(price * 100)}%`
           ) : (
             <span className="text-[#8A827E] text-[10px]" title="Kalshi hasn't listed this line yet">
               no price yet
@@ -155,5 +155,14 @@ export function ResultMark({ hit, actual }: { hit: boolean | null | undefined; a
     >
       {hit ? 'W' : 'L'}
     </span>
+  )
+}
+
+/** One-line key shown under any card that displays implied odds. */
+export function ImpliedOddsNote() {
+  return (
+    <div className="px-[18px] py-[8px] font-martian text-[10px] text-[#8A827E] tracking-[0.5px]">
+      Implied odds = price in ¢ (a 62¢ contract implies 62%).
+    </div>
   )
 }

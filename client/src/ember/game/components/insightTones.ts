@@ -7,5 +7,5 @@ export const WARN = '#FFB020'
 export const EMBER = '#FF6B3D'
 
 export const pct = (v: number) => `${Math.round(v * 100)}%`
-export const cents = (v: number | null | undefined) => (v == null ? null : `${Math.round(v * 100)}¢`)
+export const cents = (v: number | null | undefined) => (v == null ? null : `${Math.round(v * 100)}%`)
 export const signedPct = (v: number) => `${v > 0 ? '+' : ''}${Math.round(v * 100)}%`

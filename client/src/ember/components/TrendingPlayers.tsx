@@ -9,7 +9,7 @@ import YesterdayResults from './YesterdayResults'
 import LeaguePill from './LeaguePill'
 import ModuleCard from './ModuleCard'
 import CardRecord from './CardRecord'
-import { MatchupNote, PropTicket, ResultMark, StatTag, TrendBars } from './PropVisuals'
+import { ImpliedOddsNote, MatchupNote, PropTicket, ResultMark, StatTag, TrendBars } from './PropVisuals'
 import { EmptyState } from './EntityState'
 
 export type TrendingRow = {
@@ -159,6 +159,7 @@ export default function TrendingPlayers({
         )
       })}
       <YesterdayResults league={rows[0]?.league ?? 'nba'} set={results} />
+      <ImpliedOddsNote />
     </ModuleCard>
   )
 }

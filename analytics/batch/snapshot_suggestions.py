@@ -68,8 +68,17 @@ def snapshot(league: str) -> int:
         picked.append(("sugg_streak", r["player_id"], r["team"], r["stat"],
                        {"rung": r["rung"], "line": r["rung"] - 0.5}))
 
+    # Freeze each card at its first snapshot of the day: a later pass (the sync runs
+    # twice) must not add new entrants, or the graded record exceeds the 10 shown.
+    frozen = {r["pick_type"] for r in (
+        supabase.table("pick_results").select("pick_type").eq("league_id", lid)
+        .eq("game_date", today).in_("pick_type", ["sugg_trending", "sugg_streak"])
+        .execute().data or [])}
+
     rows = []
     for ptype, pid, team, stat, sug in picked:
+        if ptype in frozen:
+            continue
         gid = game_of.get(abbr_id.get((team or "").upper()))
         if not sug or not stat or gid is None:
             continue    # no Kalshi rung covers it, or the team isn't on today's slate

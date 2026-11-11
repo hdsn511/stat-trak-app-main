@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import type { ProjectGame, ProjectPick } from '@/services/api'
+import type { GameProp, ProjectGame, ProjectPick, TeamRef } from '@/services/api'
 import ModuleCard from '@/ember/components/ModuleCard'
 import PlayerAvatar from '@/ember/components/PlayerAvatar'
 import TeamLogo from '@/ember/components/TeamLogo'
@@ -8,6 +8,7 @@ import { playerPath } from '@/lib/paths'
 import { teamAccent } from '@/lib/teamBrand'
 import { Th } from './insightUi'
 import { BAD, GOOD } from './insightTones'
+import { ImpliedOddsNote } from '../../components/PropVisuals'
 
 const pct1 = (v: number) => `${(v * 100).toFixed(1)}%`
 const COLS = 'grid-cols-[minmax(200px,1.2fr)_minmax(170px,1fr)_70px_64px_64px]'
@@ -58,7 +59,7 @@ function PropRow({ league, p }: { league: string; p: ProjectPick }) {
         </span>
       </span>
       <span className="font-martian font-bold text-[13px] text-[#EFEBE9] text-right tabular-nums">{pct1(p.model_prob)}</span>
-      <span className="font-martian text-[12px] text-[#C9C2BE] text-right tabular-nums">{Math.round(p.implied_prob * 100)}¢</span>
+      <span className="font-martian text-[12px] text-[#C9C2BE] text-right tabular-nums">{Math.round(p.implied_prob * 100)}%</span>
       <span
         className="font-martian font-bold text-[12px] text-right tabular-nums"
         style={{ color: edgePts > 0 ? GOOD : edgePts < 0 ? BAD : '#A8A09C' }}
@@ -75,11 +76,37 @@ function PropRow({ league, p }: { league: string; p: ProjectPick }) {
  * props, each tagged with its team. Comes from GET /{league}/projects, which
  * covers only upcoming games inside the league's projects window.
  */
-export default function BestProps({ league, game, supported, windowLabel }: {
+/** Main spread and implied win probability from the listed game markets. */
+function LinesStrip({ gameProps, home, away }: { gameProps: GameProp[]; home: TeamRef; away: TeamRef }) {
+  const spread = gameProps.find((g) => g.prop_type === 'spread' && g.line != null)
+  const ml = (id: number) => gameProps.find((g) => g.prop_type === 'winner' && g.team_id === id)?.implied_prob
+  const awayMl = ml(away.id)
+  const homeMl = ml(home.id)
+  if (!spread && awayMl == null && homeMl == null) return null
+  const spreadTeam = spread ? (spread.team_id === away.id ? away : home) : null
+  const item = (label: string, value: string) => (
+    <span className="font-martian text-[11px] text-[#C9C2BE] tabular-nums">
+      <span className="text-[#8A827E] tracking-[1px]">{label} </span>
+      <span className="font-bold text-[#EFEBE9]">{value}</span>
+    </span>
+  )
+  return (
+    <div className="flex flex-wrap items-center gap-x-6 gap-y-1 px-[18px] py-[10px] border-b border-[#221D1A]">
+      {spread && spreadTeam && item('SPREAD', `${spreadTeam.abbreviation} ${spread.line! > 0 ? '+' : ''}${spread.line}${spread.implied_prob != null ? ` · ${Math.round(spread.implied_prob * 100)}%` : ''}`)}
+      {awayMl != null && item(`${away.abbreviation} WIN`, `${Math.round(awayMl * 100)}%`)}
+      {homeMl != null && item(`${home.abbreviation} WIN`, `${Math.round(homeMl * 100)}%`)}
+    </div>
+  )
+}
+
+export default function BestProps({ league, game, supported, windowLabel, gameProps, home, away }: {
   league: string
   game: ProjectGame | null
   supported: boolean
   windowLabel: string
+  gameProps?: GameProp[]
+  home?: TeamRef
+  away?: TeamRef
 }) {
   let body
   if (!supported) {
@@ -99,13 +126,13 @@ export default function BestProps({ league, game, supported, windowLabel }: {
           >
             <TeamLogo league={league} abbr={w.team ?? ''} size={30} />
             <div className="min-w-0 flex-1">
-              <div className="font-martian text-[10px] text-[#8A827E] tracking-[1px]">MODEL WINNER</div>
+              <div className="font-martian text-[10px] text-[#8A827E] tracking-[1px]">BOOK FAVORITE</div>
               <div className="font-schibsted font-bold text-[15px] text-[#EFEBE9] truncate">{w.name}</div>
             </div>
             <div className="text-right">
               <div className="font-martian font-bold text-[15px] tabular-nums" style={{ color: GOOD }}>{pct1(w.model_prob)}</div>
               <div className="font-martian text-[10px] text-[#A8A09C] tabular-nums">
-                PRICE {Math.round(w.implied_prob * 100)}¢
+                IMPLIED {Math.round(w.implied_prob * 100)}%
                 {w.context.elo_agrees != null && (
                   <span style={{ color: w.context.elo_agrees ? GOOD : BAD }}>
                     {' · '}RATINGS {w.context.elo_agrees ? 'AGREE' : 'DISAGREE'}
@@ -122,7 +149,7 @@ export default function BestProps({ league, game, supported, windowLabel }: {
                 <Th>PLAYER</Th>
                 <Th>PICK</Th>
                 <Th align="right">HIT</Th>
-                <Th align="right">PRICE</Th>
+                <Th align="right">IMPLIED</Th>
                 <Th align="right">EDGE</Th>
               </div>
               {best.map((p) => (
@@ -138,7 +165,9 @@ export default function BestProps({ league, game, supported, windowLabel }: {
   }
   return (
     <ModuleCard title="BEST PROPS" meta="MODEL HIT % VS KALSHI PRICE · EDGE IN PTS">
+      {gameProps && home && away && <LinesStrip gameProps={gameProps} home={home} away={away} />}
       {body}
+      <ImpliedOddsNote />
     </ModuleCard>
   )
 }

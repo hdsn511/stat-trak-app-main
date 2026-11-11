@@ -6,7 +6,7 @@ import PlayerAvatar from './PlayerAvatar'
 import YesterdayResults from './YesterdayResults'
 import TeamLogo from './TeamLogo'
 import CardRecord from './CardRecord'
-import { ClearStrip, MatchupNote, PropTicket, ResultMark, StatTag } from './PropVisuals'
+import { ClearStrip, ImpliedOddsNote, MatchupNote, PropTicket, ResultMark, StatTag } from './PropVisuals'
 import LeaguePill from './LeaguePill'
 import ModuleCard from './ModuleCard'
 import { EmptyState } from './EntityState'
@@ -161,6 +161,7 @@ export default function StreakWatch({
         )
       })}
       <YesterdayResults league={rows[0]?.league ?? 'nba'} set={results} />
+      <ImpliedOddsNote />
     </ModuleCard>
   )
 }

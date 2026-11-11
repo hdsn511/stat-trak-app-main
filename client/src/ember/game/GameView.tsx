@@ -6,7 +6,7 @@ import { useEntityData } from '@/ember/useEntityData'
 import ScoreHeader from './components/ScoreHeader'
 import BoxScoreTable from './components/BoxScoreTable'
 import MarketPanel from './components/MarketPanel'
-import { HeadToHead, InjuryList } from './components/SidePanels'
+import { InjuryList } from './components/SidePanels'
 import BestProps from './components/BestProps'
 import Conditions from './components/Conditions'
 import TaleOfTape from './components/TaleOfTape'
@@ -69,15 +69,18 @@ export default function GameView({ data }: GameViewProps) {
             game={projectGame}
             supported={projects.data?.supported ?? false}
             windowLabel={PROJECTS_WINDOW[league]!}
+            gameProps={data.props}
+            home={home}
+            away={away}
           />
         )
       )}
 
       {upcoming && (ins ? (
-        <>
+        <div className="grid gap-[14px] items-start lg:grid-cols-2">
           <StreaksTable league={league} insights={ins} />
           <TrendsTable league={league} insights={ins} />
-        </>
+        </div>
       ) : (
         <Pending title="STREAKS & TRENDS" label={insightsLabel} />
       ))}
@@ -95,7 +98,7 @@ export default function GameView({ data }: GameViewProps) {
       )}
 
       {ins ? (
-        <TaleOfTape league={league} insights={ins} home={home} away={away} />
+        <TaleOfTape league={league} insights={ins} home={home} away={away} headToHead={data.head_to_head} />
       ) : (
         <Pending title="TALE OF THE TAPE" label={insightsLabel} />
       )}
@@ -108,15 +111,7 @@ export default function GameView({ data }: GameViewProps) {
         <MarketPanel league={league} props={data.props} picks={data.picks} home={home} away={away} />
       )}
 
-      {(showLegacyInjuries || data.head_to_head.length > 0) && (
-        <div
-          className="grid gap-[14px] items-start"
-          style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))' }}
-        >
-          {showLegacyInjuries && <InjuryList league={league} injuries={data.injury_report} />}
-          <HeadToHead league={league} entries={data.head_to_head} home={home} away={away} />
-        </div>
-      )}
+      {showLegacyInjuries && <InjuryList league={league} injuries={data.injury_report} />}
     </div>
   )
 }

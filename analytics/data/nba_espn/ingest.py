@@ -230,7 +230,8 @@ _ESPN_SEASON_TYPE_PREFIX = {1: "001", 2: "002", 3: "004", 5: "005"}
 
 def espn_ext_id(event: dict) -> str:
     """Permanent games.ext_id for an ESPN-discovered NBA game."""
-    stype = (event.get("season") or {}).get("type")
+    # Team-schedule events carry the type under "seasonType"; scoreboard events under "season".
+    stype = (event.get("seasonType") or event.get("season") or {}).get("type")
     prefix = _ESPN_SEASON_TYPE_PREFIX.get(stype, "009")
     return f"{prefix}{event.get('id', '')}"
 

@@ -386,25 +386,23 @@ def backfill_completed_games(up_to: date) -> None:
     while current < up_to:
         date_str = _date_str(current)
 
-        # Check whether games are already in the games table
-        games_exist = (
+        # Insert every ESPN event for this date that is not stored yet (matched
+        # by espn_id), so NBA Cup knockout games and games moved onto a busy
+        # date are not skipped. Rows stored under older ext_ids are left alone.
+        known_res = (
             supabase.table("games")
-            .select("id")
+            .select("espn_id")
             .eq("game_date", date_str)
             .eq("league_id", NBA_LEAGUE_ID)
-            .limit(1)
             .execute()
         )
-
-        if not games_exist.data:
-            # Discover games for the date via the ESPN scoreboard
-            events = get_events(date_str)
-            games_to_insert = build_game_rows_from_events(
-                date_str, events, team_espn_map)
-            if games_to_insert:
-                supabase.table("games").upsert(games_to_insert, on_conflict="league_id,ext_id").execute()
-                print(f"  {date_str}: inserted {len(games_to_insert)} game(s) (ESPN).")
-                total_games += len(games_to_insert)
+        known_espn = {str(r["espn_id"]) for r in (known_res.data or []) if r.get("espn_id")}
+        events = [e for e in get_events(date_str) if str(e.get("id", "")) not in known_espn]
+        games_to_insert = build_game_rows_from_events(date_str, events, team_espn_map)
+        if games_to_insert:
+            supabase.table("games").upsert(games_to_insert, on_conflict="league_id,ext_id").execute()
+            print(f"  {date_str}: inserted {len(games_to_insert)} game(s) (ESPN).")
+            total_games += len(games_to_insert)
 
         # Per-game self-heal: only skip games that already have box scores
         date_game_rows = (
@@ -837,6 +835,9 @@ def compute_daily_conditions(games: list[dict], target_date: date) -> None:
 
 # ── Orchestrator ──────────────────────────────────────────────────────────────
 
+_FAILURES: list[str] = []
+
+
 def run_nightly(
     target_date: date,
     test: bool = False,
@@ -868,6 +869,7 @@ def run_nightly(
             reconcile_picks(yesterday)
         except (Exception, KeyboardInterrupt) as exc:
             print(f"  ERROR in reconcile_picks: {exc}")
+            _FAILURES.append("reconcile_picks")
 
     if reconcile_only:
         print("=" * 60)
@@ -880,6 +882,7 @@ def run_nightly(
             backfill_completed_games(up_to=target_date)
         except (Exception, KeyboardInterrupt) as exc:
             print(f"  ERROR in backfill_completed_games: {exc}")
+            _FAILURES.append("backfill_completed_games")
 
     # Step 0.6 — derive player_game_conditions for the recent window (DB-only)
     if not slate_only:
@@ -887,12 +890,14 @@ def run_nightly(
             derive_conditions(up_to=target_date)
         except (Exception, KeyboardInterrupt) as exc:
             print(f"  ERROR in derive_conditions: {exc}")
+            _FAILURES.append("derive_conditions")
 
     # Step 1
     try:
         games = get_slate(target_date)
     except (Exception, KeyboardInterrupt) as exc:
         print(f"  ERROR in get_slate: {exc}")
+        _FAILURES.append("get_slate")
         games = []
 
     if test:
@@ -904,6 +909,7 @@ def run_nightly(
         compute_daily_conditions(games, target_date)
     except Exception as exc:
         print(f"  ERROR in compute_daily_conditions: {exc}")
+        _FAILURES.append("compute_daily_conditions")
 
     print("=" * 60)
     print("Nightly batch complete.")
@@ -972,6 +978,9 @@ Examples:
         slate_only=args.slate_only,
         reconcile_only=args.reconcile_only,
     )
+    if _FAILURES:
+        print(f"FAILED steps: {', '.join(_FAILURES)}")
+        return 1
     return 0
 
 

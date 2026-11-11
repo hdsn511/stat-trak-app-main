@@ -14,7 +14,7 @@ interface EmberHeaderProps {
   meta?: string
 }
 
-export default function EmberHeader({ meta = 'ALL LEAGUES · SEASON 2025–26' }: EmberHeaderProps) {
+export default function EmberHeader({ meta = 'ALL LEAGUES' }: EmberHeaderProps) {
   return (
     // Desktop: three-column grid; the middle `auto` track sits at the true
     // centre because the outer tracks are equal (1fr), regardless of logo or

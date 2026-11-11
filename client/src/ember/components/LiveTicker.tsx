@@ -190,9 +190,15 @@ export default function LiveTicker({ label, games, emptyLabel, onGameClick }: Li
                 <ChipBody g={g} />
               </Link>
             ) : (
-              <button key={g.id} type="button" onClick={() => onGameClick?.(g)} className={CHIP}>
-                <ChipBody g={g} />
-              </button>
+              onGameClick ? (
+                <button key={g.id} type="button" onClick={() => onGameClick(g)} className={CHIP}>
+                  <ChipBody g={g} />
+                </button>
+              ) : (
+                <div key={g.id} className={CHIP}>
+                  <ChipBody g={g} />
+                </div>
+              )
             )
           )}
         </div>

@@ -95,7 +95,7 @@ export function StreaksTable({ league, insights }: { league: string; insights: G
                 </span>
                 <span className="text-center font-martian font-bold text-[15px] tabular-nums" style={{ color: GOOD }}>
                   {s.depth}
-                  <span className="text-[11px] text-[#8A827E] font-normal">/{s.games}</span>
+                  <span className="text-[11px] text-[#8A827E] font-normal" title={`${s.depth} straight, from the last ${s.games} games`}> straight</span>
                 </span>
                 <HitStrip values={s.last10} rung={s.rung} width={124} />
                 <span className="text-right font-martian text-[13px] text-[#EFEBE9] tabular-nums">{s.l10_avg}</span>

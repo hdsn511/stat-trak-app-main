@@ -44,12 +44,12 @@ export default function NewsCard({ league, className = '' }: { league: string; c
       {data && data.items.length === 0 && <EmptyState compact label="NO TRADE OR INJURY NEWS RIGHT NOW" />}
       {/* Scrolls within the card, so a long feed never outgrows the Picks card beside it. */}
       <div className="min-h-0 flex-1 overflow-y-auto max-h-[460px] lg:max-h-none">
-      {data?.items.map((n) => (
-        <a
+      {data?.items.map((n) => {
+        const Row = n.url ? 'a' : 'div'
+        return (
+        <Row
           key={n.id}
-          href={n.url ?? undefined}
-          target="_blank"
-          rel="noopener noreferrer"
+          {...(n.url ? { href: n.url, target: '_blank', rel: 'noopener noreferrer' } : {})}
           className="flex gap-3 px-[18px] py-[11px] border-t border-[#221D1A] first:border-t-0 hover:bg-[#211C1A]"
         >
           <Face league={league} item={n} />
@@ -65,8 +65,9 @@ export default function NewsCard({ league, className = '' }: { league: string; c
             </div>
             <div className="font-schibsted font-bold text-[13px] text-[#EFEBE9] leading-snug mt-[3px]">{n.headline}</div>
           </div>
-        </a>
-      ))}
+        </Row>
+        )
+      })}
       </div>
     </ModuleCard>
   )

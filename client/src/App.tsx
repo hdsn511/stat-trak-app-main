@@ -8,7 +8,6 @@ import NBA from '@/pages/NBA/NBA'
 import NFL from '@/pages/NFL/NFL'
 import MLB from '@/pages/MLB/MLB'
 import NHL from '@/pages/NHL/NHL'
-import Performance from '@/pages/Performance/Performance'
 import SportQueryPage from '@/ember/sportquery/SportQueryPage'
 import PlayerPage from '@/ember/player/PlayerPage'
 import GamePage from '@/ember/game/GamePage'
@@ -74,7 +73,6 @@ export default function App() {
       <Route path="/team/:id" element={<LegacyEntityRedirect to="team" league="nba" />} />
 
       <Route element={<LegacyLayout />}>
-        <Route path="/performance" element={<Performance />} />
       </Route>
     </Routes>
   )

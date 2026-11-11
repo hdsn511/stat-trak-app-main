@@ -14,7 +14,7 @@ export default function AboutPage() {
 
       <h2 className="mt-10 font-chakra italic font-bold text-[18px] text-[#EFEBE9]">Data</h2>
       <p className="mt-3 font-schibsted text-[15px] leading-[1.65] text-[#D8D2CE]">
-        Scores, schedules, box scores and news come from ESPN and the MLB Stats API. Market prices come from Kalshi.
+        Scores, schedules, box scores and news come from ESPN and the MLB Stats API, with player photos from NBA.com. Market prices come from Kalshi. Weather comes from Open-Meteo (CC BY 4.0).
       </p>
 
       <h2 className="mt-10 font-chakra italic font-bold text-[18px] text-[#EFEBE9]">Trademarks</h2>

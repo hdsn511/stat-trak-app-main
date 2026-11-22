@@ -2,6 +2,7 @@ import { Fragment, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { gamePath } from '@/lib/paths'
 import type { TeamFormSummary } from '@/services/api'
+import { formatGameTime } from '@/ember/game/format'
 import LeaguePill from './LeaguePill'
 import TeamLogo from './TeamLogo'
 
@@ -51,6 +52,12 @@ function shortDate(date: string): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase()
 }
 
+/** ESPN's scheduled status hard-codes Eastern ("7:00 PM EST"); show the viewer's own zone instead, matching the game page. */
+function statusLabel(g: TickerGame): string {
+  if (g.live || !g.time || !/\d{1,2}:\d{2}\s*[AP]M/i.test(g.status)) return g.status
+  return formatGameTime(g.time, true) ?? g.status
+}
+
 function ChipBody({ g }: { g: TickerGame }) {
   // Leagues are rarely on the same slate, so a chip from another day says so.
   const offDay = g.date && g.date !== TODAY()
@@ -77,7 +84,7 @@ function ChipBody({ g }: { g: TickerGame }) {
       <span
         className={`font-martian font-medium text-[11px] ${g.live ? 'text-[#FF6B3D]' : 'text-[#A8A09C]'}`}
       >
-        {g.status}
+        {statusLabel(g)}
       </span>
     </>
   )

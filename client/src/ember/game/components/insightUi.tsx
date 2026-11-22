@@ -4,15 +4,26 @@ import TeamLogo from '@/ember/components/TeamLogo'
 
 import { BAD, GOOD } from './insightTones'
 
-/** Column header cell text. */
-export function Th({ children, align = 'left', className = '' }: { children?: ReactNode; align?: 'left' | 'right' | 'center'; className?: string }) {
+/** Column header cell text. `tip` explains the column on hover, marked by a dotted underline. */
+export function Th({ children, align = 'left', className = '', tip }: {
+  children?: ReactNode
+  align?: 'left' | 'right' | 'center'
+  className?: string
+  tip?: string
+}) {
   return (
     <span
-      className={`font-martian text-[10px] text-[#8A827E] tracking-[1px] whitespace-nowrap ${
+      className={`font-martian text-[11px] text-[#8A827E] tracking-[1px] whitespace-nowrap ${
         align === 'right' ? 'text-right' : align === 'center' ? 'text-center' : ''
       } ${className}`}
     >
-      {children}
+      {tip ? (
+        <span title={tip} className="cursor-help underline decoration-dotted decoration-[#4A4340] underline-offset-[3px]">
+          {children}
+        </span>
+      ) : (
+        children
+      )}
     </span>
   )
 }
@@ -38,7 +49,7 @@ export function MatchupCell({ league, opponent, matchup, label }: {
   const p = Math.round((matchup.factor - 1) * 100)
   const color = p >= 3 ? GOOD : p <= -3 ? BAD : '#A8A09C'
   return (
-    <span className="inline-flex items-center gap-[5px] font-martian text-[11px] whitespace-nowrap" title={`${opponent} ranks ${matchup.rank} of ${matchup.of} in ${label} allowed (1 = allows the most)`}>
+    <span className="inline-flex items-center gap-[5px] font-martian text-[12px] tabular-nums whitespace-nowrap" title={`${opponent} ranks ${matchup.rank} of ${matchup.of} in ${label} allowed (1 = allows the least)`}>
       <TeamLogo league={league} abbr={opponent} size={13} />
       <span style={{ color }}>
         {p > 0 ? '+' : ''}
@@ -53,13 +64,13 @@ export function MatchupCell({ league, opponent, matchup, label }: {
  * Last games as bars against the rung: cleared in green, missed in red, the
  * line dashed across.
  */
-export function HitStrip({ values, rung, width = 120 }: { values: number[]; rung: number; width?: number }) {
+export function HitStrip({ values, rung, width = 120 }: { values: number[]; rung: number; width?: number | string }) {
   const max = Math.max(rung * 1.6, ...values, 1)
   const lineAt = (rung / max) * 100
   const cleared = values.filter((v) => v >= rung).length
   return (
     <div
-      className="relative h-[28px] flex items-end gap-[2px]"
+      className="relative h-[30px] flex items-end gap-[2px]"
       style={{ width }}
       role="img"
       aria-label={`Cleared ${rung} in ${cleared} of the last ${values.length} games`}

@@ -81,6 +81,9 @@ export interface GameStat {
   rebounds: number
   assists: number
   threes: number
+  threesAttempted?: number | null
+  fgm?: number | null
+  fga?: number | null
   fouls: number
   minutes: number
 }
@@ -281,6 +284,8 @@ export interface PlayerStreakRow {
   /** MLB: opposing-starter matchup flag (good = weak arm, tough = ace). */
   matchup?: { tier: 'good' | 'tough'; label: string } | null
   rolling_avg: number       // average over the 10-game window
+  /** Last 10 played values, oldest first. */
+  last10?: number[]
   games_used: number        // NBA: always 10; MLB: games available in window
   /** For MLB, league_rank is the opposing starter's quality_rank (1=best). */
   opponent: { team: string; league_rank: number | null } | null
@@ -413,6 +418,8 @@ export interface GameDetail {
   box_score: { available: boolean; groups: BoxGroup[] }
   props: GameProp[]
   picks: GamePick[]
+  /** Sportsbook spread and total (ESPN; live pre-game, stored close after). Null when unavailable. */
+  lines?: { provider: string | null; spread_home: number | null; total: number | null } | null
   /** False for NHL and NFL, which have no lines or picks pipeline. */
   has_markets: boolean
   injury_report: GameInjury[]
@@ -565,14 +572,33 @@ export interface ProjectGame {
 export interface ProjectsResponse {
   supported: boolean
   bands: { prop: { min: number; max: number }; moneyline: { min: number; max: number } }
-  /** Cumulative record of picks that were on the card. */
-  record: { w: number; l: number }
+  /** Cumulative record of picks that were on the card; `units` is net at a flat 1u per straight. */
+  record: { w: number; l: number; units?: number }
   props: ProjectPick[]
   moneyline: ProjectPick | null
   games: ProjectGame[]
   /** Picks that swapped on/off the card today (Eastern). */
   changes?: (ProjectPick & { change: 'added' | 'removed'; at: string })[]
+  /** The latest graded slate before today: the card's "Yesterday's picks" dropdown. */
+  yesterday?: { date: string; record: { w: number; l: number; units: number }; rows: GradedStraight[] } | null
   upcoming_games: number
+}
+
+/** A graded pick from the last slate, with what it paid at a flat 1u. */
+export interface GradedStraight {
+  id: number
+  kind: 'prop' | 'moneyline'
+  entity_id: number
+  name: string
+  team: string | null
+  ext_id: string | null
+  stat_label: string | null
+  side: 'over' | 'under' | 'win' | null
+  line: number | null
+  price: number | null
+  actual: number | null
+  did_hit: boolean
+  units: number
 }
 
 export interface StandingsResponse {
@@ -886,7 +912,7 @@ export interface GameInsightStreak {
   price: number | null
   /** True when Kalshi lists this rung for the game. */
   listed: boolean
-  /** Opponent allows this stat vs league; rank 1 = allows the most. */
+  /** Opponent allows this stat vs league; rank 1 = allows the least (stingiest). */
   matchup: Matchup | null
 }
 

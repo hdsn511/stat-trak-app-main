@@ -37,10 +37,17 @@ export function formatGameDate(date: string): string {
   return d.toLocaleDateString('en-US', DATE_OPTS).toUpperCase()
 }
 
-/** "7:30 PM" from an ISO timestamp, or null when tipoff time is unknown. */
-export function formatGameTime(iso: string | null): string | null {
+/** "OCT 23, 2026": for dates that can fall in a past season, where the year disambiguates. */
+export function formatGameDateYear(date: string): string {
+  const d = new Date(`${date}T00:00:00`)
+  if (Number.isNaN(d.getTime())) return date
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase()
+}
+
+/** "7:30 PM" (or "7:30 PM CST" with withZone) in the viewer's zone, or null when tipoff time is unknown. */
+export function formatGameTime(iso: string | null, withZone = false): string | null {
   if (!iso) return null
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return null
-  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', ...(withZone && { timeZoneName: 'short' }) })
 }

@@ -672,7 +672,10 @@ def compute_daily_conditions(games: list[dict], target_date: date) -> None:
     opd_rows = (
         supabase.table("opponent_position_defense")
         .select("team_id,position_group,league_rank,reb_rank,ast_rank,fg3m_rank,snapshot_date")
+        .gte("snapshot_date", _season_start_iso(date_str))  # never reuse last season's ranks
+        .lte("snapshot_date", date_str)  # never peek at a later snapshot when re-running a past date
         .order("snapshot_date", desc=True)
+        .limit(1000)
         .execute()
     )
     # Keep only the latest snapshot per (team_id, position_group)
@@ -891,6 +894,16 @@ def run_nightly(
         except (Exception, KeyboardInterrupt) as exc:
             print(f"  ERROR in derive_conditions: {exc}")
             _FAILURES.append("derive_conditions")
+
+    # Step 0.7 — refresh opponent_position_defense (DB-only upsert) so today's
+    # opp_*_rank_position use current-season ranks
+    if not slate_only:
+        try:
+            from analytics.data.enrich_games import backfill_opp_defense
+            backfill_opp_defense(_date_str(target_date))
+        except (Exception, KeyboardInterrupt) as exc:
+            print(f"  ERROR in backfill_opp_defense: {exc}")
+            _FAILURES.append("backfill_opp_defense")
 
     # Step 1
     try:

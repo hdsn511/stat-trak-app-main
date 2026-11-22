@@ -9,7 +9,7 @@ import YesterdayResults from './YesterdayResults'
 import LeaguePill from './LeaguePill'
 import ModuleCard from './ModuleCard'
 import CardRecord from './CardRecord'
-import { ImpliedOddsNote, MatchupNote, PropTicket, ResultMark, StatTag, TrendBars } from './PropVisuals'
+import { MatchupNote, PLAYER_ROW, PropTicket, ResultMark, StatTag, TrendBars } from './PropVisuals'
 import { EmptyState } from './EntityState'
 
 export type TrendingRow = {
@@ -72,8 +72,8 @@ export default function TrendingPlayers({
         return (
           <div key={rowKey} className="border-b border-[#221D1A] last:border-b-0">
             <Link
-              to={playerPath(row.league, row.playerId)}
-              className="grid grid-cols-[minmax(0,1fr)_112px_30px] sm:grid-cols-[minmax(0,1fr)_112px_170px_30px] items-center gap-[18px] px-5 py-4 hover:bg-[#211C1A]"
+              to={playerPath(row.league, row.playerId, { stat: row.stat, line: row.suggested, window: row.window ?? 10 })}
+              className={`grid grid-cols-[minmax(0,1fr)_112px_30px] sm:grid-cols-[minmax(0,1fr)_112px_170px_30px] items-center gap-[18px] ${PLAYER_ROW} hover:bg-[#211C1A] transition-colors`}
             >
               <div className="min-w-0 flex items-center gap-3">
                 {showLeague && <LeaguePill league={row.leagueLabel} />}
@@ -85,19 +85,19 @@ export default function TrendingPlayers({
                   size={42}
                 />
                 <div className="min-w-0">
-                  <div className="flex items-center gap-[6px] min-w-0">
-                    <span className="font-schibsted font-bold text-[15px] text-[#EFEBE9] truncate">{row.name}</span>
-                    <StatTag label={row.stat} />
-                  </div>
-                  <div className="mt-[3px] flex items-center gap-[5px] font-martian text-[11px] text-[#C9C2BE]">
+                  {/* Name gets the full width; the stat tag moved to the team line so names stop clipping. */}
+                  <div className="font-schibsted font-bold text-[15px] text-[#EFEBE9] truncate" title={row.name}>{row.name}</div>
+                  <div className="mt-[2px] flex items-center gap-[5px] font-martian text-[11px] text-[#C9C2BE]">
                     <TeamLogo league={row.league} abbr={row.team} size={13} />
                     {row.team}
+                    <StatTag label={row.stat} />
                   </div>
-                  <div className="mt-[3px] truncate">
+                  <div className="mt-[2px] truncate">
                     <MatchupNote league={row.league} opponent={row.opponent} matchup={row.matchup} label={row.stat} />
                   </div>
                   {row.chips.length > 0 && (
-                    <div className="flex flex-wrap gap-[6px] mt-[6px]">
+                    // One line only: the row height is fixed to match the Streak card beside it.
+                    <div className="flex gap-[6px] mt-[4px] overflow-hidden">
                       {row.chips.slice(0, 2).map((chip) => {
                         const has = row.chipDetails?.some((d) => d.label === chip)
                         const isOpen = openKey === `${rowKey}:${chip}`
@@ -142,7 +142,7 @@ export default function TrendingPlayers({
               <ResultMark hit={yday?.did_hit} actual={yday?.actual} />
             </Link>
             {openDetail && (
-              <div className="mx-5 mb-4 rounded-md border border-[rgba(255,107,61,0.35)] bg-[#17120F] px-[14px] py-[12px]">
+              <div className="animate-fade-up mx-5 mb-4 rounded-md border border-[rgba(255,107,61,0.35)] bg-[#17120F] px-[14px] py-[12px]">
                 <div className="font-martian font-bold text-[12px] text-[#FF6B3D] tracking-[0.5px]">
                   {openDetail.label} · {openDetail.summary}
                 </div>
@@ -158,8 +158,9 @@ export default function TrendingPlayers({
           </div>
         )
       })}
-      <YesterdayResults league={rows[0]?.league ?? 'nba'} set={results} />
-      <ImpliedOddsNote />
+      <div className="mt-auto">
+        <YesterdayResults league={rows[0]?.league ?? 'nba'} set={results} />
+      </div>
     </ModuleCard>
   )
 }

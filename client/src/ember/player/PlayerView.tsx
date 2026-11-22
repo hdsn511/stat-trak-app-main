@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { LeagueSlug } from '@/config/leagues'
-import { allStatsFor, getPlayerStatConfig } from '@/config/playerStats'
+import { allStatsFor, formatAverage, getPlayerStatConfig } from '@/config/playerStats'
 import { createLeagueApi } from '@/services/api'
 import {
+  averageOf,
   filterGames,
   gamesVersus,
   hitRate,
@@ -20,7 +21,6 @@ import { teamAccent } from '@/lib/teamBrand'
 import FilterBar from './components/FilterBar'
 import LineControl from './components/LineControl'
 import GameLogChart from './components/GameLogChart'
-import StatLineCards from './components/StatLineCards'
 import GameLogTable from './components/GameLogTable'
 import MatchupPanel from './components/MatchupPanel'
 import type { DefenseSplit, PlayerFilters, PlayerLogResponse } from './types'
@@ -55,6 +55,14 @@ export default function PlayerView({ slug, data, mode, initialFilters }: PlayerV
     const v = cfg.volumeFor(role)
     return v && !statDefs.some((d) => d.key === v.key) ? v : null
   }, [cfg, role, statDefs])
+
+  // Single stats with the volume stat first (MIN P R A … for NBA): the name card row,
+  // the splits columns and the H2H columns. Combos are sums of these.
+  const headlineDefs = useMemo(() => {
+    const v = cfg.volumeFor(role)
+    const singles = cfg.statsFor(role)
+    return v && !singles.some((d) => d.key === v.key) ? [v, ...singles] : singles
+  }, [cfg, role])
 
   const usageOf = useCallback((stat: string) => usageFor(slug, role, stat), [slug, role])
 
@@ -95,6 +103,18 @@ export default function PlayerView({ slug, data, mode, initialFilters }: PlayerV
       cancelled = true
     }
   }, [slug, oppTeamId, filters.stat, position])
+
+  // Hit rate against the current line per window, newest games first (as the API sends them).
+  const strip = [
+    ...cfg.windows.map((w) => ({
+      label: w === 0 ? 'SZN' : `L${w}`,
+      r: hitRate(w === 0 ? games : games.slice(0, w), activeDef, filters.line),
+      tip: w === 0 ? 'Every game this season' : `Last ${w} games`,
+    })),
+    ...(target
+      ? [{ label: `VS ${target.team}`, r: hitRate(h2h, activeDef, filters.line), tip: `Every logged meeting with ${target.team}` }]
+      : []),
+  ]
 
   if (allGames.length === 0) {
     return (
@@ -139,6 +159,17 @@ export default function PlayerView({ slug, data, mode, initialFilters }: PlayerV
             </span>
           </div>
         </div>
+        {/* Season averages, single stats only, one row: the ESPN player-card line. */}
+        <div className="ml-auto flex flex-wrap gap-x-[22px] gap-y-2" aria-label="Season averages">
+          {headlineDefs.map((d) => (
+            <div key={d.key} className="text-center">
+              <div className="font-martian text-[11px] text-[#A8A09C] tracking-[1px]">{d.label}</div>
+              <div className="font-martian font-bold text-[22px] leading-none mt-[5px] text-[#EFEBE9] tabular-nums">
+                {formatAverage(d, averageOf(games, d))}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Filters + line + chart */}
@@ -163,28 +194,24 @@ export default function PlayerView({ slug, data, mode, initialFilters }: PlayerV
           label={activeDef?.label ?? ''}
           line={filters.line}
           hitRate={hitRate(filtered, activeDef, filters.line)}
-          versusHitRate={target ? hitRate(h2h, activeDef, filters.line) : null}
-          versusTeam={target?.team ?? null}
+          strip={strip}
           touched={filters.lineTouched}
           onLine={setLine}
           onReset={resetLine}
         />
-        <StatLineCards
-          games={filtered}
-          statDefs={statDefs}
-          volumeDef={volumeDef}
-          activeStat={filters.stat}
-        />
-        <GameLogChart games={filtered} def={activeDef} line={filters.line} usage={usageDef} />
+
+        <GameLogChart games={filtered} def={activeDef} line={filters.line} usage={usageDef} league={slug} />
       </div>
 
       <MatchupPanel
         target={target}
-        splits={splitsFor(games, h2h, [...(volumeDef ? [volumeDef] : []), ...statDefs])}
+        splits={splitsFor(games, h2h, activeDef && !headlineDefs.some((d) => d.key === activeDef.key) ? [...headlineDefs, activeDef] : headlineDefs)}
         signal={matchupSignal(defense, TEAM_COUNT[slug])}
         h2h={h2h}
-        statDefs={statDefs}
-        volumeDef={volumeDef}
+        defs={headlineDefs}
+        activeDef={activeDef}
+        line={filters.line}
+        h2hRate={target ? hitRate(h2h, activeDef, filters.line) : null}
       />
 
       <div className="bg-[#1B1715] border border-[#2C2624] rounded-lg mt-[14px] overflow-hidden">

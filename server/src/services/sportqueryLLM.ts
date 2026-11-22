@@ -95,36 +95,58 @@ function exampleAssistant(raw: string): string {
   }
 }
 
-const NARRATE_SYSTEM = `You answer a sports-stats question using ONLY the verified result rows provided.
+const NARRATE_SYSTEM = `You are a sharp sports analyst answering a fan's question using ONLY the verified result rows provided.
 - Line 1: the direct answer in one short sentence, bolding key names and numbers (**LeBron James**, **38 pts**).
-- Then at most 3 bullets starting with "- ": sport, season or date range covered, sample size (games), and any assumption you made about an ambiguous question.
-- Use only values that appear in the rows. Never invent numbers, never write placeholders like "x" or "y" or "{team}".
-- Interpret the question sensibly (e.g. "how does X do against Y" means his average stats in games vs Y), and say the interpretation in a bullet.
-- If there are no rows, say plainly that no matching games or players were found, name what was searched (player, team, stat, period), and suggest one concrete rephrase.
-- Plain text with the light markdown above. No headings, no SQL talk.`
+- Then 2-3 bullets starting with "- " that give the WHY: cite the strongest evidence columns from the rows (e.g. "over 14.5 in **8 of his last 10**, averaging **17.4**", "opponent allows **15.3** 3PM per game"). If the question has several parts, answer each part. Mention a runner-up or two when the rows make it useful.
+- Never explain how you interpreted the question, never describe the query, never mention "rows", "columns" or "sample size of 1". Just answer like an analyst would.
+- Use only values that appear in the rows. Never invent numbers, never write placeholders like "x" or "y" or "{team}". implied_prob 0.54 = 54%.
+- Opponent/defense rank columns (opp_*rank*, opp_def_rank_position): 1 = TOUGHEST defense (bad matchup), 30 = SOFTEST (good matchup). Higher "allowed" numbers = softer defense.
+- If the row for a named player has no line (line/implied null), lead with "No <stat> line is posted for <player> tonight", then give his recent numbers if present. Never give a bet verdict without a line, and never pad with columns that don't bear on the question.
+- If there are no rows, say plainly that nothing matched for what was asked (player, team, stat, period) and suggest one concrete rephrase.
+- Plain text with the light markdown above. No headings.
+- Sound like a person talking, not a report: natural phrasing, contractions, no stock openers ("Great question", "Based on the data"). Keep it tight.
+- You may be given the earlier turns of this conversation. Treat the new question as a continuation: use "same game", "him", "that line" naturally, don't repeat facts you already gave, and answer only what is new.
+- When it genuinely helps, end with one short, specific follow-up the user could ask next (a sentence, not a list). Skip it if the answer is complete. No disclaimers; the site shows its own responsible-gambling note.
+- If a COMPUTED block is provided (e.g. a parlay), those numbers are final: restate them plainly, mention the independence/same-game caveat in one clause, and never present it as a recommendation to bet.`
 
 export async function narrate(
   question: string,
   rows: Record<string, unknown>[],
   totalRows: number,
-  note?: string | null
+  note?: string | null,
+  opts: { history?: HistoryEntry[]; facts?: string } = {}
 ): Promise<string> {
+  const noLine = rows.length > 0 && rows.every((r) => 'line' in r && r.line == null)
+  // With no line, "over 10/10" style columns were computed against null/0 and are
+  // meaningless; prompting alone did not stop the model citing them.
+  const LINE_DERIVED = /(^|_)over(_|$)|vs_line|cover|hit_rate/i
   const compact = rows.slice(0, 20).map((r) =>
-    Object.fromEntries(Object.entries(r).filter(([, v]) => v !== null && v !== undefined))
+    Object.fromEntries(
+      Object.entries(r).filter(
+        ([k, v]) => v !== null && v !== undefined && !(noLine && LINE_DERIVED.test(k))
+      )
+    )
   )
   const data = JSON.stringify(compact).slice(0, 6000)
   const completion = await llm.chat.completions.create({
     model: SPORTQUERY_MODEL,
     temperature: 0.3,
-    max_tokens: 500,
+    // gpt-oss is a reasoning model: reasoning tokens count against max_tokens,
+    // and at 500 they often consumed it all, leaving an empty answer.
+    max_tokens: 2000,
+    reasoning_effort: 'low',
     messages: [
       { role: 'system', content: NARRATE_SYSTEM },
+      ...(opts.history ?? []).slice(-6).map((h) => ({ role: h.role, content: h.content.slice(0, 1200) })),
       {
         role: 'user',
         content:
           `TODAY (US Eastern): ${todayET()}\nQUESTION: ${question}\n` +
           `ROWS RETURNED: ${totalRows} (showing ${compact.length})\n` +
           (note ? `NOTE: ${note}\n` : '') +
+          (opts.facts ? `COMPUTED: ${opts.facts}\n` : '') +
+          // Stated outright: the model otherwise gives an over/under verdict with no line.
+          (noLine ? 'NOTE: NO BETTING LINE IS POSTED for this tonight — say so first; give no over/under verdict and ignore every column computed against the line (over_*, *_vs_line).\n' : '') +
           `ROWS: ${data}`,
       },
     ],
@@ -151,8 +173,8 @@ export async function callLLM(
     messages.push({ role: h.role, content: h.content })
   }
 
-  if (hints) messages.push({ role: 'system', content: hints })
-  messages.push({ role: 'user', content: userMessage })
+  // Hints ride in the user turn: some Cerebras models (qwen) reject a second system message.
+  messages.push({ role: 'user', content: hints ? `${userMessage}\n\n[${hints}]` : userMessage })
 
   const completion = await llm.chat.completions.create({
     model: SPORTQUERY_MODEL,
@@ -167,7 +189,7 @@ export async function callLLM(
 
   if (!result.ok) {
     messages.push({
-      role: 'system',
+      role: 'user',
       content:
         'Your previous output was not valid JSON matching the required envelope. Respond with exactly one JSON object: {"sql": string|null, "narrative": string}. No code fences.',
     })

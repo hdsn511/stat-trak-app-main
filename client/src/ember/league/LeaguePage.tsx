@@ -113,12 +113,12 @@ export default function LeaguePage({ config }: LeaguePageProps) {
           </div>
         )}
 
-        <div className="grid gap-5 xl:grid-cols-2 items-start">
+        <div className="grid gap-5 xl:grid-cols-2 items-stretch">
           <TrendingPlayers
             rows={trending}
-            meta="RECENT FORM VS SEASON"
+            meta="BARS: RECENT FORM VS SEASON"
             results={results.data?.trending}
-            record={results.data?.totals.trending}
+            record={results.data?.trending.record}
             emptyLabel={
               loading
                 ? 'LOADING TRENDS…'
@@ -129,9 +129,9 @@ export default function LeaguePage({ config }: LeaguePageProps) {
           />
           <StreakWatch
             rows={streaks}
-            meta={config.slug === 'nba' || config.slug === 'nfl' ? 'KALSHI LINES' : 'ACTIVE RUNS'}
+            meta="BARS: LAST 10 GAMES VS LINE"
             results={results.data?.streak}
-            record={results.data?.totals.streak}
+            record={results.data?.streak.record}
             emptyLabel={loading ? 'LOADING STREAKS…' : `NO ACTIVE ${config.name} STREAKS`}
           />
         </div>

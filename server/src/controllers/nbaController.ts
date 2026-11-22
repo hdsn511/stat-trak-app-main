@@ -318,7 +318,11 @@ async function buildTrendingPayload(opts: {
     if (!name || !ladder(lg.slug, name)) return false;
     return Number(row.rolling_avg) >= (minRung[statKey(name)] ?? 0);
   };
-  const rows = [...best.values()].filter(bettable).sort((a, b) => b.trend_val - a.trend_val);
+  // Rank by z-score shrunk for sample size: a 3-game spike is mostly noise that regresses
+  // (graded "trending" suggestions hit 42% on NBA vs 79% for streaks, 2026-11), so L3 counts
+  // ~55% and L5 ~71% of an L10 reading. shortcut: sqrt shrinkage, not a fitted prior; refit when more graded rows exist.
+  const rank = (r: any) => Number(r.trend_val) * Math.sqrt(Math.min(Number(r.window_size) || 10, 10) / 10);
+  const rows = [...best.values()].filter(bettable).sort((a, b) => rank(b) - rank(a));
   let filtered = rows.filter(row => !outIds.has(row.player_id));
 
   // Optional dedupe: keep one entry per player (their highest trend_val)
@@ -326,12 +330,12 @@ async function buildTrendingPayload(opts: {
     const topPerPlayer = new Map<number, any>();
     for (const row of filtered) {
       const existing = topPerPlayer.get(row.player_id);
-      if (!existing || row.trend_val > existing.trend_val) {
+      if (!existing || rank(row) > rank(existing)) {
         topPerPlayer.set(row.player_id, row);
       }
     }
     filtered = Array.from(topPerPlayer.values())
-      .sort((a, b) => b.trend_val - a.trend_val);
+      .sort((a, b) => rank(b) - rank(a));
   }
 
   const top = filtered.slice(0, opts.limit);
@@ -796,6 +800,9 @@ export async function getPlayerGames(req: Request<{ id: string }>, res: Response
             rebounds: g.rebounds,
             assists: g.assists,
             threes: g.three_points_made,
+            threesAttempted: g.three_points_attempted,
+            fgm: g.field_goals_made,
+            fga: g.field_goals_attempted,
             fouls: g.fouls,
             minutes: g.minutes_played,
           };

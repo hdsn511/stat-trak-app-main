@@ -8,8 +8,8 @@ interface GameLogTableProps {
   activeStat: string
 }
 
-const cell = 'font-martian text-[12px] px-2 py-[7px] whitespace-nowrap'
-const head = 'font-martian text-[10px] text-[#A8A09C] tracking-[1px] px-2 py-[7px] whitespace-nowrap'
+const cell = 'font-martian text-[14px] tabular-nums px-2 py-[8px] whitespace-nowrap'
+const head = 'font-martian text-[11px] text-[#A8A09C] tracking-[1px] px-2 py-[8px] whitespace-nowrap'
 
 export default function GameLogTable({
   games,
@@ -49,7 +49,7 @@ export default function GameLogTable({
           {games.map((g, i) => (
             <tr key={i} className="border-t border-[#221D1A] hover:bg-[#211C1A]">
               <td className={`${cell} text-[#A8A09C]`}>{String(g.date ?? '')}</td>
-              <td className="font-schibsted font-bold text-[13px] text-[#EFEBE9] px-2 py-[7px]">
+              <td className="font-schibsted font-bold text-[14px] text-[#EFEBE9] px-2 py-[8px]">
                 {`${g.isHome === false ? '@' : ''}${String(g.opponent ?? '—')}`}
               </td>
               {volumeDef && (

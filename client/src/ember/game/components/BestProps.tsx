@@ -1,5 +1,6 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import type { GameProp, ProjectGame, ProjectPick, TeamRef } from '@/services/api'
+import type { ProjectGame, ProjectPick } from '@/services/api'
 import ModuleCard from '@/ember/components/ModuleCard'
 import PlayerAvatar from '@/ember/components/PlayerAvatar'
 import TeamLogo from '@/ember/components/TeamLogo'
@@ -9,6 +10,7 @@ import { teamAccent } from '@/lib/teamBrand'
 import { Th } from './insightUi'
 import { BAD, GOOD } from './insightTones'
 import { ImpliedOddsNote } from '../../components/PropVisuals'
+import { PickWhy, WhyToggle, type WhyContext } from '../../components/PickWhy'
 
 const pct1 = (v: number) => `${(v * 100).toFixed(1)}%`
 const COLS = 'grid-cols-[minmax(200px,1.2fr)_minmax(170px,1fr)_70px_64px_64px]'
@@ -26,15 +28,17 @@ function reason(p: ProjectPick): string {
     .join(' · ')
 }
 
-function PropRow({ league, p }: { league: string; p: ProjectPick }) {
+function PropRow({ league, p, why }: { league: string; p: ProjectPick; why?: WhyContext }) {
   const accent = teamAccent(league, p.team ?? '')
   const over = p.side !== 'under'
   const sideColor = over ? GOOD : BAD
   const edgePts = Math.round(p.edge * 1000) / 10
+  const [open, setOpen] = useState(false)
   return (
+    <div className="border-t border-[#221D1A]">
     <Link
-      to={playerPath(league, p.entity_id)}
-      className={`grid ${COLS} gap-3 items-center px-[18px] py-[9px] border-t border-[#221D1A] hover:bg-[#211C1A]`}
+      to={playerPath(league, p.entity_id, { stat: p.stat_label, line: p.line, window: 10 })}
+      className={`grid ${COLS} gap-3 items-center px-[18px] py-[9px] hover:bg-[#211C1A] transition-colors`}
       style={{ boxShadow: `inset 3px 0 0 ${accent}` }}
     >
       <div className="flex items-center gap-[10px] min-w-0">
@@ -43,8 +47,9 @@ function PropRow({ league, p }: { league: string; p: ProjectPick }) {
           <div className="font-schibsted font-bold text-[14px] text-[#EFEBE9] truncate flex items-center gap-[6px]">
             {p.team && <TeamLogo league={league} abbr={p.team} size={14} />}
             <span className="truncate">{p.name}</span>
+            <span className="shrink-0 font-normal"><WhyToggle open={open} onToggle={() => setOpen(!open)} /></span>
           </div>
-          <div className="font-martian text-[10px] text-[#8A827E] mt-[2px] truncate">{reason(p) || '—'}</div>
+          <div className="font-martian text-[11px] text-[#A8A09C] mt-[2px] truncate">{reason(p) || '—'}</div>
         </div>
       </div>
       <span className="inline-flex items-center gap-2 min-w-0">
@@ -54,20 +59,22 @@ function PropRow({ league, p }: { league: string; p: ProjectPick }) {
         >
           {over ? 'OVER' : 'UNDER'}
         </span>
-        <span className="font-martian font-bold text-[13px] text-[#EFEBE9] tabular-nums whitespace-nowrap">
+        <span className="font-martian font-bold text-[16px] text-[#EFEBE9] tabular-nums whitespace-nowrap">
           {p.line} <span className="text-[11px] text-[#C9C2BE] font-normal">{p.stat_label}</span>
         </span>
       </span>
-      <span className="font-martian font-bold text-[13px] text-[#EFEBE9] text-right tabular-nums">{pct1(p.model_prob)}</span>
-      <span className="font-martian text-[12px] text-[#C9C2BE] text-right tabular-nums">{Math.round(p.implied_prob * 100)}%</span>
+      <span className="font-martian font-bold text-[16px] text-[#EFEBE9] text-right tabular-nums">{pct1(p.model_prob)}</span>
+      <span className="font-martian text-[15px] text-[#C9C2BE] text-right tabular-nums">{Math.round(p.implied_prob * 100)}%</span>
       <span
-        className="font-martian font-bold text-[12px] text-right tabular-nums"
+        className="font-martian font-bold text-[15px] text-right tabular-nums"
         style={{ color: edgePts > 0 ? GOOD : edgePts < 0 ? BAD : '#A8A09C' }}
       >
         {edgePts > 0 ? '+' : ''}
         {edgePts.toFixed(1)}
       </span>
     </Link>
+    {open && <PickWhy pick={p} ctx={why} />}
+    </div>
   )
 }
 
@@ -76,37 +83,12 @@ function PropRow({ league, p }: { league: string; p: ProjectPick }) {
  * props, each tagged with its team. Comes from GET /{league}/projects, which
  * covers only upcoming games inside the league's projects window.
  */
-/** Main spread and implied win probability from the listed game markets. */
-function LinesStrip({ gameProps, home, away }: { gameProps: GameProp[]; home: TeamRef; away: TeamRef }) {
-  const spread = gameProps.find((g) => g.prop_type === 'spread' && g.line != null)
-  const ml = (id: number) => gameProps.find((g) => g.prop_type === 'winner' && g.team_id === id)?.implied_prob
-  const awayMl = ml(away.id)
-  const homeMl = ml(home.id)
-  if (!spread && awayMl == null && homeMl == null) return null
-  const spreadTeam = spread ? (spread.team_id === away.id ? away : home) : null
-  const item = (label: string, value: string) => (
-    <span className="font-martian text-[11px] text-[#C9C2BE] tabular-nums">
-      <span className="text-[#8A827E] tracking-[1px]">{label} </span>
-      <span className="font-bold text-[#EFEBE9]">{value}</span>
-    </span>
-  )
-  return (
-    <div className="flex flex-wrap items-center gap-x-6 gap-y-1 px-[18px] py-[10px] border-b border-[#221D1A]">
-      {spread && spreadTeam && item('SPREAD', `${spreadTeam.abbreviation} ${spread.line! > 0 ? '+' : ''}${spread.line}${spread.implied_prob != null ? ` · ${Math.round(spread.implied_prob * 100)}%` : ''}`)}
-      {awayMl != null && item(`${away.abbreviation} WIN`, `${Math.round(awayMl * 100)}%`)}
-      {homeMl != null && item(`${home.abbreviation} WIN`, `${Math.round(homeMl * 100)}%`)}
-    </div>
-  )
-}
-
-export default function BestProps({ league, game, supported, windowLabel, gameProps, home, away }: {
+export default function BestProps({ league, game, supported, windowLabel, why }: {
+  why?: WhyContext
   league: string
   game: ProjectGame | null
   supported: boolean
   windowLabel: string
-  gameProps?: GameProp[]
-  home?: TeamRef
-  away?: TeamRef
 }) {
   let body
   if (!supported) {
@@ -130,7 +112,14 @@ export default function BestProps({ league, game, supported, windowLabel, gamePr
               <div className="font-schibsted font-bold text-[15px] text-[#EFEBE9] truncate">{w.name}</div>
             </div>
             <div className="text-right">
-              <div className="font-martian font-bold text-[15px] tabular-nums" style={{ color: GOOD }}>{pct1(w.model_prob)}</div>
+              {/* Green only when the model is above the market, same rule as the EDGE column. */}
+              <div
+                className="font-martian font-bold text-[20px] tabular-nums"
+                style={{ color: w.model_prob >= w.implied_prob ? GOOD : '#EFEBE9' }}
+                title="Model's chance this team wins"
+              >
+                {pct1(w.model_prob)} <span className="text-[10px] font-normal text-[#8A827E]">TO WIN</span>
+              </div>
               <div className="font-martian text-[10px] text-[#A8A09C] tabular-nums">
                 IMPLIED {Math.round(w.implied_prob * 100)}%
                 {w.context.elo_agrees != null && (
@@ -147,13 +136,13 @@ export default function BestProps({ league, game, supported, windowLabel, gamePr
             <div className="min-w-[560px]">
               <div className={`grid ${COLS} gap-3 px-[18px] py-2`}>
                 <Th>PLAYER</Th>
-                <Th>PICK</Th>
-                <Th align="right">HIT</Th>
-                <Th align="right">IMPLIED</Th>
-                <Th align="right">EDGE</Th>
+                <Th tip="The side and line the model picks. L20/L5 = averages over the last 20/5 games">PICK</Th>
+                <Th align="right" tip="Model's chance this pick lands">HIT</Th>
+                <Th align="right" tip="Kalshi price read as a chance (62¢ = 62%)">IMPLIED</Th>
+                <Th align="right" tip="HIT − IMPLIED in % points. Green: model above market">EDGE</Th>
               </div>
               {best.map((p) => (
-                <PropRow key={p.id} league={league} p={p} />
+                <PropRow key={p.id} league={league} p={p} why={why} />
               ))}
             </div>
           </div>
@@ -164,10 +153,9 @@ export default function BestProps({ league, game, supported, windowLabel, gamePr
     )
   }
   return (
-    <ModuleCard title="BEST PROPS" meta="MODEL HIT % VS KALSHI PRICE · EDGE IN PTS">
-      {gameProps && home && away && <LinesStrip gameProps={gameProps} home={home} away={away} />}
+    <ModuleCard title="BEST PROPS" meta="MODEL VS KALSHI PRICE">
       {body}
-      <ImpliedOddsNote />
+      <ImpliedOddsNote model />
     </ModuleCard>
   )
 }

@@ -145,7 +145,7 @@ export default function GlobalSearch() {
   const showPanel = open && trimmed.length >= MIN_QUERY
 
   return (
-    <div ref={rootRef} className="relative w-[150px] sm:w-[210px] shrink-0">
+    <div ref={rootRef} className="relative w-[40px] focus-within:w-[150px] md:focus-within:w-[210px] md:w-[210px] transition-[width] shrink-0">
       <input
         ref={inputRef}
         type="search"

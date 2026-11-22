@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabaseAdmin';
 import { league as resolveLeague } from '../config/leagues';
 import { ML_BAND, PROP_BAND, onCardChanges, selectProjects, type GameState } from '../utils/projects';
-import { gradedRecord } from '../utils/record';
+import { gradedRecord, gradedUnits, unitsOf } from '../utils/record';
 
 /** Calendar date in US Eastern: game_date is local, so UTC would roll over early. */
 function easternDate(d: Date): string {
@@ -78,6 +78,32 @@ export async function getProjects(_req: Request, res: Response) {
       (r: any) => r.on_card_changed_at && easternDate(new Date(r.on_card_changed_at)) === from,
     ) as any[];
 
+    // The latest graded slate before today: the card's "Yesterday's picks" dropdown.
+    // Two small queries (latest date, then its rows) instead of paging all history.
+    const { data: lastRow } = await supabaseAdmin
+      .from('pick_results')
+      .select('game_date')
+      .eq('league_id', lg.leagueId)
+      .eq('pick_type', 'project')
+      .eq('on_card', true)
+      .not('did_hit', 'is', null)
+      .lt('game_date', from)
+      .order('game_date', { ascending: false })
+      .limit(1);
+    const ydayDate: string | null = lastRow?.[0]?.game_date ?? null;
+    const { data: ydayData } = ydayDate
+      ? await supabaseAdmin
+          .from('pick_results')
+          .select('id,game_id,game_date,prop_type,entity_id,stat,recommended_line,implied_prob,did_hit,actual_result,modifiers')
+          .eq('league_id', lg.leagueId)
+          .eq('pick_type', 'project')
+          .eq('on_card', true)
+          .eq('game_date', ydayDate)
+          .not('did_hit', 'is', null)
+          .order('id')
+      : { data: [] as any[] };
+    const ydayRows = (ydayData ?? []) as any[];
+
     const { data: teams } = await supabaseAdmin
       .from('teams')
       .select('id,abbreviation,name')
@@ -88,6 +114,7 @@ export async function getProjects(_req: Request, res: Response) {
     const playerIds = [
       ...[...byGame.values()].flatMap((g) => g.props.map((p: any) => p.entity_id)),
       ...changedToday.filter((r) => r.prop_type !== 'winner').map((r) => r.entity_id),
+      ...ydayRows.filter((r) => r.prop_type === 'player').map((r) => r.entity_id),
     ];
     const { data: players } = playerIds.length
       ? await supabaseAdmin.from('players').select('id,name,team,ext_id').in('id', playerIds)
@@ -142,13 +169,52 @@ export async function getProjects(_req: Request, res: Response) {
       };
     };
 
+    /** A graded straight from the last slate: what was picked, the result, and what it paid. */
+    const ydayShape = (r: any) => {
+      const mods = r.modifiers ?? {};
+      const isProp = r.prop_type === 'player';
+      const player: any = isProp ? playerById.get(r.entity_id) : null;
+      const team: any = isProp ? null : teamById.get(mods.team_id);
+      const price = Number(r.implied_prob);
+      return {
+        id: r.id,
+        kind: isProp ? 'prop' : 'moneyline',
+        entity_id: isProp ? r.entity_id : r.game_id,
+        name: isProp ? (player?.name ?? 'Unknown') : (team?.name ?? mods.team_abbr ?? 'Unknown'),
+        team: mods.team_abbr ?? null,
+        ext_id: isProp ? (player?.ext_id ?? null) : null,
+        stat_label: isProp ? (lg.statLabels[r.stat] ?? r.stat) : null,
+        side: mods.side ?? null,
+        line: r.recommended_line == null ? null : Number(r.recommended_line),
+        price: Number.isFinite(price) ? price : null,
+        actual: r.actual_result == null ? null : Number(r.actual_result),
+        did_hit: !!r.did_hit,
+        units: Math.round(unitsOf([{ did_hit: !!r.did_hit, implied_prob: price }]) * 100) / 100,
+      };
+    };
+    const yesterday = ydayDate
+      ? {
+          date: ydayDate,
+          record: {
+            w: ydayRows.filter((r) => r.did_hit).length,
+            l: ydayRows.filter((r) => !r.did_hit).length,
+            units: Math.round(unitsOf(ydayRows) * 100) / 100,
+          },
+          rows: ydayRows.map(ydayShape),
+        }
+      : null;
+
     return res.json({
       success: true,
       data: {
         supported: true,
+        yesterday,
         bands,
         // Graded picks that were on the card when their game started (on_card).
-        record: await gradedRecord(lg.leagueId, ['project'], true),
+        record: {
+          ...(await gradedRecord(lg.leagueId, ['project'], true)),
+          units: await gradedUnits(lg.leagueId, ['project']),
+        },
         props: props.map((p) => shape(p, 'prop')),
         moneyline: moneyline ? shape(moneyline, 'moneyline') : null,
         // Every upcoming game's predicted winner and top props, for the game view.

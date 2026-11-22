@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Navigate, useParams } from 'react-router-dom'
+import { Navigate, useParams, useSearchParams } from 'react-router-dom'
 import { LEAGUES, type LeagueSlug } from '@/config/leagues'
 import PlayerView from './PlayerView'
 import { usePlayerData } from './usePlayerData'
@@ -22,6 +22,15 @@ export default function PlayerPage() {
 
 function PlayerPageInner({ slug, id }: { slug: LeagueSlug; id: number }) {
   const { data, loading, error, reload } = usePlayerData(slug, id)
+  // ?stat=PTS&line=10&window=10 from a row link preselects the filters.
+  const [params] = useSearchParams()
+  const line = params.get('line')
+  const win = params.get('window')
+  const initialFilters = {
+    stat: params.get('stat') ?? undefined,
+    line: line != null && Number.isFinite(Number(line)) ? Number(line) : undefined,
+    window: win != null && Number.isFinite(Number(win)) ? Number(win) : undefined,
+  }
 
   if (loading) {
     return (
@@ -50,5 +59,5 @@ function PlayerPageInner({ slug, id }: { slug: LeagueSlug; id: number }) {
     )
   }
 
-  return <PlayerView slug={slug} data={data} mode="full" />
+  return <PlayerView key={params.toString()} slug={slug} data={data} mode="full" initialFilters={initialFilters} />
 }

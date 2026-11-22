@@ -12,6 +12,16 @@ const KIND_LABEL: Record<SignalKind, string> = {
   next: 'NEXT',
 }
 
+/** What each badge means, on hover: the headline number alone doesn't say. */
+const KIND_TIP: Record<SignalKind, string> = {
+  hot: "Biggest jump of the player's recent average over their season average",
+  rising: 'Recent average climbing above the season average',
+  streak: 'Games in a row at or above this line',
+  live: 'Game in progress',
+  final: 'Final score margin',
+  next: "Next game's scoring edge: each team's season margin (scored − allowed per game), favourite minus underdog",
+}
+
 const KIND_COLOR: Record<SignalKind, string> = {
   hot: 'text-[#FF6B3D] border-[#FF6B3D]/40',
   rising: 'text-[#FF6B3D] border-[#FF6B3D]/40',
@@ -65,7 +75,7 @@ function LeagueLane({ lane }: { lane: LeagueSignalsData }) {
           {/* Fixed-width headline cell with its own divider, so a wide value
               ("7:00 PM", "104–99") shrinks to fit instead of running into the
               name column. */}
-          <div className="min-w-0 pr-5 border-r border-[#2C2624]">
+          <div className="min-w-0 pr-5 border-r border-[#2C2624]" title={`${s.stat} ${s.statLabel}`}>
             <div
               className={`font-chakra italic font-bold leading-none text-[#EFEBE9] whitespace-nowrap text-[22px] tabular-nums`}
             >
@@ -79,12 +89,14 @@ function LeagueLane({ lane }: { lane: LeagueSignalsData }) {
             <div className="font-schibsted font-bold text-[14px] text-[#EFEBE9] whitespace-nowrap overflow-hidden text-ellipsis">
               {s.name}
             </div>
-            <div className="font-schibsted text-[13px] text-[#C9C2BE] mt-[4px] whitespace-nowrap overflow-hidden text-ellipsis">
+            {/* Two lines before clipping: the context is the "why", so cutting it at one line hid the point. */}
+            <div className="font-schibsted text-[13px] leading-snug text-[#C9C2BE] mt-[4px] line-clamp-2" title={s.context}>
               {s.context}
             </div>
           </div>
           <span
-            className={`font-martian font-bold text-[10px] tracking-[1px] border rounded px-[7px] py-[3px] ${KIND_COLOR[s.kind]}`}
+            title={KIND_TIP[s.kind]}
+            className={`cursor-help font-martian font-bold text-[10px] tracking-[1px] border rounded px-[7px] py-[3px] ${KIND_COLOR[s.kind]}`}
           >
             {KIND_LABEL[s.kind]}
           </span>

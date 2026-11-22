@@ -14,6 +14,7 @@ import {
 } from '../services/sportquerySession'
 import { detectShape, enrich } from '../services/sportqueryEnrich'
 import { attachPlayerContext } from '../services/sportqueryContext'
+import { isParlayRequest, loadLegs, parlayFacts, parseParlayRequest, priceParlay } from '../services/sportqueryParlay'
 import { supabaseAdmin } from '../config/supabaseAdmin'
 import { ownsSession } from '../services/sportquerySession'
 
@@ -196,6 +197,40 @@ export async function postMessage(req: Request, res: Response) {
           : m.content,
     }))
 
+    // Parlays are computed in code over the picks/streaks the site surfaces; the model only words them.
+    if (isParlayRequest(message)) {
+      const req = parseParlayRequest(message)
+      const { legs, date } = await loadLegs(req.kind, req.leagueId, req.n, message)
+      if (legs.length < 2) {
+        const text = `I couldn't find enough ${req.kind === 'streak' ? 'streaks' : 'picks'} on the upcoming slate to build a parlay. Try a different league or drop the team filter.`
+        send('narrative', { token: text })
+        send('results', { rows: [], shape: 'table', widening_note: null, query_error: null, disambiguation: null, follow_up_suggestions: [] })
+        await appendMessage(sessionId, 'assistant', text, { sqlExecuted: null, resultCount: 0, resultRows: null, resultShape: null })
+        if (history.length === 1) await setSessionTitle(sessionId, message)
+        send('done', {})
+        return
+      }
+      const priced = priceParlay(legs)
+      const pRows = legs.map((l) => ({
+        player: l.label,
+        pick: `${l.side === 'under' ? 'Under' : 'Over'} ${l.line ?? ''} ${l.stat}`.trim(),
+        chance: `${(l.prob * 100).toFixed(1)}%`,
+        market: l.implied != null ? `${(l.implied * 100).toFixed(0)}%` : null,
+      }))
+      let text: string
+      try {
+        text = await narrate(message, pRows, pRows.length, null, { history: forLLM, facts: parlayFacts(priced, date) })
+      } catch {
+        text = `Those ${legs.length} legs combine to about ${(priced.combinedProb * 100).toFixed(1)}% (independence assumed).`
+      }
+      send('narrative', { token: text })
+      send('results', { rows: pRows, shape: detectShape(pRows), widening_note: null, query_error: null, disambiguation: null, follow_up_suggestions: [] })
+      await appendMessage(sessionId, 'assistant', text, { sqlExecuted: null, resultCount: pRows.length, resultRows: pRows, resultShape: detectShape(pRows) })
+      if (history.length === 1) await setSessionTitle(sessionId, message)
+      send('done', {})
+      return
+    }
+
     // Resolve loosely-typed player names up front; a failure here must never
     // block the question itself.
     const hints = formatHints(await resolvePlayerHints(message).catch(() => []))
@@ -214,26 +249,36 @@ export async function postMessage(req: Request, res: Response) {
 
     // Ask the model for a corrected query, then validate and run it. Returns
     // null when the retry is unusable, so the caller can report the failure.
-    const retryOnce = async (why: string): Promise<{ sql: string; rows: any[] } | null> => {
+    // The failed SQL goes back in the note: without it the model rewrites from
+    // scratch and tends to repeat the same mistake.
+    // A repair that itself fails gets one more try with its own error: long
+    // multi-CTE queries often need two fixes (e.g. a bad column, then an alias).
+    const retryOnce = async (
+      why: string,
+      badSql: string,
+      attemptsLeft = 2
+    ): Promise<{ sql: string; rows: any[] } | null> => {
       const retryEnvelope = await callLLM(
         forLLM,
-        `${message}\n\n[SYSTEM NOTE] ${why} Produce a corrected query.`,
+        `${message}\n\n[SYSTEM NOTE] ${why}\nPrevious SQL:\n${badSql}\nFix that query (keep its intent and columns) and return the corrected one.`,
         hints
       )
       if (!retryEnvelope.sql) return null
+      const again = (reason: string) =>
+        attemptsLeft > 1 ? retryOnce(reason, retryEnvelope.sql!, attemptsLeft - 1) : Promise.resolve(null)
       const v2 = await validateSql(retryEnvelope.sql)
-      if (!v2.ok) return null
+      if (v2.ok === false) return again(`Your previous SQL was rejected by the validator: ${v2.reason}.`)
       try {
         return { sql: retryEnvelope.sql, rows: await runReadOnly(v2.rewritten) }
-      } catch {
-        return null
+      } catch (err: any) {
+        return again(`Your previous SQL errored: ${err.message}.`)
       }
     }
 
     if (envelope.sql) {
       const v = await validateSql(envelope.sql)
       if (v.ok === false) {
-        const retry = await retryOnce(`Your previous SQL was rejected by the validator: ${v.reason}.`)
+        const retry = await retryOnce(`Your previous SQL was rejected by the validator: ${v.reason}.`, envelope.sql)
         if (retry) {
           sqlForLog = retry.sql
           rows = retry.rows
@@ -245,7 +290,7 @@ export async function postMessage(req: Request, res: Response) {
           sqlForLog = envelope.sql
           rows = await runReadOnly(v.rewritten)
         } catch (err: any) {
-          const retry = await retryOnce(`Your previous SQL errored: ${err.message}.`)
+          const retry = await retryOnce(`Your previous SQL errored: ${err.message}.`, envelope.sql)
           if (retry) {
             sqlForLog = retry.sql
             rows = retry.rows
@@ -269,7 +314,8 @@ export async function postMessage(req: Request, res: Response) {
     // A query that ran but matched nothing is usually a too-literal filter: retry once.
     if (sqlForLog && rows.length === 0 && !queryError) {
       const retry = await retryOnce(
-        'Your previous query returned 0 rows. Loosen the filters: match names by distinctive stem (ILIKE), accept team city/nickname/abbreviation, check game_type and season scope, and widen the date range if it was narrow.'
+        'Your previous query returned 0 rows. Loosen the filters: match names by distinctive stem (ILIKE), accept team city/nickname/abbreviation, check game_type and season scope, and widen the date range if it was narrow. If a part that can legitimately be empty (no line posted, no game tonight) is inner-joined or drives the FROM, restructure: start FROM the player/team and LEFT JOIN that part so the row still returns with nulls.',
+        sqlForLog
       )
       if (retry && retry.rows.length > 0) {
         sqlForLog = retry.sql
@@ -286,7 +332,7 @@ export async function postMessage(req: Request, res: Response) {
     let narrative = envelope.narrative
     if (envelope.sql) {
       try {
-        narrative = await narrate(message, enriched as Record<string, unknown>[], enriched.length, wideningNote)
+        narrative = await narrate(message, enriched as Record<string, unknown>[], enriched.length, wideningNote, { history: forLLM })
       } catch {
         narrative = queryError
           ? 'I could not run that query. Try rephrasing it, for example by naming the player, team and stat.'

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import GameLogChart from './GameLogChart'
 import { getPlayerStatConfig } from '@/config/playerStats'
 import type { GameRow } from '../types'
@@ -123,5 +124,21 @@ describe('GameLogChart', () => {
       render(<GameLogChart games={games} def={def} line={25} usage={min} />)
       expect(screen.queryByTestId('usage-strip')).not.toBeInTheDocument()
     })
+  })
+
+  it('links each bar to its game when the row carries a game id', () => {
+    const withIds: GameRow[] = [
+      { date: '2026-04-10', opponent: 'BOS', points: 30, gameId: 501 },
+      { date: '2026-04-08', opponent: 'LAL', points: 20 },
+    ]
+    render(
+      <MemoryRouter>
+        <GameLogChart games={withIds} def={def} line={25} league="nba" />
+      </MemoryRouter>
+    )
+    const links = screen.getAllByRole('link')
+    // Only the row with a gameId becomes a link; the other stays a plain bar.
+    expect(links).toHaveLength(1)
+    expect(links[0]).toHaveAttribute('href', '/game/nba/501')
   })
 })

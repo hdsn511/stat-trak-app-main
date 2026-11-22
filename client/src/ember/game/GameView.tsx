@@ -5,7 +5,6 @@ import ModuleCard from '@/ember/components/ModuleCard'
 import { useEntityData } from '@/ember/useEntityData'
 import ScoreHeader from './components/ScoreHeader'
 import BoxScoreTable from './components/BoxScoreTable'
-import MarketPanel from './components/MarketPanel'
 import { InjuryList } from './components/SidePanels'
 import BestProps from './components/BestProps'
 import Conditions from './components/Conditions'
@@ -55,8 +54,17 @@ export default function GameView({ data }: GameViewProps) {
   const showLegacyInjuries = !ins && data.injury_report.length > 0
 
   return (
-    <div className="w-full max-w-[1280px] mx-auto flex flex-col gap-[14px] px-8 pt-6 pb-11">
-      <ScoreHeader league={league} game={game} rest={data.rest} />
+    <div className="w-full flex flex-col gap-[14px] px-3 sm:px-4 pt-4 pb-11">
+      <ScoreHeader
+        league={league}
+        game={game}
+        rest={data.rest}
+        lines={data.lines}
+        records={insights.data ? { away: insights.data.away.record, home: insights.data.home.record } : undefined}
+        gameProps={data.props}
+        headToHead={data.head_to_head}
+        winnerPrice={projectGame?.winner ?? null}
+      />
 
       {upcoming && ins && <Conditions insights={ins} />}
 
@@ -69,15 +77,13 @@ export default function GameView({ data }: GameViewProps) {
             game={projectGame}
             supported={projects.data?.supported ?? false}
             windowLabel={PROJECTS_WINDOW[league]!}
-            gameProps={data.props}
-            home={home}
-            away={away}
+            why={{ insights: ins ?? null, lines: data.lines, rest: data.rest, home: home.abbreviation, away: away.abbreviation }}
           />
         )
       )}
 
       {upcoming && (ins ? (
-        <div className="grid gap-[14px] items-start lg:grid-cols-2">
+        <div className="grid gap-[14px] items-stretch xl:grid-cols-2">
           <StreaksTable league={league} insights={ins} />
           <TrendsTable league={league} insights={ins} />
         </div>
@@ -105,10 +111,6 @@ export default function GameView({ data }: GameViewProps) {
 
       {upcoming && ins && (
         <TeamColumns league={league} away={away} home={home} awayInfo={ins.away} homeInfo={ins.home} />
-      )}
-
-      {data.has_markets && (
-        <MarketPanel league={league} props={data.props} picks={data.picks} home={home} away={away} />
       )}
 
       {showLegacyInjuries && <InjuryList league={league} injuries={data.injury_report} />}

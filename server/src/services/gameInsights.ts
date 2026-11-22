@@ -398,8 +398,8 @@ function matchupFor(lg: LeagueConfig, table: SeasonTable, oppId: number | undefi
   // Same small-sample shrink as the Streak Watch: a few games can't say much.
   const raw = t.against[col]! / lgAvg;
   const factor = 1 + (raw - 1) * (t.games / (t.games + (lg.slug === 'nfl' ? 3 : 8)));
-  // rank 1 = allows the most (the softest matchup), matching the Streak Watch.
-  const rank = table.teamCount + 1 - (table.defRank[col]?.get(oppId) ?? table.teamCount);
+  // rank 1 = allows the least (stingiest), the same convention as the tale of the tape.
+  const rank = table.defRank[col]?.get(oppId) ?? table.teamCount;
   return { factor: Math.round(factor * 1000) / 1000, rank, of: table.teamCount };
 }
 

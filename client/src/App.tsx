@@ -1,5 +1,4 @@
 import { Navigate, Outlet, Route, Routes, useParams } from 'react-router-dom'
-import Header from '@/components/Header/Header'
 import EmberHeader from '@/ember/components/EmberHeader'
 import SiteFooter from '@/ember/components/SiteFooter'
 import AboutPage from '@/ember/about/AboutPage'
@@ -16,17 +15,6 @@ import PlayerPage from '@/ember/player/PlayerPage'
 import GamePage from '@/ember/game/GamePage'
 import TeamPage from '@/ember/team/TeamPage'
 import { NotFoundState } from '@/ember/components/EntityState'
-
-function LegacyLayout() {
-  return (
-    <div className="bg-[#0A0A0A] min-h-screen">
-      <Header />
-      <div className="pt-16 h-screen flex flex-col">
-        <Outlet />
-      </div>
-    </div>
-  )
-}
 
 function EmberLayout() {
   return (
@@ -78,9 +66,6 @@ export default function App() {
       <Route path="/mlb/player/:id" element={<LegacyEntityRedirect to="player" league="mlb" />} />
       <Route path="/game/:id" element={<LegacyEntityRedirect to="game" league="nba" />} />
       <Route path="/team/:id" element={<LegacyEntityRedirect to="team" league="nba" />} />
-
-      <Route element={<LegacyLayout />}>
-      </Route>
     </Routes>
   )
 }

@@ -1,4 +1,6 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
+import { Link } from 'react-router-dom'
+import { gamePath } from '@/lib/paths'
 import type { StatDef } from '@/config/playerStats'
 import type { GameRow } from '../types'
 
@@ -8,12 +10,14 @@ interface GameLogChartProps {
   line: number
   /** Usage metric (minutes, targets…) drawn as a quiet strip under the bars. */
   usage?: (StatDef & { title?: string }) | null
+  /** League slug; with it, each bar links to its game page. */
+  league?: string
 }
 
 // Height of the tallest possible bar; bars and the threshold share this scale.
 const H = 120
-// Headroom above a full-height bar for its value label (10px line + 4px gap).
-const VALUE_ROOM = 14
+// Headroom above a full-height bar for its value label (13px line + 4px gap).
+const VALUE_ROOM = 17
 
 // Every bar keeps at least this much width so its value and opponent code stay
 // readable. Few games grow to fill the card; a full season overflows it and
@@ -23,11 +27,29 @@ const GAP = 6
 
 // The usage strip is deliberately small: context for the main bars, not a rival.
 const UH = 34
-const U_VALUE_ROOM = 12
+const U_VALUE_ROOM = 14
 
 const fmt = (d: StatDef, v: number) => (d.format ? d.format(v) : String(v))
 
-export default function GameLogChart({ games, def, line, usage = null }: GameLogChartProps) {
+/** "2026-11-16" → "11/16"; anything else passes through untouched. */
+const shortDate = (s: string) => {
+  const m = s.match(/^\d{4}-(\d{2})-(\d{2})/)
+  return m ? `${Number(m[1])}/${Number(m[2])}` : s
+}
+
+/** A bar's column: a link to the game when we know which game it was, a plain box otherwise. */
+function Column({ to, label, children }: { to: string | null; label: string; children: ReactNode }) {
+  const cls = 'flex-1 flex flex-col items-center justify-end gap-1 min-w-0'
+  const style = { minWidth: `${BAR_MIN}px` }
+  if (!to) return <div className={cls} style={style}>{children}</div>
+  return (
+    <Link to={to} aria-label={label} title={label} className={`${cls} group cursor-pointer`} style={style}>
+      {children}
+    </Link>
+  )
+}
+
+export default function GameLogChart({ games, def, line, usage = null, league }: GameLogChartProps) {
   const scroller = useRef<HTMLDivElement>(null)
 
   // The API returns newest first; a chart reads left-to-right chronologically.
@@ -36,8 +58,12 @@ export default function GameLogChart({ games, def, line, usage = null }: GameLog
       v: def.get(g),
       u: usage ? usage.get(g) : null,
       opp: typeof g.opponent === 'string' ? g.opponent : '',
+      // "@" marks road games, as in the game log table; the date tells repeat opponents apart.
+      away: g.isHome === false,
+      date: typeof g.date === 'string' ? shortDate(g.date) : '',
+      gameId: typeof g.gameId === 'number' ? g.gameId : null,
     }))
-    .filter((p): p is { v: number; u: number | null; opp: string } => p.v != null)
+    .filter((p): p is { v: number; u: number | null; opp: string; away: boolean; date: string; gameId: number | null } => p.v != null)
     .reverse()
 
   // Open on the most recent games; earlier ones are a scroll to the left.
@@ -89,17 +115,19 @@ export default function GameLogChart({ games, def, line, usage = null }: GameLog
             <div className="absolute inset-0 flex items-end" style={{ gap: `${GAP}px` }}>
               {points.map((p, i) => {
                 const result = p.v > line ? 'over' : p.v < line ? 'under' : 'push'
+                // Under bars were brown-grey and nearly vanished on the card; muted red reads as "missed" like every other strip.
                 const color =
-                  result === 'over' ? '#3FBF7F' : result === 'under' ? '#4A403C' : '#9A918F'
+                  result === 'over' ? '#3FBF7F' : result === 'under' ? 'rgba(255,107,92,0.45)' : '#9A918F'
+                const summary = `${p.date} ${p.away ? '@' : 'vs'} ${p.opp || '—'}: ${def.format ? def.format(p.v) : p.v} (${result} ${line})`
                 return (
-                  <div
+                  <Column
                     key={i}
-                    className="flex-1 flex flex-col items-center justify-end gap-1 min-w-0"
-                    style={{ minWidth: `${BAR_MIN}px` }}
+                    to={league && p.gameId != null ? gamePath(league, p.gameId) : null}
+                    label={`${summary}. Open game`}
                   >
                     <span
                       data-testid="chart-value"
-                      className="font-martian font-medium text-[10px] text-[#C9C2BE] leading-[10px]"
+                      className="font-martian font-bold text-[13px] text-[#EFEBE9] leading-[13px] tabular-nums"
                     >
                       {def.format ? def.format(p.v) : p.v}
                     </span>
@@ -107,11 +135,11 @@ export default function GameLogChart({ games, def, line, usage = null }: GameLog
                       data-testid="chart-bar"
                       data-value={p.v}
                       data-result={result}
-                      title={`${p.opp || '—'}: ${def.format ? def.format(p.v) : p.v}`}
-                      className="w-full rounded-t-[3px]"
-                      style={{ height: `${Math.max(3, (p.v / max) * H)}px`, background: color }}
+                      title={summary}
+                      className="w-full rounded-t-[3px] animate-bar-grow transition-[filter] duration-150 group-hover:brightness-125"
+                      style={{ height: `${Math.max(3, (p.v / max) * H)}px`, background: color, animationDelay: `${Math.min(i, 8) * 30}ms` }}
                     />
-                  </div>
+                  </Column>
                 )
               })}
             </div>
@@ -121,17 +149,19 @@ export default function GameLogChart({ games, def, line, usage = null }: GameLog
             {points.map((p, i) => (
               <span
                 key={i}
-                className="flex-1 text-center font-martian text-[10px] text-[#A8A09C] overflow-hidden whitespace-nowrap"
+                className="flex-1 text-center font-martian text-[11px] text-[#C9C2BE] overflow-hidden whitespace-nowrap leading-tight"
                 style={{ minWidth: `${BAR_MIN}px` }}
               >
+                {p.away ? '@' : ''}
                 {p.opp}
+                {p.date && <span className="block text-[10px] text-[#8A827E]">{p.date}</span>}
               </span>
             ))}
           </div>
 
           {showUsage && (
             <div data-testid="usage-strip" className="mt-[10px] pt-[8px] border-t border-dashed border-[#2C2624]">
-              <div className="sticky left-0 w-fit font-martian text-[9px] tracking-[1px] text-[#8A817D] mb-[2px]">
+              <div className="sticky left-0 w-fit font-martian text-[10px] tracking-[1px] text-[#A8A09C] mb-[2px]">
                 {`${usage.title ?? usage.label} · AVG ${uAvg.toFixed(1)}`}
               </div>
               <div className="relative" style={{ height: `${UH + U_VALUE_ROOM}px` }}>
@@ -146,7 +176,7 @@ export default function GameLogChart({ games, def, line, usage = null }: GameLog
                       >
                         <span
                           data-testid="usage-value"
-                          className="font-martian text-[9px] text-[#8A817D] leading-[9px]"
+                          className="font-martian text-[11px] text-[#A8A09C] leading-[11px] tabular-nums"
                         >
                           {p.u == null ? '—' : fmt(usage, p.u)}
                         </span>

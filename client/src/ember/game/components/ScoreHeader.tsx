@@ -97,6 +97,8 @@ function useHoverFold() {
     window.addEventListener('scroll', on, true)
     return () => window.removeEventListener('scroll', on, true)
   }, [])
+  // Measures every render on purpose; setFactsH bails out when the height is unchanged.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useLayoutEffect(() => {
     if (factsRef.current) setFactsH(factsRef.current.scrollHeight)
   })

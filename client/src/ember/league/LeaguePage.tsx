@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { dailyLeagueChips } from '@/ember/sportquery/suggestions'
 import { AskBar, LiveTicker, QueryChips, StreakWatch, TrendingPlayers } from '@/ember/components'
 import StandingsCard from '@/ember/nba/StandingsCard'
 import PicksCard from '@/ember/league/PicksCard'
@@ -80,7 +81,7 @@ export default function LeaguePage({ config }: LeaguePageProps) {
           <div className="ml-auto w-full max-w-[640px]">
             <AskBar placeholder={config.askPlaceholder} onSubmit={openQuery} />
             <div className="mt-3 [&>div]:justify-end">
-              <QueryChips variant="paper" chips={config.chips} onSelect={openQuery} />
+              <QueryChips variant="paper" chips={dailyLeagueChips(config.slug)} onSelect={openQuery} />
             </div>
           </div>
         </div>

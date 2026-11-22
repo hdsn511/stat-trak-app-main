@@ -109,8 +109,9 @@ function streakSignal(row: StreakRow): StatSignal | null {
     to: playerPath(row.league, row.playerId, { stat: row.label, line, window: 10 }),
     viz: {
       kind: 'pips',
-      filled: Math.min(run ? runGames : (top?.cleared ?? games), 12),
-      total: Math.min(Math.max(games, run ? runGames : 0), 12),
+      // A run is shown against the last 10 games; a "cleared X of N" tier against its own N.
+      filled: run ? Math.min(runGames, 10) : Math.min(top?.cleared ?? games, 12),
+      total: run ? 10 : Math.min(games, 12),
     },
   }
 }

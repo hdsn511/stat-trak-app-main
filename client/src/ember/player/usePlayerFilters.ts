@@ -18,11 +18,14 @@ interface Args {
  */
 export function usePlayerFilters({ games, statDefs, initial, usageOf }: Args) {
   const firstStat = statDefs[0]?.key ?? ''
+  // Links carry the display label (PTS) as often as the key (points).
+  const wanted = initial?.stat?.toLowerCase()
+  const initialStat = statDefs.find((s) => s.key.toLowerCase() === wanted || s.label.toLowerCase() === wanted)?.key
   const [filters, setFilters] = useState<PlayerFilters>(() => ({
     window: initial?.window ?? 0,
     vsTeam: initial?.vsTeam ?? null,
     homeAway: initial?.homeAway ?? 'all',
-    stat: statDefs.some((s) => s.key === initial?.stat) ? initial!.stat! : firstStat,
+    stat: initialStat ?? firstStat,
     line: initial?.line ?? 0,
     // An explicit incoming line is the user's intent; do not overwrite it.
     lineTouched: initial?.line != null,

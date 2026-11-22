@@ -25,6 +25,13 @@
     --input: 0 0% 12%;
     --ring: 14 100% 59%;
     --radius: 0.75rem;
+
+    /* Motion tokens. Strong ease-out for anything entering; ease-in-out for on-screen movement. */
+    --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+    --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+    --dur-fast: 160ms;
+    --dur-ui: 220ms;
+    --dur-reveal: 280ms;
   }
 
   * {
@@ -46,46 +53,6 @@
   ::-webkit-scrollbar-thumb:hover { background: rgba(255, 95, 46, 0.4); }
 }
 
-@layer utilities {
-  .font-condensed { font-family: 'Space Grotesk', sans-serif; font-weight: 700; letter-spacing: 0.04em; }
-
-  .text-glow-mint {
-    text-shadow: 0 0 30px rgba(255, 95, 46, 0.55), 0 0 60px rgba(255, 95, 46, 0.2);
-  }
-
-  .border-glow-mint {
-    box-shadow: 0 0 0 1px rgba(255, 95, 46, 0.15), 0 4px 24px rgba(255, 95, 46, 0.07);
-  }
-}
-
-@keyframes bar-grow {
-  from { transform: scaleY(0); opacity: 0; }
-  to   { transform: scaleY(1); opacity: 1; }
-}
-
-@keyframes pulse-live {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50%       { opacity: 0.35; transform: scale(0.7); }
-}
-
-@keyframes fade-up {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-.animate-bar-grow {
-  animation: bar-grow 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
-  transform-origin: bottom;
-}
-
-.animate-pulse-live {
-  animation: pulse-live 1.4s ease-in-out infinite;
-}
-
-.animate-fade-up {
-  animation: fade-up 0.2s ease-out both;
-}
-
 @keyframes tdot {
   0%, 100% { opacity: 0.2; }
   50%      { opacity: 1; }
@@ -101,7 +68,39 @@
 }
 
 .animate-rise {
-  animation: rise 0.25s ease both;
+  animation: rise var(--dur-ui) var(--ease-out) both;
+}
+
+@keyframes bar-grow-x {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+
+/* Horizontal bars fill from the left on mount: the eye follows the bar to its value. */
+.animate-bar-grow-x {
+  animation: bar-grow-x var(--dur-reveal) var(--ease-out) both;
+  transform-origin: left;
+}
+
+/* Press feedback for small controls: a subtle squeeze, released instantly. */
+.press {
+  transition: transform var(--dur-fast) var(--ease-out), background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+.press:active {
+  transform: scale(0.97);
+}
+
+@keyframes fade {
+  from { opacity: 0; }
+}
+
+/* Reduced motion = no movement, not no feedback: drop growth, slides and the
+   live pulse, keep a short opacity fade so new content still announces itself. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-bar-grow-x,
+  .animate-rise {
+    animation: fade var(--dur-fast) ease both;
+  }
 }
 
 .no-scrollbar {

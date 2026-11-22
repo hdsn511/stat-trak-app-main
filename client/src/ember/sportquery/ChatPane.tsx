@@ -4,11 +4,9 @@ import AskBar from '@/ember/components/AskBar'
 import QueryChips from '@/ember/components/QueryChips'
 import InfoPopover from './InfoPopover'
 import ResultCards from './ResultCards'
-import { STARTER_QUESTIONS } from './capabilities'
+import { dailyChips } from './suggestions'
 import type { Selection } from './selection'
 import type { AssistantTurn, Turn } from './useSportQuery'
-
-const STARTER_CHIPS = STARTER_QUESTIONS
 
 interface ChatPaneProps {
   turns: Turn[]
@@ -187,7 +185,7 @@ export default function ChatPane({ turns, busy, selection, onAsk, onSelect }: Ch
         <div className="mx-auto" style={{ maxWidth: innerMax }}>
           {turns.length === 0 && (
             <div className="mb-3">
-              <QueryChips chips={STARTER_CHIPS} onSelect={onAsk} variant="dark" />
+              <QueryChips chips={dailyChips()} onSelect={onAsk} variant="dark" />
             </div>
           )}
           <AskBar

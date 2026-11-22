@@ -33,7 +33,7 @@ const scheduleTarget: MatchupTarget = {
 }
 const filterTarget: MatchupTarget = { team: 'MIA', source: 'filter', upcoming: null }
 
-const base = { splits, signal, h2h: [], statDefs, volumeDef }
+const base = { splits, signal, h2h: [], defs: [...(volumeDef ? [volumeDef] : []), ...statDefs] }
 
 describe('MatchupPanel', () => {
   it('prompts for an opponent when there is no target', () => {
@@ -98,5 +98,21 @@ describe('MatchupPanel', () => {
     ]
     render(<MatchupPanel {...base} h2h={h2h} target={scheduleTarget} />)
     expect(screen.queryByText(/SMALL SAMPLE/)).not.toBeInTheDocument()
+  })
+
+  it('records the line against this opponent and colours each meeting over/under', () => {
+    const h2h = [
+      { date: '2026-04-10', opponent: 'BOS', points: 30 },
+      { date: '2026-04-06', opponent: 'BOS', points: 25 },
+      { date: '2026-04-02', opponent: 'BOS', points: 40 },
+    ]
+    const pts = statDefs.find((d) => d.key === 'points')!
+    render(
+      <MatchupPanel {...base} h2h={h2h} target={scheduleTarget} activeDef={pts} line={28}
+        h2hRate={{ over: 2, under: 1, push: 0, total: 3, pct: 67 }} />
+    )
+    expect(screen.getByText('2-1')).toBeInTheDocument()
+    expect(screen.getByTitle('UNDER 28')).toHaveTextContent('25')
+    expect(screen.getAllByTitle('OVER 28')).toHaveLength(2)
   })
 })

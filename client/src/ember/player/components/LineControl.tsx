@@ -4,21 +4,33 @@ interface LineControlProps {
   label: string
   line: number
   hitRate: HitRate
-  versusHitRate: HitRate | null
-  versusTeam: string | null
+  /** Hit rate against the current line per window (L5, L10, SZN, VS OPP…), props-tool style. */
+  strip?: { label: string; r: HitRate; tip: string }[]
   touched: boolean
   onLine: (v: number) => void
   onReset: () => void
 }
 
+// Fewer games than this and a hit rate says little, so it is shown neutral, not green/red.
+const MIN_SAMPLE = 5
+
 function Rate({ caption, r }: { caption: string; r: HitRate }) {
-  const tone = r.pct == null ? 'text-[#C9C2BE]' : r.pct >= 50 ? 'text-[#3FBF7F]' : 'text-[#FF6B5C]'
+  const n = r.over + r.under
+  const small = n < MIN_SAMPLE
+  const tone = r.pct == null || small ? 'text-[#C9C2BE]' : r.pct >= 50 ? 'text-[#3FBF7F]' : 'text-[#FF6B5C]'
   return (
     <div>
-      <div className="font-martian text-[10px] text-[#A8A09C] tracking-[1px]">{caption}</div>
-      <div className={`font-martian font-bold text-[15px] mt-[3px] ${tone}`}>
+      <div className="font-martian text-[10px] text-[#A8A09C] tracking-[1px]">
+        {caption}
+        {small && n > 0 && (
+          <span className="ml-[6px] text-[#FFB020]" title={`Only ${n} game${n === 1 ? '' : 's'}: too few to read much into`}>
+            · SMALL SAMPLE
+          </span>
+        )}
+      </div>
+      <div className={`font-martian font-bold text-[20px] mt-[3px] tabular-nums ${tone}`}>
         {`${r.over}/${r.over + r.under} OVER`}
-        {r.pct != null && <span className="text-[13px] ml-[6px]">{`${r.pct}%`}</span>}
+        {r.pct != null && <span className="text-[15px] ml-[6px]">{`${r.pct}%`}</span>}
       </div>
       {r.push > 0 && (
         <div className="font-martian text-[10px] text-[#C9C2BE] mt-[2px] tracking-[0.5px]">
@@ -29,12 +41,29 @@ function Rate({ caption, r }: { caption: string; r: HitRate }) {
   )
 }
 
+/** One window's record against the line: label, "3/5", and the % in hit/miss colour. */
+function Chip({ label, r, tip }: { label: string; r: HitRate; tip: string }) {
+  const n = r.over + r.under
+  const tone = r.pct == null || n < MIN_SAMPLE ? '#C9C2BE' : r.pct >= 60 ? '#3FBF7F' : r.pct <= 40 ? '#FF6B5C' : '#E9B949'
+  return (
+    <div
+      className="min-w-[72px] rounded-md border border-[#2C2624] bg-[#1F1A18] px-[10px] py-[7px] text-center"
+      title={`${tip}${r.push ? ` · ${r.push} push` : ''}`}
+    >
+      <div className="font-martian text-[10px] text-[#A8A09C] tracking-[1px]">{label}</div>
+      <div className="font-martian font-bold text-[18px] leading-none mt-[5px] tabular-nums" style={{ color: tone }}>
+        {r.pct == null ? '—' : `${r.pct}%`}
+      </div>
+      <div className="font-martian text-[11px] text-[#A8A09C] mt-[4px] tabular-nums">{n > 0 ? `${r.over}/${n}` : r.push > 0 ? `${r.push} push` : 'no games'}</div>
+    </div>
+  )
+}
+
 export default function LineControl({
   label,
   line,
   hitRate,
-  versusHitRate,
-  versusTeam,
+  strip = [],
   touched,
   onLine,
   onReset,
@@ -52,7 +81,7 @@ export default function LineControl({
             type="button"
             aria-label="Lower line"
             onClick={() => step(-0.5)}
-            className="font-martian font-bold text-[14px] text-[#C9C2BE] hover:text-[#EFEBE9] border border-[#2C2624] hover:border-[#665F5D] rounded-md w-[26px] h-[26px] cursor-pointer"
+            className="font-martian font-bold text-[14px] text-[#C9C2BE] hover:text-[#EFEBE9] border border-[#2C2624] hover:border-[#665F5D] rounded-md w-[26px] h-[26px] cursor-pointer press"
           >
             −
           </button>
@@ -68,13 +97,13 @@ export default function LineControl({
             }}
             // Spinner arrows steal ~17px of a number input's width, clipping
             // values like "11.5". The ± buttons already cover stepping.
-            className="font-martian font-bold text-[20px] text-[#EFEBE9] bg-[#221D1A] border border-[#2E2724] rounded-md w-[96px] px-[9px] py-[3px] text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            className="font-martian font-bold text-[24px] text-[#EFEBE9] bg-[#221D1A] border border-[#2E2724] rounded-md w-[96px] px-[9px] py-[3px] text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
           />
           <button
             type="button"
             aria-label="Raise line"
             onClick={() => step(0.5)}
-            className="font-martian font-bold text-[14px] text-[#C9C2BE] hover:text-[#EFEBE9] border border-[#2C2624] hover:border-[#665F5D] rounded-md w-[26px] h-[26px] cursor-pointer"
+            className="font-martian font-bold text-[14px] text-[#C9C2BE] hover:text-[#EFEBE9] border border-[#2C2624] hover:border-[#665F5D] rounded-md w-[26px] h-[26px] cursor-pointer press"
           >
             +
           </button>
@@ -91,8 +120,13 @@ export default function LineControl({
       </div>
 
       <Rate caption="FILTERED SLICE" r={hitRate} />
-      {versusHitRate && versusTeam && (
-        <Rate caption={`VS ${versusTeam.toUpperCase()}`} r={versusHitRate} />
+      {strip.length > 0 && (
+        // Same windows every prop tool leads with, all against this one line.
+        <div className="ml-auto flex flex-wrap gap-[8px]">
+          {strip.map((c) => (
+            <Chip key={c.label} {...c} />
+          ))}
+        </div>
       )}
     </div>
   )

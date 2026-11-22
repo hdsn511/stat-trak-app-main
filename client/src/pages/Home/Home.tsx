@@ -10,7 +10,7 @@ import { useSportData } from '@/ember/data/useSportData'
 import { buildLeagueSignals, inSeasonLeagues } from '@/ember/home/signals'
 import { formatGameDate } from '@/ember/game/format'
 import type { LeagueSlug } from '@/config/leagues'
-import { HERO_CHIPS } from '@/ember/sportquery/suggestions'
+import { dailyChips } from '@/ember/sportquery/suggestions'
 
 const ALL_LEAGUES: LeagueSlug[] = ['nba', 'mlb', 'nfl', 'nhl']
 const TREND_ROWS = 10
@@ -118,7 +118,7 @@ export default function Home() {
             onSubmit={openQuery}
           />
           <div className="mt-[14px] flex justify-center [&>div]:justify-center">
-            <QueryChips variant="paper" chips={HERO_CHIPS} onSelect={openQuery} />
+            <QueryChips variant="paper" chips={dailyChips()} onSelect={openQuery} />
           </div>
         </div>
       </section>

@@ -19,7 +19,8 @@ export default function ModuleCard({
 }: ModuleCardProps) {
   return (
     <div
-      className={`rounded-lg border overflow-hidden ${
+      // flex-col so a card stretched to its neighbour's height can push a footer down with mt-auto.
+      className={`flex flex-col rounded-lg border overflow-hidden ${
         onPaper ? 'bg-white border-[#E4E0D6]' : 'bg-[#1B1715] border-[#2C2624]'
       } ${className}`}
     >

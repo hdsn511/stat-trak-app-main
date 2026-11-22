@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom'
 import type { GameH2HEntry, GameInjury, TeamRef } from '@/services/api'
 import ModuleCard from '@/ember/components/ModuleCard'
 import { gamePath, playerPath } from '@/lib/paths'
-import { formatGameDate } from '../format'
+import { formatGameDateYear } from '../format'
 
 const STATUS_STYLE: Record<GameInjury['status'], string> = {
   out: 'text-[#FF6B5C] border-[rgba(255,107,92,0.4)] bg-[rgba(255,107,92,0.08)]',
@@ -81,19 +81,23 @@ export function HeadToHead({ league, entries, home, away, embedded }: HeadToHead
               to={gamePath(league, e.game_id)}
               className="flex items-center gap-3 px-[18px] py-[10px] border-b border-[#221D1A] last:border-b-0 hover:bg-[#211C1A]"
             >
-              <span className="font-martian text-[10px] text-[#A8A09C] tracking-[1px] w-[74px] shrink-0">
-                {formatGameDate(e.game_date)}
+              <span className="font-martian text-[11px] text-[#A8A09C] tracking-[1px] w-[100px] shrink-0">
+                {formatGameDateYear(e.game_date)}
               </span>
               <span
-                className={`font-martian font-bold text-[13px] ${awayWon ? 'text-[#EFEBE9]' : 'text-[#A8A09C]'}`}
+                className={`font-martian font-bold text-[15px] tabular-nums ${awayWon ? 'text-[#EFEBE9]' : 'text-[#8A827E]'}`}
               >
                 {e.away_team.abbreviation} {e.away_score}
               </span>
               <span className="font-martian text-[11px] text-[#8A827E]">@</span>
               <span
-                className={`font-martian font-bold text-[13px] ${!awayWon ? 'text-[#EFEBE9]' : 'text-[#A8A09C]'}`}
+                className={`font-martian font-bold text-[15px] tabular-nums ${!awayWon ? 'text-[#EFEBE9]' : 'text-[#8A827E]'}`}
               >
                 {e.home_team.abbreviation} {e.home_score}
+              </span>
+              {/* Winner and margin, so the series reads without doing subtraction. */}
+              <span className="ml-auto font-martian text-[11px] tabular-nums text-[#C9C2BE] rounded-[3px] border border-[#2C2624] px-[7px] py-[2px]">
+                {(awayWon ? e.away_team : e.home_team).abbreviation} +{Math.abs(e.away_score - e.home_score)}
               </span>
             </Link>
           )

@@ -5,24 +5,7 @@ export default {
   theme: {
     extend: {
       colors: {
-        mint: {
-          DEFAULT: '#FF5F2E',
-          50: '#fff2ee',
-          100: '#ffe0d4',
-          200: '#ffbda8',
-          300: '#FF5F2E',
-          400: '#f04918',
-          500: '#cc3c13',
-          600: '#a3300f',
-        },
-        surface: {
-          DEFAULT: '#141414',
-          elevated: '#1a1a1a',
-        },
         border: '#1E1E1E',
-        over: '#22C55E',
-        under: '#EF4444',
-        push: '#EAB308',
         // Keep shadcn/ui CSS variable colors
         background: 'hsl(var(--background))',
         foreground: 'hsl(var(--foreground))',
@@ -51,8 +34,6 @@ export default {
       },
       fontFamily: {
         sans: ['Space Grotesk', 'system-ui', 'sans-serif'],
-        display: ['Doto', 'sans-serif'],
-        condensed: ['Space Grotesk', 'sans-serif'],
         mono: ['Space Mono', 'ui-monospace', 'monospace'],
       },
       borderRadius: {

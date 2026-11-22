@@ -78,4 +78,15 @@ describe('PlayerView', () => {
     // Line 20.5 → 30 over; 20 and 10 under.
     expect(screen.getByText('1/3 OVER')).toBeInTheDocument()
   })
+
+  it('shows the hit-rate strip per window and the single-stat season line', () => {
+    render(<PlayerView slug="nba" data={DATA} mode="full" />)
+    // L5/L10/L20 also label the window filter buttons, so the strip adds a second copy.
+    for (const w of ['L5', 'L10', 'L20']) expect(screen.getAllByText(w).length).toBe(2)
+    expect(screen.getByText('SZN')).toBeInTheDocument()
+    // Season averages row: single stats only, no combos like PRA.
+    const card = screen.getByLabelText('Season averages')
+    expect(card).toHaveTextContent('PTS')
+    expect(card).not.toHaveTextContent('PRA')
+  })
 })

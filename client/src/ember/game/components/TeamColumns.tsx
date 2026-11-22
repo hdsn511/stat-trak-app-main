@@ -27,7 +27,7 @@ const NEWS_TAG: Record<GameInsightNews['kind'], { label: string; color: string }
 function Chip({ label, color }: { label: string; color: string }) {
   return (
     <span
-      className="font-martian font-bold text-[9px] tracking-[1px] rounded-[3px] px-[6px] py-[3px] border shrink-0 whitespace-nowrap"
+      className="font-martian font-bold text-[10px] tracking-[1px] rounded-[3px] px-[6px] py-[3px] border shrink-0 whitespace-nowrap"
       style={{ color, borderColor: `${color}66`, background: `${color}14` }}
     >
       {label}
@@ -40,11 +40,11 @@ function InjuryRow({ league, i }: { league: string; i: GameInsightInjury }) {
   const body = (
     <>
       <div className="min-w-0 flex-1">
-        <div className="font-schibsted font-bold text-[13px] text-[#EFEBE9] truncate">
+        <div className="font-schibsted font-bold text-[14px] text-[#EFEBE9] truncate">
           {i.name}
-          {i.position && <span className="font-martian font-normal text-[10px] text-[#8A827E] ml-[6px]">{i.position}</span>}
+          {i.position && <span className="font-martian font-normal text-[11px] text-[#8A827E] ml-[6px]">{i.position}</span>}
         </div>
-        {i.injury && <div className="font-martian text-[10px] text-[#A8A09C] mt-[1px] truncate">{i.injury}</div>}
+        {i.injury && <div className="font-martian text-[11px] text-[#A8A09C] mt-[1px] truncate">{i.injury}</div>}
       </div>
       <Chip label={i.status === 'ir' ? 'IR' : i.status_label || i.status.toUpperCase()} color={color} />
     </>
@@ -77,7 +77,7 @@ function TeamColumn({ league, team, info, side }: {
   const active = info.injuries.filter((i) => i.status !== 'ir')
   const ir = info.injuries.length - active.length
   return (
-    <div className="bg-[#1B1715] border border-[#2C2624] rounded-lg overflow-hidden" style={{ borderTop: `3px solid ${accent}` }}>
+    <div className="h-full bg-[#1B1715] border border-[#2C2624] rounded-lg overflow-hidden" style={{ borderTop: `3px solid ${accent}` }}>
       <Link
         to={teamPath(league, team.id)}
         className={`flex items-center gap-3 px-[18px] py-[12px] border-b border-[#27221F] hover:bg-[#211C1A] ${side === 'home' ? 'md:flex-row-reverse md:text-right' : ''}`}
@@ -85,7 +85,7 @@ function TeamColumn({ league, team, info, side }: {
         <TeamLogo league={league} abbr={team.abbreviation} size={34} />
         <div className="min-w-0">
           <div className="font-chakra italic font-bold text-[17px] leading-none text-[#EFEBE9] truncate">{team.name}</div>
-          <div className="font-martian text-[10px] text-[#A8A09C] mt-[4px] tracking-[1px]">
+          <div className="font-martian text-[11px] text-[#A8A09C] mt-[4px] tracking-[1px]">
             {side.toUpperCase()}
             {info.record && ` · ${formatRecord(info.record)}`}
           </div>
@@ -120,8 +120,8 @@ function TeamColumn({ league, team, info, side }: {
             const inner = (
               <>
                 <Chip label={tag.label} color={tag.color} />
-                <span className="font-schibsted text-[13px] text-[#E2DDDA] leading-snug flex-1 min-w-0">{n.headline}</span>
-                <span className="font-martian text-[9px] text-[#8A827E] shrink-0 whitespace-nowrap">{ago(n.published)}</span>
+                <span className="font-schibsted text-[14px] text-[#E2DDDA] leading-snug flex-1 min-w-0">{n.headline}</span>
+                <span className="font-martian text-[10px] text-[#8A827E] shrink-0 whitespace-nowrap">{ago(n.published)}</span>
               </>
             )
             const cls = 'flex items-start gap-3 px-[18px] py-[8px] border-t border-[#221D1A]'
@@ -152,7 +152,7 @@ export default function TeamColumns({ league, away, home, awayInfo, homeInfo }: 
       <div className="font-chakra italic font-bold text-[13px] text-[#EFEBE9] mb-2 px-1">
         <span style={{ color: EMBER }}>{'// '}</span>TEAM REPORT
       </div>
-      <div className="grid gap-[14px] items-start grid-cols-1 md:grid-cols-2">
+      <div className="grid gap-[14px] items-stretch grid-cols-1 md:grid-cols-2">
         <TeamColumn league={league} team={away} info={awayInfo} side="away" />
         <TeamColumn league={league} team={home} info={homeInfo} side="home" />
       </div>

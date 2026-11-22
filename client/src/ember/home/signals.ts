@@ -80,8 +80,9 @@ function hotSignal(row: TrendingRow, kind: 'hot' | 'rising'): StatSignal {
     stat: SIGN(diff),
     statLabel: `${row.stat} VS SZN`,
     name: row.name,
-    context: `${row.team} · ${row.l10Val} recent vs ${row.seasonVal} season`,
-    to: playerPath(row.league, row.playerId),
+    // Name the window: "last 3" vs "last 10" changes how much the move means.
+    context: `${row.team} · L${row.window ?? 10} ${row.l10Val} vs ${row.seasonVal} season${(row.window ?? 10) < 5 ? ' · small sample' : ''}`,
+    to: playerPath(row.league, row.playerId, { stat: row.stat, line: row.suggested, window: row.window ?? 10 }),
     viz: { kind: 'trend', season: row.seasonVal, recent: row.l10Val, unit: row.stat },
   }
 }
@@ -105,11 +106,12 @@ function streakSignal(row: StreakRow): StatSignal | null {
     context: run
       ? `${row.team} · ${runGames} straight games`
       : `${row.team} · cleared in ${top?.cleared ?? games} of last ${games}`,
-    to: playerPath(row.league, row.playerId),
+    to: playerPath(row.league, row.playerId, { stat: row.label, line, window: 10 }),
     viz: {
       kind: 'pips',
-      filled: Math.min(run ? runGames : (top?.cleared ?? games), 12),
-      total: Math.min(Math.max(games, run ? runGames : 0), 12),
+      // A run is shown against the last 10 games; a "cleared X of N" tier against its own N.
+      filled: run ? Math.min(runGames, 10) : Math.min(top?.cleared ?? games, 12),
+      total: run ? 10 : Math.min(games, 12),
     },
   }
 }

@@ -454,16 +454,10 @@ def backfill_opp_defense(snapshot_date: str | None = None):
     print(f"Backfilling opponent_position_defense (snapshot: {snapshot_date}) ...")
 
     # Load player positions
-    pos_rows = (
-        supabase.table("players")
-        .select("id,position")
-        .eq("league", "nba")
-        .not_.is_("position", "null")
-        .limit(2000)
-        .execute()
-    )
+    # Paginated: .limit(2000) was silently capped at 1000 rows by PostgREST.
+    pos_rows = _fetch_all("players", "id,position", [("eq", "league", "nba"), ("not_.is_", "position", "null")])
     player_pos: dict[int, str] = {}
-    for r in (pos_rows.data or []):
+    for r in pos_rows:
         pg = POSITION_GROUP_MAP.get(r["position"])
         if pg:
             player_pos[r["id"]] = pg
@@ -491,8 +485,9 @@ def backfill_opp_defense(snapshot_date: str | None = None):
     # Load all games for the current season — _fetch_all paginates past the 1000-row cap
     game_rows_list = _fetch_all(
         "games",
-        "id,home_team_id,away_team_id,game_type",
-        [("eq", "season", current_season), ("eq", "league_id", NBA_LEAGUE_ID)],
+        "id,home_team_id,away_team_id,game_type,game_date",
+        # Strictly before the snapshot: a backfilled snapshot must not see later games.
+        [("eq", "season", current_season), ("eq", "league_id", NBA_LEAGUE_ID), ("lt", "game_date", snapshot_date)],
     )
     # Preseason box scores are rotation noise, not defense.
     games = {g["id"]: g for g in game_rows_list if g.get("game_type") != "preseason"}

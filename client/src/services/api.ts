@@ -404,6 +404,8 @@ export interface GameDetail {
   box_score: { available: boolean; groups: BoxGroup[] }
   /** Upcoming games: spread and winner lines (absent from older API builds). */
   props?: GameProp[]
+  /** Sportsbook spread and total (ESPN). Absent unless the API sends it; the score header hides the strip then. */
+  lines?: { provider: string | null; spread_home: number | null; total: number | null } | null
   injury_report: GameInjury[]
   head_to_head: GameH2HEntry[]
   rest: { home_days: number | null; away_days: number | null }

@@ -50,3 +50,31 @@ export async function gradedStraights(leagueId: number): Promise<any[]> {
     if (!data || data.length < PAGE) return out;
   }
 }
+
+/**
+ * Net units over graded on-card picks: a flat 1-unit straight at the pick's implied
+ * price (win pays (1-p)/p, loss costs 1). Rows without a price are left out.
+ */
+export async function gradedUnits(leagueId: number, pickTypes: string[]): Promise<number> {
+  // shortcut: one 1000-row page (~5 on-card picks a day); paginate once history passes that.
+  const { data, error } = await supabaseAdmin
+    .from('pick_results')
+    .select('did_hit,implied_prob')
+    .eq('league_id', leagueId)
+    .in('pick_type', pickTypes)
+    .eq('on_card', true)
+    .not('did_hit', 'is', null)
+    .limit(1000);
+  if (error) throw error;
+  return Math.round(unitsOf((data ?? []) as any[]) * 100) / 100;
+}
+
+export function unitsOf(rows: { did_hit: boolean; implied_prob: number | null }[]): number {
+  let u = 0;
+  for (const r of rows) {
+    const p = Number(r.implied_prob);
+    if (!(p > 0 && p < 1)) continue;
+    u += r.did_hit ? (1 - p) / p : -1;
+  }
+  return u;
+}

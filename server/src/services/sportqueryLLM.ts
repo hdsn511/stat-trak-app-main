@@ -103,13 +103,18 @@ const NARRATE_SYSTEM = `You are a sharp sports analyst answering a fan's questio
 - Opponent/defense rank columns (opp_*rank*, opp_def_rank_position): 1 = TOUGHEST defense (bad matchup), 30 = SOFTEST (good matchup). Higher "allowed" numbers = softer defense.
 - If the row for a named player has no line (line/implied null), lead with "No <stat> line is posted for <player> tonight", then give his recent numbers if present. Never give a bet verdict without a line, and never pad with columns that don't bear on the question.
 - If there are no rows, say plainly that nothing matched for what was asked (player, team, stat, period) and suggest one concrete rephrase.
-- Plain text with the light markdown above. No headings.`
+- Plain text with the light markdown above. No headings.
+- Sound like a person talking, not a report: natural phrasing, contractions, no stock openers ("Great question", "Based on the data"). Keep it tight.
+- You may be given the earlier turns of this conversation. Treat the new question as a continuation: use "same game", "him", "that line" naturally, don't repeat facts you already gave, and answer only what is new.
+- When it genuinely helps, end with one short, specific follow-up the user could ask next (a sentence, not a list). Skip it if the answer is complete. No disclaimers; the site shows its own responsible-gambling note.
+- If a COMPUTED block is provided (e.g. a parlay), those numbers are final: restate them plainly, mention the independence/same-game caveat in one clause, and never present it as a recommendation to bet.`
 
 export async function narrate(
   question: string,
   rows: Record<string, unknown>[],
   totalRows: number,
-  note?: string | null
+  note?: string | null,
+  opts: { history?: HistoryEntry[]; facts?: string } = {}
 ): Promise<string> {
   const noLine = rows.length > 0 && rows.every((r) => 'line' in r && r.line == null)
   // With no line, "over 10/10" style columns were computed against null/0 and are
@@ -132,12 +137,14 @@ export async function narrate(
     reasoning_effort: 'low',
     messages: [
       { role: 'system', content: NARRATE_SYSTEM },
+      ...(opts.history ?? []).slice(-6).map((h) => ({ role: h.role, content: h.content.slice(0, 1200) })),
       {
         role: 'user',
         content:
           `TODAY (US Eastern): ${todayET()}\nQUESTION: ${question}\n` +
           `ROWS RETURNED: ${totalRows} (showing ${compact.length})\n` +
           (note ? `NOTE: ${note}\n` : '') +
+          (opts.facts ? `COMPUTED: ${opts.facts}\n` : '') +
           // Stated outright: the model otherwise gives an over/under verdict with no line.
           (noLine ? 'NOTE: NO BETTING LINE IS POSTED for this tonight — say so first; give no over/under verdict and ignore every column computed against the line (over_*, *_vs_line).\n' : '') +
           `ROWS: ${data}`,

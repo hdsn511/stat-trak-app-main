@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabaseAdmin';
 import { BoxScoreGroup, league } from '../config/leagues';
 import { buildGameInsights } from '../services/gameInsights';
+import { fetchGameLines } from '../services/gameLines';
 import { sportsDay } from '../utils/dateQueries';
 
 // League-agnostic game detail. Every sport-specific decision — which stats
@@ -46,7 +47,7 @@ export async function getGameById(req: Request<{ id: string }>, res: Response) {
     const { data: game, error: gameErr } = await supabaseAdmin
       .from('games')
       .select(`
-        id, league_id, game_date, game_time, home_score, away_score, status, game_type,
+        id, league_id, game_date, game_time, home_score, away_score, status, game_type, espn_id, ext_id,
         home_team:teams!games_home_team_id_fkey(id, abbreviation, name),
         away_team:teams!games_away_team_id_fkey(id, abbreviation, name)
       `)
@@ -70,6 +71,9 @@ export async function getGameById(req: Request<{ id: string }>, res: Response) {
     const homeTeamId = g.home_team?.id as number;
     const awayTeamId = g.away_team?.id as number;
     const statSelect = `player_id, team_id, game_date, ${lg.boxScore.select}`;
+
+    // Started first so the ESPN call (own 4s timeout and cache, never throws) overlaps the DB reads.
+    const linesPromise = fetchGameLines(lg, g, isCompleted);
 
     const [
       boxResult,
@@ -126,6 +130,7 @@ export async function getGameById(req: Request<{ id: string }>, res: Response) {
         .limit(1),
 
     ]);
+    const lines = await linesPromise;
 
     // ── box score ───────────────────────────────────────────────────────────
     const boxRows = boxResult.data ?? [];
@@ -197,6 +202,7 @@ export async function getGameById(req: Request<{ id: string }>, res: Response) {
         },
         box_score,
         props,
+        lines,
         injury_report,
         head_to_head,
         rest: {

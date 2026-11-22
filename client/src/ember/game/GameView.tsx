@@ -55,7 +55,16 @@ export default function GameView({ data }: GameViewProps) {
 
   return (
     <div className="w-full flex flex-col gap-[14px] px-3 sm:px-4 pt-4 pb-11">
-      <ScoreHeader league={league} game={game} rest={data.rest} />
+      <ScoreHeader
+        league={league}
+        game={game}
+        rest={data.rest}
+        lines={data.lines}
+        records={insights.data ? { away: insights.data.away.record, home: insights.data.home.record } : undefined}
+        gameProps={data.props}
+        headToHead={data.head_to_head}
+        winnerPrice={projectGame?.winner ?? null}
+      />
 
       {upcoming && ins && <Conditions insights={ins} />}
 
@@ -68,9 +77,7 @@ export default function GameView({ data }: GameViewProps) {
             game={projectGame}
             supported={projects.data?.supported ?? false}
             windowLabel={PROJECTS_WINDOW[league]!}
-            gameProps={data.props}
-            home={home}
-            away={away}
+            why={{ insights: ins ?? null, lines: data.lines, rest: data.rest, home: home.abbreviation, away: away.abbreviation }}
           />
         )
       )}

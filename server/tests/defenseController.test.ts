@@ -71,3 +71,15 @@ describe('shapeDefense', () => {
     expect(shapeDefense(null, 'pts')).toBeNull();
   });
 });
+
+describe('defense request normalisation', () => {
+  it('maps the player view stat keys and raw roster positions', async () => {
+    const { STAT_ALIASES, POSITION_GROUP } = await import('../src/controllers/defenseController');
+    expect(STAT_ALIASES.points).toBe('pts');
+    expect(STAT_ALIASES.threes).toBe('fg3m');
+    // Same table as analytics/db/connection.py POSITION_GROUP_MAP.
+    expect(POSITION_GROUP['G-F']).toBe('G');
+    expect(POSITION_GROUP['C-F']).toBe('C');
+    expect(POSITION_GROUP['PF']).toBe('F');
+  });
+});

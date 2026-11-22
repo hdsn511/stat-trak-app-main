@@ -14,7 +14,7 @@
 // stale.
 
 import { supabaseAdmin } from '../config/supabaseAdmin';
-import type { LeagueConfig } from '../config/leagues';
+import { seasonStartFor, type LeagueConfig } from '../config/leagues';
 import { sportsDay } from '../utils/dateQueries';
 import { hasLadder, ladder, statKey } from '../utils/kalshiLadder';
 
@@ -117,10 +117,14 @@ export async function matchupFactors(lg: LeagueConfig): Promise<Map<number, Reco
   if (!cfg) return new Map();
   const cols = cfg.cols;
 
-  const since = day(sportsDay(), -cfg.matchupDays);
+  // Rolling window, but never before this season's start: preseason rotations and last
+  // season's rosters said nothing about how a defense plays now.
+  const window = day(sportsDay(), -cfg.matchupDays);
+  const seasonStart = seasonStartFor(lg);
+  const since = window > seasonStart ? window : seasonStart;
   const games = await paged<any>((from) =>
     supabaseAdmin.from('games').select('id,home_team_id,away_team_id').eq('league_id', lg.leagueId)
-      .eq('status', 2).gte('game_date', since).order('id').range(from, from + 999));
+      .eq('status', 2).in('game_type', lg.gameTypes).gte('game_date', since).order('id').range(from, from + 999));
   const oppOf = new Map<string, number>();     // `${gameId}:${teamId}` -> opponent
   for (const g of games) {
     oppOf.set(`${g.id}:${g.home_team_id}`, g.away_team_id);

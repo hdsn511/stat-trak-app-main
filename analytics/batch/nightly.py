@@ -673,7 +673,9 @@ def compute_daily_conditions(games: list[dict], target_date: date) -> None:
         supabase.table("opponent_position_defense")
         .select("team_id,position_group,league_rank,reb_rank,ast_rank,fg3m_rank,snapshot_date")
         .gte("snapshot_date", _season_start_iso(date_str))  # never reuse last season's ranks
+        .lte("snapshot_date", date_str)  # never peek at a later snapshot when re-running a past date
         .order("snapshot_date", desc=True)
+        .limit(1000)
         .execute()
     )
     # Keep only the latest snapshot per (team_id, position_group)

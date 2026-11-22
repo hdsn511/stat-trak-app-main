@@ -1,26 +1,32 @@
 import type { ReactNode } from 'react'
 import type { StatDef } from '@/config/playerStats'
-import type { MatchupTarget, Signal, Split } from '../derive'
+import type { HitRate, MatchupTarget, Signal, Split } from '../derive'
 import type { GameRow } from '../types'
-import GameLogTable from './GameLogTable'
 
 interface MatchupPanelProps {
   target: MatchupTarget | null
+  /** Season vs this-opponent averages, one per single stat (no combos). */
   splits: Split[]
   signal: Signal | null
   h2h: GameRow[]
-  statDefs: StatDef[]
-  volumeDef: StatDef | null
+  /** Columns for the head-to-head log: volume stat + single stats. */
+  defs: StatDef[]
+  /** The stat and line in focus, for the hit/miss colouring. */
+  activeDef?: StatDef
+  line?: number
+  h2hRate?: HitRate | null
 }
 
 const SMALL_SAMPLE = 3
+const GOOD = '#3FBF7F'
+const BAD = '#FF6B5C'
 
 const BUCKET_COLOR: Record<Signal['bucket'], string> = {
-  GREAT: '#3FBF7F',
-  GOOD: '#3FBF7F',
+  GREAT: GOOD,
+  GOOD: GOOD,
   NEUTRAL: '#9A918F',
-  TOUGH: '#FF6B5C',
-  BRUTAL: '#FF6B5C',
+  TOUGH: BAD,
+  BRUTAL: BAD,
 }
 
 const ord = (n: number): string => {
@@ -32,6 +38,8 @@ const ord = (n: number): string => {
   return `${n}TH`
 }
 
+const f1 = (v: number | null) => (v == null ? '—' : v.toFixed(1))
+
 function Title({ children }: { children: ReactNode }) {
   return (
     <span className="font-chakra italic font-bold text-[13px] tracking-[0.5px] text-[#EFEBE9]">
@@ -40,14 +48,150 @@ function Title({ children }: { children: ReactNode }) {
   )
 }
 
-export default function MatchupPanel({
-  target,
-  splits,
-  signal,
-  h2h,
-  statDefs,
-  volumeDef,
-}: MatchupPanelProps) {
+/** A labelled fact in the summary strip: small caption, one bold value, optional context. */
+function Fact({ caption, children, sub, tip }: { caption: string; children: ReactNode; sub?: ReactNode; tip?: string }) {
+  return (
+    <div className="min-w-0" title={tip}>
+      <div className="font-martian text-[10px] text-[#A8A09C] tracking-[1px]">{caption}</div>
+      <div className="font-martian font-bold text-[18px] text-[#EFEBE9] mt-[5px] tabular-nums leading-none">{children}</div>
+      {sub && <div className="font-martian text-[11px] text-[#A8A09C] mt-[5px]">{sub}</div>}
+    </div>
+  )
+}
+
+// Shared cell classes so header, value and diff rows keep every stat in a fixed column.
+const th = 'font-martian text-[11px] text-[#A8A09C] tracking-[1px] text-right px-[10px] py-[8px] whitespace-nowrap font-normal'
+const rowHead = 'font-martian text-[11px] tracking-[1px] text-left px-[10px] py-[9px] whitespace-nowrap'
+const td = 'font-martian text-[15px] tabular-nums text-right px-[10px] py-[9px] whitespace-nowrap'
+
+/**
+ * ESPN-style splits: one column per stat, rows for the season, this opponent,
+ * and the difference. Reads across like a box score instead of hunting tiles.
+ */
+function SplitsTable({ splits, team, games, activeKey }: { splits: Split[]; team: string; games: number; activeKey?: string }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full border-collapse">
+        <thead>
+          <tr className="border-b border-[#27221F]">
+            <th className={`${rowHead} text-[#A8A09C] font-normal`}>SPLIT</th>
+            {splits.map((s) => (
+              <th key={s.key} className={`${th} ${s.key === activeKey ? 'text-[#FF6B3D]' : ''}`}>{s.label}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          <tr className="border-b border-[#221D1A]">
+            <td className={`${rowHead} text-[#C9C2BE]`}>SEASON</td>
+            {splits.map((s) => (
+              <td key={s.key} className={`${td} text-[#C9C2BE]`}>{f1(s.season)}</td>
+            ))}
+          </tr>
+          <tr className="border-b border-[#221D1A] bg-[#1F1A18]">
+            <td className={`${rowHead} text-[#EFEBE9] font-bold`}>
+              {`VS ${team}`} <span className="text-[#8A827E] font-normal">{`· ${games} GP`}</span>
+            </td>
+            {splits.map((s) => (
+              <td key={s.key} className={`${td} font-bold text-[#EFEBE9]`}>{f1(s.versus)}</td>
+            ))}
+          </tr>
+          <tr>
+            <td className={`${rowHead} text-[#8A827E]`}>DIFF</td>
+            {splits.map((s) => (
+              <td
+                key={s.key}
+                className={`${td} text-[13px]`}
+                style={{ color: s.delta == null ? '#665F5D' : s.delta > 0 ? GOOD : s.delta < 0 ? BAD : '#A8A09C' }}
+              >
+                {s.delta == null ? '—' : `${s.delta >= 0 ? '+' : ''}${s.delta.toFixed(1)}`}
+              </td>
+            ))}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+/**
+ * Head-to-head game log, newest first, then the meeting average against the
+ * season average. The focus stat's cell is green/red against the current line.
+ */
+function H2HTable({ games, defs, splits, activeDef, line }: {
+  games: GameRow[]
+  defs: StatDef[]
+  splits: Split[]
+  activeDef?: StatDef
+  line?: number
+}) {
+  const fmt = (d: StatDef, v: number | null) => (v == null ? '—' : d.format ? d.format(v) : String(v))
+  const split = (key: string) => splits.find((s) => s.key === key)
+  // The focus stat may be a combo, which isn't a single-stat column: add it at the end.
+  const cols = activeDef && !defs.some((d) => d.key === activeDef.key) ? [...defs, activeDef] : defs
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full border-collapse">
+        <thead>
+          <tr className="border-b border-[#27221F]">
+            <th className={`${rowHead} text-[#A8A09C] font-normal`}>DATE</th>
+            <th className={`${rowHead} text-[#A8A09C] font-normal`}>OPP</th>
+            {cols.map((d) => (
+              <th key={d.key} className={`${th} ${d.key === activeDef?.key ? 'text-[#FF6B3D]' : ''}`}>{d.label}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {games.map((g, i) => (
+            <tr key={i} className="border-b border-[#221D1A] hover:bg-[#211C1A] transition-colors">
+              <td className={`${rowHead} text-[#A8A09C]`}>{String(g.date ?? '')}</td>
+              <td className={`${rowHead} font-schibsted font-bold text-[14px] text-[#EFEBE9] tracking-normal`}>
+                {`${g.isHome === false ? '@' : 'vs '}${String(g.opponent ?? '—')}`}
+              </td>
+              {cols.map((d) => {
+                const v = d.get(g)
+                const hit =
+                  d.key === activeDef?.key && line != null && v != null
+                    ? v > line ? 'over' : v < line ? 'under' : 'push'
+                    : null
+                return (
+                  <td
+                    key={d.key}
+                    className={`${td} ${hit ? 'font-bold' : 'text-[#EFEBE9]'}`}
+                    style={
+                      hit
+                        ? {
+                            color: hit === 'over' ? GOOD : hit === 'under' ? BAD : '#C9C2BE',
+                            background: hit === 'over' ? 'rgba(63,191,127,0.10)' : hit === 'under' ? 'rgba(255,107,92,0.08)' : undefined,
+                          }
+                        : undefined
+                    }
+                    title={hit ? `${hit.toUpperCase()} ${line}` : undefined}
+                  >
+                    {fmt(d, v)}
+                  </td>
+                )
+              })}
+            </tr>
+          ))}
+          <tr className="border-b border-[#221D1A] bg-[#1F1A18]">
+            <td className={`${rowHead} text-[#EFEBE9] font-bold`} colSpan={2}>{`AVG · ${games.length} GP`}</td>
+            {cols.map((d) => (
+              <td key={d.key} className={`${td} font-bold text-[#EFEBE9]`}>{f1(split(d.key)?.versus ?? null)}</td>
+            ))}
+          </tr>
+          <tr>
+            <td className={`${rowHead} text-[#8A827E]`} colSpan={2}>SEASON</td>
+            {cols.map((d) => (
+              <td key={d.key} className={`${td} text-[#A8A09C]`}>{f1(split(d.key)?.season ?? null)}</td>
+            ))}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+export default function MatchupPanel({ target, splits, signal, h2h, defs, activeDef, line, h2hRate }: MatchupPanelProps) {
   if (!target) {
     return (
       <div className="bg-[#1B1715] border border-[#2C2624] rounded-lg mt-[14px] px-[18px] py-9 text-center">
@@ -63,88 +207,73 @@ export default function MatchupPanel({
 
   const u = target.upcoming
   const thin = h2h.length > 0 && h2h.length < SMALL_SAMPLE
+  const decided = h2hRate ? h2hRate.over + h2hRate.under : 0
+  // The splits table shows single stats only; the H2H log adds the focus combo itself.
+  const singleSplits = splits.filter((s) => defs.some((d) => d.key === s.key))
 
   return (
     <div className="bg-[#1B1715] border border-[#2C2624] rounded-lg mt-[14px]">
       <div className="flex items-center gap-3 px-[18px] py-[13px] border-b border-[#27221F] flex-wrap">
         {/* One template string, not several JSX children — a text matcher
             cannot match across sibling text nodes. */}
-        <Title>{`${target.source === 'schedule' ? 'NEXT' : 'MATCHUP'}: VS ${target.team}`}</Title>
+        <Title>{`${target.source === 'schedule' ? 'NEXT' : 'MATCHUP'}: ${u?.isHome === false ? '@' : 'VS'} ${target.team}`}</Title>
         {u && (
           <span className="font-martian text-[10px] text-[#C9C2BE] tracking-[1px]">
-            {`${u.date} · ${u.isHome ? 'HOME' : 'AWAY'}${
-              u.daysRest != null ? ` · ${u.daysRest}D REST` : ''
-            }`}
+            {`${u.date} · ${u.isHome ? 'HOME' : 'AWAY'}${u.daysRest != null ? ` · ${u.daysRest}D REST` : ''}`}
           </span>
         )}
-        {signal && (
-          <span
-            className="ml-auto font-martian font-bold text-[11px] tracking-[0.5px] px-[11px] py-[5px] rounded-xl border"
-            style={{
-              color: BUCKET_COLOR[signal.bucket],
-              borderColor: BUCKET_COLOR[signal.bucket],
-              background: 'rgba(255,255,255,0.03)',
-            }}
-          >
-            {signal.bucket}
+        {thin && (
+          <span className="font-martian text-[10px] text-[#FFB020] tracking-[1px]">
+            {`SMALL SAMPLE · ${h2h.length} GAME${h2h.length > 1 ? 'S' : ''}`}
           </span>
         )}
       </div>
 
-      {signal && (
-        <div className="px-[18px] py-[10px] border-b border-[#221D1A] font-martian text-[11px] text-[#C9C2BE] tracking-[0.5px]">
-          {`${target.team} RANKS ${ord(signal.rank)}${
-            signal.positionGroup ? ` VS ${signal.positionGroup}` : ''
-          } · ${signal.allowed} ALLOWED PER GAME`}
-          <span className="text-[#8A827E]">{` · AS OF ${signal.asOf}`}</span>
-        </div>
-      )}
-
-      {/* Splits: season and versus side by side, never blended. */}
-      <div className="px-[18px] pt-[14px] pb-3">
-        <div className="grid grid-cols-[1fr_72px_72px_64px] gap-2 pb-[6px] border-b border-[#27221F]">
-          <span className="font-martian text-[10px] text-[#A8A09C] tracking-[1px]">STAT</span>
-          <span className="font-martian text-[10px] text-[#A8A09C] tracking-[1px] text-right">
-            SEASON
-          </span>
-          <span className="font-martian text-[10px] text-[#A8A09C] tracking-[1px] text-right">
-            {`VS ${target.team}`}
-          </span>
-          <span className="font-martian text-[10px] text-[#A8A09C] tracking-[1px] text-right">
-            DIFF
-          </span>
-        </div>
-        {splits.map((s) => (
-          <div
-            key={s.key}
-            className="grid grid-cols-[1fr_72px_72px_64px] gap-2 py-[7px] border-b border-[#221D1A] items-center"
+      {/* What a bettor reads first: how the defense rates, how this line has
+          done against them, and how many games that rests on. */}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-4 px-[18px] py-[14px] border-b border-[#221D1A]">
+        {signal ? (
+          <Fact
+            caption={`${target.team} DEFENSE${signal.positionGroup ? ` VS ${signal.positionGroup}` : ''}`}
+            sub={`${signal.allowed} ALLOWED PER GAME · AS OF ${signal.asOf}`}
+            tip="League rank in this stat allowed; 1st allows the least"
           >
-            <span className="font-martian text-[11px] text-[#C9C2BE] tracking-[0.5px]">
-              {s.label}
-            </span>
-            <span className="font-martian font-bold text-[14px] text-[#EFEBE9] text-right">
-              {s.season == null ? '—' : s.season.toFixed(1)}
-            </span>
-            <span className="font-martian font-bold text-[14px] text-[#EFEBE9] text-right">
-              {s.versus == null ? '—' : s.versus.toFixed(1)}
-            </span>
+            <span>{`RANKS ${ord(signal.rank)}`}</span>{' '}
             <span
-              className="font-martian font-medium text-[13px] text-right"
-              style={{ color: s.delta == null ? '#665F5D' : s.delta >= 0 ? '#3FBF7F' : '#FF6B5C' }}
+              className="font-martian font-bold text-[11px] tracking-[0.5px] px-[8px] py-[3px] rounded-xl border align-middle"
+              style={{ color: BUCKET_COLOR[signal.bucket], borderColor: BUCKET_COLOR[signal.bucket] }}
             >
-              {s.delta == null ? '—' : `${s.delta >= 0 ? '+' : ''}${s.delta.toFixed(1)}`}
+              {signal.bucket}
             </span>
-          </div>
-        ))}
+          </Fact>
+        ) : (
+          <Fact caption={`${target.team} DEFENSE`} sub="NO DEFENSIVE SPLIT FOR THIS STAT">—</Fact>
+        )}
+        {activeDef && line != null && (
+          <Fact
+            caption={`${activeDef.label} ${line} VS ${target.team}`}
+            sub={h2hRate?.pct != null ? `OVER ${h2hRate.pct}% OF MEETINGS` : 'NO DECIDED GAMES'}
+            tip="Every meeting in the log, against the current line (over-under)"
+          >
+            <span style={{ color: h2hRate?.pct == null || decided < SMALL_SAMPLE ? '#EFEBE9' : h2hRate.pct >= 50 ? GOOD : BAD }}>
+              {h2hRate ? `${h2hRate.over}-${h2hRate.under}` : '—'}
+            </span>
+          </Fact>
+        )}
+        <Fact caption="MEETINGS" sub="IN THE LOGGED SEASONS">{h2h.length}</Fact>
       </div>
 
-      {/* Head-to-head log */}
+      {/* Splits: season and versus side by side per stat, never blended. */}
+      <div className="px-[8px] pt-[6px] pb-[10px]">
+        <SplitsTable splits={singleSplits.length ? singleSplits : splits} team={target.team} games={h2h.length} activeKey={activeDef?.key} />
+      </div>
+
       <div className="border-t border-[#27221F]">
         <div className="flex items-baseline px-[18px] py-[11px] gap-3">
           <Title>HEAD TO HEAD</Title>
-          {thin && (
-            <span className="font-martian text-[10px] text-[#FF6B3D] tracking-[1px]">
-              {`SMALL SAMPLE · ${h2h.length} GAME${h2h.length > 1 ? 'S' : ''}`}
+          {h2h.length > 0 && activeDef && line != null && (
+            <span className="ml-auto font-martian text-[10px] text-[#8A827E] tracking-[0.5px]">
+              {`${activeDef.label} COLORED VS LINE ${line}`}
             </span>
           )}
         </div>
@@ -153,7 +282,9 @@ export default function MatchupPanel({
             NO MEETINGS THIS SEASON
           </div>
         ) : (
-          <GameLogTable games={h2h} statDefs={statDefs} volumeDef={volumeDef} activeStat="" />
+          <div className="px-[8px] pb-[12px]">
+            <H2HTable games={h2h} defs={defs} splits={splits} activeDef={activeDef} line={line} />
+          </div>
         )}
       </div>
     </div>

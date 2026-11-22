@@ -14,6 +14,7 @@ import {
 } from '../services/sportquerySession'
 import { detectShape, enrich } from '../services/sportqueryEnrich'
 import { attachPlayerContext } from '../services/sportqueryContext'
+import { isParlayRequest, loadLegs, parlayFacts, parseParlayRequest, priceParlay } from '../services/sportqueryParlay'
 import { supabaseAdmin } from '../config/supabaseAdmin'
 import { ownsSession } from '../services/sportquerySession'
 
@@ -196,6 +197,40 @@ export async function postMessage(req: Request, res: Response) {
           : m.content,
     }))
 
+    // Parlays are computed in code over the picks/streaks the site surfaces; the model only words them.
+    if (isParlayRequest(message)) {
+      const req = parseParlayRequest(message)
+      const { legs, date } = await loadLegs(req.kind, req.leagueId, req.n, message)
+      if (legs.length < 2) {
+        const text = `I couldn't find enough ${req.kind === 'streak' ? 'streaks' : 'picks'} on the upcoming slate to build a parlay. Try a different league or drop the team filter.`
+        send('narrative', { token: text })
+        send('results', { rows: [], shape: 'table', widening_note: null, query_error: null, disambiguation: null, follow_up_suggestions: [] })
+        await appendMessage(sessionId, 'assistant', text, { sqlExecuted: null, resultCount: 0, resultRows: null, resultShape: null })
+        if (history.length === 1) await setSessionTitle(sessionId, message)
+        send('done', {})
+        return
+      }
+      const priced = priceParlay(legs)
+      const pRows = legs.map((l) => ({
+        player: l.label,
+        pick: `${l.side === 'under' ? 'Under' : 'Over'} ${l.line ?? ''} ${l.stat}`.trim(),
+        chance: `${(l.prob * 100).toFixed(1)}%`,
+        market: l.implied != null ? `${(l.implied * 100).toFixed(0)}%` : null,
+      }))
+      let text: string
+      try {
+        text = await narrate(message, pRows, pRows.length, null, { history: forLLM, facts: parlayFacts(priced, date) })
+      } catch {
+        text = `Those ${legs.length} legs combine to about ${(priced.combinedProb * 100).toFixed(1)}% (independence assumed).`
+      }
+      send('narrative', { token: text })
+      send('results', { rows: pRows, shape: detectShape(pRows), widening_note: null, query_error: null, disambiguation: null, follow_up_suggestions: [] })
+      await appendMessage(sessionId, 'assistant', text, { sqlExecuted: null, resultCount: pRows.length, resultRows: pRows, resultShape: detectShape(pRows) })
+      if (history.length === 1) await setSessionTitle(sessionId, message)
+      send('done', {})
+      return
+    }
+
     // Resolve loosely-typed player names up front; a failure here must never
     // block the question itself.
     const hints = formatHints(await resolvePlayerHints(message).catch(() => []))
@@ -297,7 +332,7 @@ export async function postMessage(req: Request, res: Response) {
     let narrative = envelope.narrative
     if (envelope.sql) {
       try {
-        narrative = await narrate(message, enriched as Record<string, unknown>[], enriched.length, wideningNote)
+        narrative = await narrate(message, enriched as Record<string, unknown>[], enriched.length, wideningNote, { history: forLLM })
       } catch {
         narrative = queryError
           ? 'I could not run that query. Try rephrasing it, for example by naming the player, team and stat.'

@@ -24,7 +24,7 @@ interface FilterBarProps {
 const windowLabel = (w: number) => (w === 0 ? 'ALL' : `L${w}`)
 
 const BTN =
-  'font-martian font-medium text-[11px] px-[11px] py-[6px] cursor-pointer whitespace-nowrap transition-colors'
+  'font-martian font-medium text-[11px] px-[11px] py-[6px] cursor-pointer whitespace-nowrap press'
 const ON = 'bg-[#EFE9E0] text-[#14100F]'
 const OFF = 'bg-transparent text-[#C9C2BE] hover:text-[#EFEBE9]'
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { HERO_CHIPS, UNSUPPORTED_RE } from './suggestions'
+import { HERO_CHIPS, UNSUPPORTED_RE, dailyChips } from './suggestions'
 import { SPORTS, STARTER_QUESTIONS } from './capabilities'
 import { mlbConfig, nbaConfig, nflConfig, nhlConfig } from '@/ember/league/leagueConfigs'
 
@@ -15,6 +15,13 @@ const all: [string, string][] = [
 describe('suggested queries', () => {
   it.each(all)('%s: "%s" only asks for data we store', (_where, q) => {
     expect(UNSUPPORTED_RE.test(q)).toBe(false)
+  })
+
+  it('changes daily, stays stable within a day, and always yields 4', () => {
+    const d = (n: number) => dailyChips(new Date(2026, 10, n))
+    expect(d(21)).toEqual(d(21))
+    expect(d(21)).not.toEqual(d(22))
+    expect(d(21)).toHaveLength(4)
   })
 
   it('catches the kind of question we cannot answer', () => {

@@ -13,6 +13,19 @@ export const DEFENSE_COLUMNS: Record<string, { allowed: string; rank: string }> 
   fg3m: { allowed: 'fg3m_allowed_pg', rank: 'fg3m_rank' },
 };
 
+/** The player view sends its own stat keys (points, threes…); map them to the table's. */
+export const STAT_ALIASES: Record<string, string> = {
+  points: 'pts', rebounds: 'reb', assists: 'ast', threes: 'fg3m', three_points_made: 'fg3m',
+};
+
+/** Raw roster position -> stored group. Mirrors analytics/db/connection.py POSITION_GROUP_MAP. */
+export const POSITION_GROUP: Record<string, string> = {
+  G: 'G', PG: 'G', SG: 'G',
+  F: 'F', SF: 'F', PF: 'F',
+  C: 'C',
+  'G-F': 'G', 'F-G': 'F', 'F-C': 'F', 'C-F': 'C',
+};
+
 type DefenseRow = Record<string, any>;
 
 /** Newest snapshot for the requested position group, or any group when null. */
@@ -48,8 +61,14 @@ const cache = new Map<string, { at: number; rows: DefenseRow[] }>();
 export async function getTeamDefense(req: Request<{ id: string }>, res: Response) {
   try {
     const lg = resolveLeague(res);
-    const stat = String(req.query.stat ?? 'pts');
-    const positionGroup = req.query.position ? String(req.query.position) : null;
+    const rawStat = String(req.query.stat ?? 'pts');
+    const stat = STAT_ALIASES[rawStat] ?? rawStat;
+    const rawPos = req.query.position ? String(req.query.position).toUpperCase() : null;
+    const positionGroup = rawPos ? POSITION_GROUP[rawPos] ?? null : null;
+    // A position we can't map has no honest answer; "any group" would show another group's numbers.
+    if (rawPos && !positionGroup) {
+      return res.json({ success: true, data: null });
+    }
     const teamId = parseInt(req.params.id, 10);
 
     if (!Number.isFinite(teamId)) {

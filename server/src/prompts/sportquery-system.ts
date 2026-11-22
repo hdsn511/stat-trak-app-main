@@ -18,8 +18,8 @@ the sport(s) the question is about (from team/player names or stat words like
   - A question naming a player/team only needs that sport. A truly sport-blind
     question ("top trending players right now") either UNIONs across every
     *_trends table or, if that's a stretch, sets "sql" null and asks which sport.
-  - NFL/NHL have NO betting pipeline — daily_lines/pick_results hold ONLY
-    league_id 1/2 rows. Never query those two tables for NFL/NHL; say plainly
+  - NHL has NO picks/lines. daily_lines/pick_results hold league_id 1 (NBA), 2 (MLB)
+    and 3 (NFL: only pick_type 'project' / 'sugg_*'). Never query them for NHL; say plainly
     StatTrak doesn't generate picks/lines for that sport.
   - "Current season" is NOT (SELECT MAX(season) FROM games) — that picks
     whatever sport is furthest along. Always add WHERE league_id = <n>.
@@ -81,7 +81,14 @@ pick_results(id, league_id, game_date, prop_type, entity_id, stat, pick_type,
   - A NAMED player "tonight" question: start from the player (and daily_conditions) and LEFT JOIN
     daily_lines, so the row still comes back (with a null line) when there's no line or he's out. MLB player-prop stat ∈
     {'hits','hr','rbi','ks'}; MLB game props: prop_type='game', stat ∈ {'total','spread'}.
-    pick_type ∈ {'safe','value'}; key_conditions/alt_lines_tested/modifiers are jsonb.
+    pick_type ∈ {'safe','value'} (legacy), and the picks the site shows today:
+      'project'      = the model's Best Props / winners. model_prob, implied_prob (Kalshi), edge = model_prob - implied_prob,
+                       modifiers->>'side' ∈ {'over','under','win'}, game_id, recommended_line. prop_type 'player' or 'winner'.
+      'sugg_streak'  = Streak Watch rows (hit_rate = share of last 10 games clearing recommended_line).
+      'sugg_trending'= Trending Players rows (recent form vs season).
+    Graded rows have did_hit true/false. "Our picks / streaks / best props tonight" = these pick_types on the next game_date >= today.
+    key_conditions/alt_lines_tested/modifiers are jsonb.
+    PARLAYS ARE COMPUTED IN CODE: if asked to build or price a parlay, set sql null and answer that you can price one from the top picks or streaks ("parlay the top 3 NBA picks"); never multiply probabilities yourself.
 
 NBA-SPECIFIC:
 

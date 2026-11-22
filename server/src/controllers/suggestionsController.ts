@@ -2,7 +2,6 @@ import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabaseAdmin';
 import { league as resolveLeague } from '../config/leagues';
 import { sportsDay } from '../utils/dateQueries';
-import { gradedRecord } from '../utils/record';
 
 // Yesterday's results for the Trending Players and Streak Watch suggestions.
 // The rows are the morning snapshot of what each card suggested
@@ -26,12 +25,6 @@ export async function getSuggestionResults(_req: Request, res: Response) {
   try {
     const lg = resolveLeague(res);
     const today = sportsDay();
-    // Cumulative record per card, for its header corner.
-    const [trendingTotal, streakTotal] = await Promise.all([
-      gradedRecord(lg.leagueId, ['sugg_trending']),
-      gradedRecord(lg.leagueId, ['sugg_streak']),
-    ]);
-    const totals = { trending: trendingTotal, streak: streakTotal };
     // The most recent slate with graded suggestions, before today.
     const { data: last, error: lErr } = await supabaseAdmin
       .from('pick_results')
@@ -45,7 +38,7 @@ export async function getSuggestionResults(_req: Request, res: Response) {
     if (lErr) throw lErr;
     const date = last?.[0]?.game_date ?? null;
     const empty = { record: { w: 0, l: 0 }, rows: [] as SuggestionResult[] };
-    if (!date) return res.json({ success: true, data: { date: null, totals, trending: empty, streak: { ...empty } } });
+    if (!date) return res.json({ success: true, data: { date: null, trending: empty, streak: { ...empty } } });
 
     const { data: rows, error } = await supabaseAdmin
       .from('pick_results')
@@ -83,7 +76,7 @@ export async function getSuggestionResults(_req: Request, res: Response) {
       });
       out[src].record[r.did_hit ? 'w' : 'l']++;
     }
-    return res.json({ success: true, data: { date, totals, ...out } });
+    return res.json({ success: true, data: { date, ...out } });
   } catch (err: any) {
     console.error('[getSuggestionResults]', err);
     return res.status(500).json({ success: false, error: 'Failed to load results' });

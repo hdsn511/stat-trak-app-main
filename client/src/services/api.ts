@@ -388,20 +388,6 @@ export interface GameProp {
   player_name: string | null
 }
 
-export interface GamePick {
-  entity_id: number
-  stat: string
-  recommended_line: number
-  hit_rate: number
-  confidence_score: number
-  implied_prob: number | null
-  edge: number
-  actual_result: number | null
-  did_hit: boolean | null
-  prop_type: string
-  player_name: string | null
-}
-
 export interface GameDetail {
   league: string
   game: {
@@ -416,12 +402,10 @@ export interface GameDetail {
     is_completed: boolean
   }
   box_score: { available: boolean; groups: BoxGroup[] }
-  props: GameProp[]
-  picks: GamePick[]
-  /** Sportsbook spread and total (ESPN; live pre-game, stored close after). Null when unavailable. */
+  /** Upcoming games: spread and winner lines (absent from older API builds). */
+  props?: GameProp[]
+  /** Sportsbook spread and total (ESPN). Absent unless the API sends it; the score header hides the strip then. */
   lines?: { provider: string | null; spread_home: number | null; total: number | null } | null
-  /** False for NHL and NFL, which have no lines or picks pipeline. */
-  has_markets: boolean
   injury_report: GameInjury[]
   head_to_head: GameH2HEntry[]
   rest: { home_days: number | null; away_days: number | null }
@@ -509,6 +493,10 @@ export interface ProjectPick {
   price_source: string | null
   book_prob: number | null
   featured: boolean
+  /** Where its game stands; a pick stays on a final card through tip-off. */
+  status?: 'upcoming' | 'started' | 'final'
+  /** Set when the pick no longer counts (e.g. 'injury' after the card locked). */
+  void?: string | null
   /** Why the pick is on the card: recent form for props, the Elo check for winners. */
   context: {
     avg20?: number | null
@@ -557,8 +545,6 @@ export interface SuggestionResultSet {
 /** Yesterday's graded Trending Players / Streak Watch suggestions. */
 export interface SuggestionResults {
   date: string | null
-  /** Cumulative record per card. */
-  totals: { trending: { w: number; l: number }; streak: { w: number; l: number } }
   trending: SuggestionResultSet
   streak: SuggestionResultSet
 }
@@ -569,36 +555,54 @@ export interface ProjectGame {
   props: ProjectPick[]
 }
 
-export interface ProjectsResponse {
-  supported: boolean
-  bands: { prop: { min: number; max: number }; moneyline: { min: number; max: number } }
-  /** Cumulative record of picks that were on the card; `units` is net at a flat 1u per straight. */
-  record: { w: number; l: number; units?: number }
-  props: ProjectPick[]
-  moneyline: ProjectPick | null
-  games: ProjectGame[]
-  /** Picks that swapped on/off the card today (Eastern). */
-  changes?: (ProjectPick & { change: 'added' | 'removed'; at: string })[]
-  /** The latest graded slate before today: the card's "Yesterday's picks" dropdown. */
-  yesterday?: { date: string; record: { w: number; l: number; units: number }; rows: GradedStraight[] } | null
-  upcoming_games: number
+export interface UnitsRecord {
+  w: number
+  l: number
+  units: number
 }
 
-/** A graded pick from the last slate, with what it paid at a flat 1u. */
+/** A straight from a graded slate, with its result. */
 export interface GradedStraight {
   id: number
   kind: 'prop' | 'moneyline'
+  /** Player id for props; game id for winners. */
   entity_id: number
   name: string
   team: string | null
   ext_id: string | null
   stat_label: string | null
-  side: 'over' | 'under' | 'win' | null
+  side: string | null
   line: number | null
-  price: number | null
+  /** YES price paid, as a probability. */
+  price: number
   actual: number | null
   did_hit: boolean
   units: number
+}
+
+export interface ProjectsResponse {
+  supported: boolean
+  bands: { prop: { min: number; max: number }; moneyline: { min: number; max: number } }
+  /** Cumulative record and net units (1u per pick at its Kalshi price) of picks that were on the card. */
+  record: UnitsRecord
+  /** The latest graded slate before today, for the card's dropdown. */
+  yesterday: { date: string; record: UnitsRecord; rows: GradedStraight[] } | null
+  props: ProjectPick[]
+  moneyline: ProjectPick | null
+  /**
+   * NBA: the card is final an hour before the date's first tip and is served as
+   * stored. Null for leagues without the lock.
+   */
+  card?: {
+    date: string | null
+    locks_at: string | null
+    locked: boolean
+    changes: { at: string; kind: 'out' | 'in'; reason: string | null; pick: ProjectPick }[]
+  } | null
+  games: ProjectGame[]
+  /** Picks that swapped on/off the card today (Eastern). */
+  changes?: (ProjectPick & { change: 'added' | 'removed'; at: string })[]
+  upcoming_games: number
 }
 
 export interface StandingsResponse {
@@ -912,7 +916,7 @@ export interface GameInsightStreak {
   price: number | null
   /** True when Kalshi lists this rung for the game. */
   listed: boolean
-  /** Opponent allows this stat vs league; rank 1 = allows the least (stingiest). */
+  /** Opponent allows this stat vs league; rank 1 = allows the most. */
   matchup: Matchup | null
 }
 

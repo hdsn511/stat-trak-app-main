@@ -36,8 +36,9 @@ jobs:
       - name: Run injury check (NBA)
         run: python -m analytics.batch.injury_check --league nba --date "$(date -u +%Y-%m-%d)"
 
+      # MLB paused (off-season, 2026-11-08). To resume: restore `if: always()`.
       - name: Run injury check (MLB)
-        if: always()
+        if: false
         run: python -m analytics.batch.injury_check --league mlb --date "$(date -u +%Y-%m-%d)"
 
       # NFL plays weekly: marks each team's next game (7-day window), which feeds the

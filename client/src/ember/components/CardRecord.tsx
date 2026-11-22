@@ -1,37 +1,35 @@
+import { formatUnits } from '@/ember/data/results'
+
 /**
- * A card's header corner: what the chart shows, then the card's W-L (and net units
- * when priced). `label` says which record it is: yesterday's by default.
+ * A card's header corner: the meta (what the chart shows), then the record boxed
+ * with its own label ("YESTERDAY'S RECORD 6-2", "ALL-TIME 17-6 +4.3U").
  */
 export default function CardRecord({
   meta,
+  label,
   record,
-  label = "YESTERDAY'S RECORD",
-  title = "This card's suggestions from yesterday, graded: wins-losses",
+  units,
 }: {
   meta?: string
-  record?: { w: number; l: number; units?: number } | null
   label?: string
-  title?: string
+  record?: { w: number; l: number } | null
+  /** Net units; shown after the W-L when given. */
+  units?: number | null
 }) {
-  const graded = record && record.w + record.l > 0
-  const u = record?.units
+  if (!record) {
+    return meta ? <span className="font-martian text-[10px] tracking-[1px] text-[#A8A09C]">{meta}</span> : null
+  }
+  // The meta says what the chart shows; the boxed label says the number is a record.
   return (
     <span className="flex items-center gap-3 font-martian text-[10px] tracking-[1px] text-[#A8A09C]">
-      {meta && <span>{meta}</span>}
-      {graded && (
-        <span className="flex items-center gap-[6px] rounded-[3px] border border-[#3A3330] px-[7px] py-[3px] cursor-help" title={title}>
-          <span>{label}</span>
-          <span className="text-[11px] font-bold text-[#EFEBE9] tabular-nums">
-            {record.w}-{record.l}
-          </span>
-          {u != null && (
-            <span className={`text-[11px] font-bold tabular-nums ${u >= 0 ? 'text-[#3FBF7F]' : 'text-[#FF6B5C]'}`}>
-              {u >= 0 ? '+' : ''}
-              {u.toFixed(1)}u
-            </span>
-          )}
-        </span>
-      )}
+      {meta && <span className="hidden sm:inline">{meta}</span>}
+      <span className="flex items-center gap-2 rounded-[3px] border border-[#3A3330] px-[7px] py-[3px]">
+        {label && <span>{label}</span>}
+        <span className="text-[11px] font-bold text-[#EFEBE9] tabular-nums">{record.w}-{record.l}</span>
+        {units != null && (
+          <span className={units >= 0 ? 'text-[#3FBF7F]' : 'text-[#FF6B5C]'}>{formatUnits(units)}</span>
+        )}
+      </span>
     </span>
   )
 }

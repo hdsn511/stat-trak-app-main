@@ -20,7 +20,7 @@ describe('nba stat config', () => {
     expect(v?.get({ minutes: 34 })).toBe(34)
   })
 
-  it('exposes pts, reb, ast, threes and the shooting attempts', () => {
+  it('exposes pts, reb, ast, threes and shooting attempts', () => {
     expect(cfg.statsFor('player').map((s) => s.key)).toEqual([
       'points',
       'rebounds',

@@ -112,3 +112,106 @@ export function onCardChanges<T extends ProjectRow & { on_card?: boolean | null 
   }
   return out;
 }
+
+// ── Lock mode (leagues.projectsLock) ────────────────────────────────────────────
+// The generator owns the card: it may swap featured picks until an hour before the
+// date's first tip, then the card is final. The API serves it exactly as stored:
+// a pick whose game has started stays on it, and nothing is pulled in to replace it.
+
+/** A card is final this long before the date's first tip (generate_projects.LOCK_LEAD). */
+export const LOCK_LEAD_MS = 60 * 60 * 1000;
+
+export interface LockGame extends GameState {
+  game_date: string;
+}
+
+export interface LockMods extends ProjectMods {
+  replaced_at?: string;
+  replaced_reason?: string;
+  added_at?: string;
+}
+
+export interface CardChange<T> {
+  at: string;
+  kind: 'out' | 'in';
+  row: T;
+  /** Why it came off; null for a pick put on. */
+  reason: string | null;
+}
+
+/** game_date -> epoch ms the date's card is final. */
+export function cardLocks(games: LockGame[]): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const g of games) {
+    if (!g.game_time) continue;
+    const t = new Date(g.game_time).getTime() - LOCK_LEAD_MS;
+    if (!out.has(g.game_date) || t < out.get(g.game_date)!) out.set(g.game_date, t);
+  }
+  return out;
+}
+
+const tipOf = (games: Map<number, LockGame>, r: ProjectRow) =>
+  new Date(games.get(r.game_id!)?.game_time ?? 0).getTime();
+
+export function selectLockedCard<T extends ProjectRow & { modifiers?: LockMods | null }>(
+  rows: T[],
+  games: Map<number, LockGame>,
+  now: Date,
+): {
+  date: string | null;
+  locksAt: number | null;
+  locked: boolean;
+  props: T[];
+  moneyline: T | null;
+  changes: CardChange<T>[];
+  byGame: Map<number, { winner: T | null; props: T[] }>;
+} {
+  const known = rows.filter((r) => r.model_prob != null && r.game_id != null && games.has(r.game_id));
+  const featured = known.filter((r) => r.modifiers?.featured);
+  // The card is the soonest date that has one; its picks stay on it through tip-off.
+  const date = featured.map((r) => r.game_date ?? '').filter(Boolean).sort()[0] ?? null;
+  const locksAt = date ? (cardLocks([...games.values()]).get(date) ?? null) : null;
+  const onCard = featured
+    .filter((r) => r.game_date === date)
+    .sort((a, b) => tipOf(games, a) - tipOf(games, b) || prob(b) - prob(a));
+  const changes: CardChange<T>[] = [];
+  for (const r of known) {
+    if (r.game_date !== date) continue;
+    const m = r.modifiers ?? {};
+    if (m.replaced_at) changes.push({ at: m.replaced_at, kind: 'out', row: r, reason: m.replaced_reason ?? null });
+    if (m.added_at && m.featured) changes.push({ at: m.added_at, kind: 'in', row: r, reason: null });
+  }
+  changes.sort((a, b) => a.at.localeCompare(b.at) || (a.kind === 'out' ? -1 : 1));
+
+  // Each game's own picks are final an hour before its tip, and stay visible after it.
+  const byGame = new Map<number, { winner: T | null; props: T[] }>();
+  for (const r of known) {
+    if (r.modifiers?.void) continue;
+    const g = byGame.get(r.game_id!) ?? { winner: null, props: [] };
+    if (r.prop_type === 'winner') g.winner = r;
+    else g.props.push(r);
+    byGame.set(r.game_id!, g);
+  }
+  for (const g of byGame.values()) {
+    g.props.sort((a, b) => (a.modifiers?.game_rank ?? 99) - (b.modifiers?.game_rank ?? 99) || prob(b) - prob(a));
+  }
+  return {
+    date,
+    locksAt,
+    locked: locksAt != null && now.getTime() >= locksAt,
+    props: onCard.filter((r) => r.prop_type === 'player').slice(0, PROP_SLOTS),
+    moneyline: onCard.find((r) => r.prop_type === 'winner') ?? null,
+    changes,
+    byGame,
+  };
+}
+
+/**
+ * Where a pick's game stands, for the card. games.status is synced by the nightly
+ * ingest, not live, so a game past its tip is only known to have started.
+ */
+export function gamePhase(g: GameState | undefined, now: Date): 'upcoming' | 'started' | 'final' {
+  if (!g) return 'upcoming';
+  if (g.status === 2) return 'final';
+  return isUpcoming(g, now) ? 'upcoming' : 'started';
+}

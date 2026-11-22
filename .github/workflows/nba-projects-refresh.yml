@@ -1,0 +1,53 @@
+name: NBA Projects Refresh
+
+# PICKS-ONLY companion to Daily Data Sync. Re-runs the NBA Projects generator every
+# 30 minutes through the game day so picks follow injury news and line moves:
+#   - the league card for a date may change until an hour before that date's first
+#     tip, then it is final (no refill as games start);
+#   - each game's own picks (game view) refresh until an hour before its own tip.
+# The locks are enforced in generate_projects.py by time, not by this schedule, so a
+# delayed or skipped run is harmless: it only touches what is still open. Every swap
+# on the card is stamped with when and why (shown on the card's change log).
+#
+# Shares the 'mlb-nightly' group with Daily Data Sync's picks job so two generator
+# runs never write pick_results at once.
+#
+# Times are UTC: 14:00-03:30 covers locks for noon-ET tips through late West Coast tips.
+on:
+  schedule:
+    - cron: '0,30 14-23 * * *'
+    - cron: '0,30 0-3 * * *'
+  workflow_dispatch:
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: mlb-nightly
+      cancel-in-progress: false
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      KALSHI_API_KEY: ${{ secrets.KALSHI_API_KEY }}
+      KALSHI_PRIVATE_KEY_PATH: ./kalshi_key.pem
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: analytics/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r analytics/requirements.txt
+
+      - name: Write Kalshi PEM key
+        run: printf '%s' "$KEY" > server/kalshi_key.pem
+        env:
+          KEY: ${{ secrets.KALSHI_PRIVATE_KEY }}
+
+      - name: Refresh NBA Projects
+        run: python -m analytics.picks.generate_projects --league nba

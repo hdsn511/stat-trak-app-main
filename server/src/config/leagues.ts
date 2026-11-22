@@ -81,6 +81,10 @@ export interface LeagueConfig {
   // unstarted games; null = the league has no Projects pipeline. NFL is deliberately
   // still hasMarkets:false, since the legacy props/picks views aren't built for it.
   projectsWindowDays: number | null;
+  // Projects card lock (generate_projects.py "lock"): the card for a date is final an
+  // hour before its first tip and is served as stored, with no refill as games start;
+  // each game's own picks are final an hour before its tip.
+  projectsLock: boolean;
 }
 
 // ── NBA (unchanged behavior) ────────────────────────────────────────────────────
@@ -130,6 +134,7 @@ const NBA: LeagueConfig = {
   },
   hasMarkets: true,
   projectsWindowDays: 1,
+  projectsLock: true,
 };
 
 // ── MLB ─────────────────────────────────────────────────────────────────────────
@@ -203,6 +208,7 @@ const MLB: LeagueConfig = {
   },
   hasMarkets: true,
   projectsWindowDays: null,
+  projectsLock: false,
 };
 
 // ── NHL ─────────────────────────────────────────────────────────────────────────
@@ -287,6 +293,7 @@ const NHL: LeagueConfig = {
   },
   hasMarkets: false,
   projectsWindowDays: null,
+  projectsLock: false,
 };
 
 // ── NFL ─────────────────────────────────────────────────────────────────────────
@@ -413,6 +420,7 @@ const NFL: LeagueConfig = {
   },
   hasMarkets: false,
   projectsWindowDays: 7,
+  projectsLock: false,
 };
 
 export const LEAGUES: Record<LeagueSlug, LeagueConfig> = { nba: NBA, mlb: MLB, nfl: NFL, nhl: NHL };

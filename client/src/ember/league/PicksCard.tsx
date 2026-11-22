@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import ModuleCard from '@/ember/components/ModuleCard'
 import CardRecord from '@/ember/components/CardRecord'
@@ -7,11 +7,12 @@ import PlayerAvatar from '@/ember/components/PlayerAvatar'
 import TeamLogo from '@/ember/components/TeamLogo'
 import { useEntityData } from '@/ember/useEntityData'
 import { createLeagueApi, type GradedStraight, type ProjectPick, type ProjectsResponse } from '@/services/api'
+import { YesterdayDropdown, WinLoss } from '@/ember/components/YesterdayResults'
+import { formatUnits } from '@/ember/data/results'
 import { formatGameDate, formatGameTime } from '@/ember/game/format'
 import { gamePath, playerPath } from '@/lib/paths'
 import { teamAccent } from '@/lib/teamBrand'
-import { ImpliedOddsNote, ResultMark } from '@/ember/components/PropVisuals'
-import { PickWhy, WhyToggle } from '@/ember/components/PickWhy'
+import { ImpliedOddsNote } from '@/ember/components/PropVisuals'
 
 const pct = (v: number) => `${(v * 100).toFixed(1)}%`
 
@@ -50,33 +51,28 @@ function Matchup({ league, game }: { league: string; game: ProjectPick['game'] }
   )
 }
 
-const COLS = 'grid-cols-[40px_1fr_60px_60px_52px]'
-
-/** HIT − IMPLIED in percentage points, from the two numbers the row shows. */
-function Edge({ pick }: { pick: ProjectPick }) {
-  const pts = Math.round((pick.model_prob - pick.implied_prob) * 1000) / 10
-  const color = pts > 0 ? '#3FBF7F' : pts < 0 ? '#FF6B5C' : '#A8A09C'
+/** STARTED / FINAL / VOID, for a pick whose game has tipped or that no longer counts. */
+function PhaseTag({ pick }: { pick: ProjectPick }) {
+  const label = pick.void ? `VOID · ${pick.void.toUpperCase()}` : pick.status === 'started' ? 'STARTED' : pick.status === 'final' ? 'FINAL' : null
+  if (!label) return null
   return (
     <span
-      className="font-martian font-bold text-[14px] text-right tabular-nums"
-      style={{ color }}
-      title={pts < 0 ? 'Model rates this below the Kalshi price' : 'Model rates this above the Kalshi price'}
+      className={`font-martian font-bold text-[10px] tracking-[0.5px] rounded-[3px] px-[5px] py-[1px] shrink-0 ${
+        pick.void ? 'text-[#A8A09C] border border-[#3A3330]' : 'text-[#14100F] bg-[#FF6B3D]'
+      }`}
     >
-      {pts > 0 ? '+' : ''}
-      {pts.toFixed(1)}
+      {label}
     </span>
   )
 }
 
 function Row({ league, pick }: { league: string; pick: ProjectPick }) {
   const when = [formatGameDate(pick.game.date), formatGameTime(pick.game.time)].filter(Boolean).join(' · ')
-  const to = pick.kind === 'prop' ? playerPath(league, pick.entity_id, { stat: pick.stat_label, line: pick.line, window: 10 }) : gamePath(league, pick.game.id)
-  const [open, setOpen] = useState(false)
+  const to = pick.kind === 'prop' ? playerPath(league, pick.entity_id) : gamePath(league, pick.game.id)
   return (
-    <div className="border-t border-[#221D1A]">
     <Link
       to={to}
-      className={`grid ${COLS} gap-[10px] items-center px-[18px] py-[10px] hover:bg-[#211C1A] transition-colors`}
+      className="grid grid-cols-[40px_1fr_60px_60px] gap-[10px] items-center px-[18px] py-[10px] border-t border-[#221D1A] hover:bg-[#211C1A]"
     >
       {pick.kind === 'prop' ? (
         <PlayerAvatar league={league} extId={pick.ext_id} name={pick.name} accent={teamAccent(league, pick.team ?? '')} size={36} />
@@ -88,7 +84,7 @@ function Row({ league, pick }: { league: string; pick: ProjectPick }) {
           {pick.kind === 'prop' && pick.team && <TeamLogo league={league} abbr={pick.team} size={14} />}
           <span className="truncate">{pick.name}</span>
           <span className="font-martian font-normal text-[11px] text-[#FF6B3D] tracking-[0.5px] shrink-0">{describe(pick)}</span>
-          <span className="shrink-0 font-normal"><WhyToggle open={open} onToggle={() => setOpen(!open)} /></span>
+          <PhaseTag pick={pick} />
         </div>
         <div className="font-martian text-[11px] text-[#C9C2BE] tracking-[0.5px] mt-[3px] truncate">{reason(pick)}</div>
         <div className="font-martian text-[11px] text-[#8A827E] tracking-[0.5px] mt-[2px] truncate flex items-center gap-[6px]">
@@ -96,58 +92,125 @@ function Row({ league, pick }: { league: string; pick: ProjectPick }) {
           <span>· {when}</span>
         </div>
       </div>
-      <span className="font-martian font-bold text-[15px] text-[#EFEBE9] text-right tabular-nums">{pct(pick.model_prob)}</span>
-      <span className="font-martian text-[14px] text-[#C9C2BE] text-right tabular-nums">{pct(pick.implied_prob)}</span>
-      <Edge pick={pick} />
+      <span className="font-martian font-bold text-[13px] text-[#EFEBE9] text-right tabular-nums">{pct(pick.model_prob)}</span>
+      <span className="font-martian text-[12px] text-[#C9C2BE] text-right tabular-nums">{pct(pick.implied_prob)}</span>
     </Link>
-    {open && <PickWhy pick={pick} />}
-    </div>
   )
 }
 
-const help = 'cursor-help underline decoration-dotted decoration-[#4A4340] underline-offset-[3px]'
-
-function Section({ label, hint, children }: { label: string; hint: string; children: React.ReactNode }) {
+function Section({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <div className={`grid ${COLS} gap-[10px] px-[18px] py-2 font-martian text-[10px] text-[#8A827E] tracking-[1px]`}>
-        <span className="col-span-2"><span className={help} title={hint}>{label}</span></span>
-        <span className="text-right"><span className={help} title="Model's chance this pick lands">HIT</span></span>
-        <span className="text-right"><span className={help} title="Kalshi price read as a chance (62¢ = 62%)">IMPLIED</span></span>
-        <span className="text-right"><span className={help} title="HIT − IMPLIED in % points. Green: model above market. Red: below.">EDGE</span></span>
+      <div className="grid grid-cols-[40px_1fr_60px_60px] gap-[10px] px-[18px] py-2 font-martian text-[10px] text-[#8A827E] tracking-[1px]">
+        <span className="col-span-2">{label}</span>
+        <span className="text-right">HIT</span>
+        <span className="text-right">IMPLIED</span>
       </div>
       {children}
     </div>
   )
 }
 
-const units = (u: number) => `${u >= 0 ? '+' : ''}${u.toFixed(2)}u`
-
-/** One graded pick from the last slate: who, what was picked, the result, what it paid, W/L. */
-function GradedRow({ league, r }: { league: string; r: GradedStraight }) {
-  const to = r.kind === 'prop' ? playerPath(league, r.entity_id, { stat: r.stat_label, line: r.line, window: 10 }) : gamePath(league, r.entity_id)
-  const what = r.kind === 'moneyline' ? 'TO WIN' : `${r.side === 'under' ? 'UNDER' : 'OVER'} ${r.line} ${r.stat_label}`
+/** Yesterday's graded straights: what was picked, the result, and what it paid. */
+function YesterdayPicks({ league, data }: { league: string; data: NonNullable<ProjectsResponse['yesterday']> }) {
+  const { w, l, units } = data.record
   return (
-    <Link to={to} className="grid grid-cols-[28px_1fr_auto_44px_56px_30px] gap-3 items-center px-[18px] py-[8px] border-t border-[#221D1A] hover:bg-[#211C1A] transition-colors">
+    <YesterdayDropdown
+      label="YESTERDAY'S PICKS"
+      summary={
+        <>
+          {w}-{l}
+          <span className={units >= 0 ? 'text-[#3FBF7F]' : 'text-[#FF6B5C]'}>{formatUnits(units)}</span>
+        </>
+      }
+    >
+      {data.rows.map((r) => (
+        <GradedRow key={r.id} league={league} r={r} />
+      ))}
+    </YesterdayDropdown>
+  )
+}
+
+function GradedRow({ league, r }: { league: string; r: GradedStraight }) {
+  const to = r.kind === 'prop' ? playerPath(league, r.entity_id) : gamePath(league, r.entity_id)
+  const what = r.kind === 'moneyline' ? 'TO WIN' : `${r.side === 'under' ? 'U' : 'O'} ${r.line} ${r.stat_label}`
+  return (
+    <Link to={to} className="flex items-center gap-3 px-[18px] py-[8px] border-t border-[#221D1A] hover:bg-[#211C1A]">
       {r.kind === 'prop' ? (
         <PlayerAvatar league={league} extId={r.ext_id} name={r.name} accent={teamAccent(league, r.team ?? '')} size={26} />
       ) : (
         <TeamLogo league={league} abbr={r.team ?? ''} size={26} />
       )}
-      <span className="min-w-0 font-schibsted font-bold text-[14px] text-[#EFEBE9] truncate">{r.name}</span>
-      <span className="font-martian text-[11px] text-[#FF6B3D] tracking-[0.5px] whitespace-nowrap">{what}</span>
-      <span className="font-martian text-[14px] font-bold text-[#EFEBE9] tabular-nums text-right" title="Actual result">
-        {r.kind === 'prop' ? r.actual ?? '—' : ''}
+      <span className="min-w-0 flex-1 font-schibsted text-[13px] text-[#EFEBE9] truncate">{r.name}</span>
+      <span className="font-martian text-[11px] text-[#C9C2BE] tabular-nums whitespace-nowrap">{what}</span>
+      <span className="font-martian text-[11px] text-[#C9C2BE] tabular-nums w-[34px] text-right">
+        {r.kind === 'prop' ? r.actual : ''}
       </span>
       <span
-        className="font-martian text-[13px] font-bold tabular-nums text-right"
-        style={{ color: r.units >= 0 ? '#3FBF7F' : '#FF6B5C' }}
-        title={r.price != null ? `1u at ${Math.round(r.price * 100)}¢` : undefined}
+        className={`font-martian text-[11px] tabular-nums w-[48px] text-right ${r.units >= 0 ? 'text-[#3FBF7F]' : 'text-[#FF6B5C]'}`}
       >
-        {units(r.units)}
+        {formatUnits(r.units)}
       </span>
-      <ResultMark hit={r.did_hit} actual={r.actual ?? undefined} />
+      <WinLoss hit={r.did_hit} />
     </Link>
+  )
+}
+
+const clock = (iso: string) =>
+  new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' })
+
+/** When the card stops changing, or that it already has. */
+function LockLine({ card }: { card: NonNullable<ProjectsResponse['card']> }) {
+  if (!card.locks_at) return null
+  return (
+    <div className="px-[18px] py-2 border-b border-[#221D1A] font-martian text-[10px] tracking-[1px] text-[#A8A09C]">
+      {card.locked ? (
+        <span>
+          <span className="text-[#EFEBE9] font-bold">CARD FINAL</span> · LOCKED {clock(card.locks_at)} ET, AN HOUR BEFORE THE
+          FIRST TIP
+        </span>
+      ) : (
+        <span>
+          UPDATES UNTIL <span className="text-[#EFEBE9] font-bold">{clock(card.locks_at)} ET</span> · FINAL AN HOUR BEFORE
+          THE FIRST TIP
+        </span>
+      )}
+    </div>
+  )
+}
+
+/** Every swap made on today's card, with when and why. */
+function Changes({ changes }: { changes: NonNullable<ProjectsResponse['card']>['changes'] }) {
+  if (changes.length === 0) return null
+  const ins = changes.filter((c) => c.kind === 'in').length
+  return (
+    <YesterdayDropdown
+      label="CHANGES TODAY"
+      summary={
+        <>
+          {changes.length}
+          <span className="font-normal text-[#A8A09C]">
+            <span className="text-[#3FBF7F]">{ins} IN</span> · <span className="text-[#FF6B5C]">{changes.length - ins} OUT</span>
+          </span>
+        </>
+      }
+    >
+      {changes.map((c) => (
+        <div
+          key={`${c.kind}-${c.pick.id}-${c.at}`}
+          className="grid grid-cols-[64px_34px_1fr] gap-[10px] items-baseline px-[18px] py-[6px] border-t border-[#221D1A] font-martian text-[11px]"
+        >
+          <span className="text-[#8A827E] tabular-nums">{clock(c.at)}</span>
+          <span className={`font-bold ${c.kind === 'out' ? 'text-[#FF6B5C]' : 'text-[#3FBF7F]'}`}>
+            {c.kind === 'out' ? 'OUT' : 'IN'}
+          </span>
+          <span className="min-w-0 text-[#C9C2BE]">
+            <span className="font-schibsted font-bold text-[13px] text-[#EFEBE9]">{c.pick.name}</span> {describe(c.pick)}
+            {c.reason && <span className="text-[#A8A09C]"> — {c.reason}</span>}
+          </span>
+        </div>
+      ))}
+    </YesterdayDropdown>
   )
 }
 
@@ -162,82 +225,47 @@ export default function PicksCard({ league, className = '' }: { league: 'nba' | 
     body = <EmptyState compact label="LOADING PICKS…" />
   } else if (error || !data) {
     body = <EmptyState compact label={`PICKS UNAVAILABLE${error ? `: ${error}` : ''}`} />
-  } else if (data.upcoming_games === 0) {
+  } else if (data.upcoming_games === 0 && data.props.length === 0 && !data.moneyline) {
     body = <EmptyState compact label="NO UPCOMING GAMES ON THE SLATE" />
   } else {
     body = (
       <>
-        <Section
-          label={`BEST WINNER · ${band(data.bands.moneyline)}`}
-          hint={`The favourite the model rates most likely to win, among those it gives a ${band(data.bands.moneyline)} chance`}
-        >
+        {data.card && <LockLine card={data.card} />}
+        <Section label={`BEST WINNER · ${band(data.bands.moneyline)}`}>
           {data.moneyline ? (
             <Row league={league} pick={data.moneyline} />
           ) : (
             <EmptyState compact label="NO FAVORITE IN THE BAND ON THE SLATE" />
           )}
         </Section>
-        <Section
-          label={`BEST PLAYER PROPS · ${band(data.bands.prop)}`}
-          hint={`Player lines the model gives a ${band(data.bands.prop)} chance of landing`}
-        >
+        <Section label={`BEST PLAYER PROPS · ${band(data.bands.prop)}`}>
           {data.props.length > 0 ? (
             data.props.map((p) => <Row key={p.id} league={league} pick={p} />)
           ) : (
             <EmptyState compact label="NO PRICED PROPS ON THE SLATE YET" />
           )}
         </Section>
-        {/* Swaps only happen before each game starts, so this is the card's final pre-game state. */}
-        <details className="border-t border-[#221D1A] group">
-          <summary className="cursor-pointer select-none flex items-center gap-2 px-[18px] py-[10px] font-martian text-[10px] text-[#8A827E] tracking-[1px] hover:text-[#EFEBE9]">
-            <span>CHANGES TODAY ({data.changes?.length ?? 0})</span>
-            <span className="ml-auto text-[#FF6B3D] group-open:hidden">SHOW</span>
-            <span className="ml-auto text-[#FF6B3D] hidden group-open:inline">HIDE</span>
-          </summary>
-          <div className="px-[18px] pb-[8px] font-martian text-[10px] text-[#8A827E]">
-            Picks added to or dropped from the card before their game started. Only the card at game start is graded.
-          </div>
-          {(data.changes ?? []).length === 0 && <EmptyState compact label="NO SWAPS YET TODAY" />}
-          {(data.changes ?? []).map((c) => (
-            <div key={`${c.id}-${c.at}`} className="flex items-center gap-3 px-[18px] py-[8px] border-t border-[#221D1A]">
-              <span className="font-martian text-[10px] text-[#8A827E] tabular-nums w-[58px] shrink-0">{formatGameTime(c.at)}</span>
-              <span
-                className="font-martian font-bold text-[10px] tracking-[1px] w-[64px] shrink-0"
-                style={{ color: c.change === 'added' ? '#3FBF7F' : '#FF6B5C' }}
-              >
-                {c.change === 'added' ? 'ADDED' : 'REMOVED'}
-              </span>
-              <span className="font-martian text-[12px] text-[#EFEBE9] truncate">
-                {c.name} <span className="text-[#FF6B3D]">{describe(c)}</span>
-              </span>
-            </div>
-          ))}
-        </details>
-        {data.yesterday && data.yesterday.rows.length > 0 && (
-          // The last graded slate: the card's own receipts, one click away.
+        {data.changes && data.changes.length > 0 && (
           <details className="border-t border-[#221D1A] group">
-            <summary className="cursor-pointer select-none flex items-center gap-2 px-[18px] py-[10px] font-martian text-[10px] text-[#8A827E] tracking-[1px] hover:text-[#EFEBE9]">
-              <span>{`YESTERDAY'S PICKS · ${formatGameDate(data.yesterday.date)}`}</span>
-              <span className="font-bold text-[12px] text-[#EFEBE9] tabular-nums">
-                {`${data.yesterday.record.w}-${data.yesterday.record.l}`}
-              </span>
-              <span
-                className="font-bold text-[12px] tabular-nums"
-                style={{ color: data.yesterday.record.units >= 0 ? '#3FBF7F' : '#FF6B5C' }}
-              >
-                {units(data.yesterday.record.units)}
-              </span>
-              <span className="ml-auto text-[#FF6B3D] group-open:hidden">SHOW</span>
-              <span className="ml-auto text-[#FF6B3D] hidden group-open:inline">HIDE</span>
+            <summary className="cursor-pointer select-none px-[18px] py-[10px] font-martian text-[10px] text-[#8A827E] tracking-[1px] hover:text-[#EFEBE9]">
+              CHANGES TODAY ({data.changes.length})
             </summary>
-            <div className="animate-fade-up">
-              {data.yesterday.rows.map((r) => (
-                <GradedRow key={r.id} league={league} r={r} />
-              ))}
-            </div>
+            {data.changes.map((c) => (
+              <div key={`${c.id}-${c.at}`} className="flex items-center gap-3 px-[18px] py-[8px] border-t border-[#221D1A]">
+                <span
+                  className="font-martian font-bold text-[10px] tracking-[1px] w-[64px] shrink-0"
+                  style={{ color: c.change === 'added' ? '#3FBF7F' : '#FF6B5C' }}
+                >
+                  {c.change === 'added' ? 'ADDED' : 'REMOVED'}
+                </span>
+                <span className="font-martian text-[12px] text-[#EFEBE9] truncate">
+                  {c.name} <span className="text-[#FF6B3D]">{describe(c)}</span>
+                </span>
+              </div>
+            ))}
           </details>
         )}
-        <ImpliedOddsNote model />
+        <ImpliedOddsNote />
       </>
     )
   }
@@ -245,15 +273,14 @@ export default function PicksCard({ league, className = '' }: { league: 'nba' | 
   return (
     <ModuleCard
       title="PICKS"
-      headerRight={<CardRecord
-          meta="STRAIGHTS · PRICED BY KALSHI"
-          record={data?.record}
-          label="RECORD"
-          title="Every pick on the card at game start, graded. Units: 1u flat per straight at its Kalshi price."
-        />}
+      headerRight={
+        <CardRecord meta="STRAIGHTS · PRICED BY KALSHI" label="ALL-TIME" record={data?.record} units={data?.record.units} />
+      }
       className={className}
     >
       {body}
+      {data?.card && <Changes changes={data.card.changes} />}
+      {data?.yesterday && <YesterdayPicks league={league} data={data.yesterday} />}
     </ModuleCard>
   )
 }

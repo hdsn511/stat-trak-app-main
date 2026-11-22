@@ -81,7 +81,8 @@ function PropRow({ league, p, why }: { league: string; p: ProjectPick; why?: Why
 /**
  * The Projects picks for this game: the model's winner and its best player
  * props, each tagged with its team. Comes from GET /{league}/projects, which
- * covers only upcoming games inside the league's projects window.
+ * covers the league's projects window. NBA picks are final an hour before tip and
+ * stay visible once the game starts.
  */
 export default function BestProps({ league, game, supported, windowLabel, why }: {
   why?: WhyContext
@@ -155,7 +156,7 @@ export default function BestProps({ league, game, supported, windowLabel, why }:
   return (
     <ModuleCard title="BEST PROPS" meta="MODEL VS KALSHI PRICE">
       {body}
-      <ImpliedOddsNote model />
+      <ImpliedOddsNote />
     </ModuleCard>
   )
 }

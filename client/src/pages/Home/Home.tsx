@@ -142,7 +142,7 @@ export default function Home() {
               type="button"
               onClick={() => setLeagueFilter(l)}
               aria-pressed={leagueFilter === l}
-              className={`font-martian font-bold text-[11px] tracking-[1px] rounded px-[10px] py-[5px] border cursor-pointer press ${
+              className={`font-martian font-bold text-[11px] tracking-[1px] rounded px-[10px] py-[5px] border cursor-pointer ${
                 leagueFilter === l
                   ? 'text-[#14100F] bg-[#FF6B3D] border-[#FF6B3D]'
                   : 'text-[#C9C2BE] border-[#2C2624] hover:border-[#665F5D]'
@@ -153,15 +153,18 @@ export default function Home() {
           ))}
         </div>
 
-        <div className="grid gap-5 xl:grid-cols-2 items-stretch">
+        {/* Equal columns, stretched: the two cards line up row for row. */}
+        <div className="grid gap-[14px] xl:grid-cols-2 items-stretch">
           <TrendingPlayers
             rows={trendingShown}
+            className="h-full"
             meta={`${leagueFilter === 'all' ? 'IN-SEASON SPORTS' : leagueFilter.toUpperCase()} · BARS: RECENT FORM VS SEASON`}
             showLeague
             emptyLabel={loading ? 'LOADING TRENDS…' : 'NO TRENDS AVAILABLE RIGHT NOW'}
           />
           <StreakWatch
             rows={streakRows}
+            className="h-full"
             meta={`${leagueFilter === 'all' ? 'IN-SEASON SPORTS' : leagueFilter.toUpperCase()} · BARS: LAST 10 GAMES VS LINE`}
             showLeague
             emptyLabel={loading ? 'LOADING STREAKS…' : 'NO ACTIVE STREAKS RIGHT NOW'}
